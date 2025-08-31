@@ -6,348 +6,368 @@
 
 #define WINDOW_WIDTH 1200
 #define WINDOW_HEIGHT 800
-#define MAX_ALGAE 25
-#define MAX_SEGMENTS_PER_ALGAE 300
-#define CONNECTION_THRESHOLD 12.0f
+#define PIXEL_SIZE 4              // Size of each "pixel" cell on screen
+#define GRID_WIDTH (WINDOW_WIDTH / PIXEL_SIZE)
+#define GRID_HEIGHT (WINDOW_HEIGHT / PIXEL_SIZE)
+
+// Pixel states
+#define EMPTY 0
+#define ALGAE 1
+#define DEAD_ALGAE 2
+#define NUTRIENT 3
+
+// Growth parameters
+#define MAX_AGE 100
+#define NUTRIENT_SPAWN_RATE 0.001f
+#define GROWTH_RATE 0.3f
+#define DEATH_AGE 80
 
 typedef struct {
     float x, y;
-    float angle;
-    float length;
-    float thickness;
-    int parent_index;
-    int age;
-} Segment;
+} Point;
 
 typedef struct {
-    float center_x, center_y;
-    Segment segments[MAX_SEGMENTS_PER_ALGAE];
-    int segment_count;
-    float chaos_factor; // Controls growth randomness
-    float density; // Growth frequency
-    Uint8 r, g, b;
-    float maturity;
-    int active;
-    int connected_to[MAX_ALGAE];
-    int connection_count;
-} Algae;
+    int state;          // EMPTY, ALGAE, DEAD_ALGAE, NUTRIENT
+    int age;           // How long this pixel has been alive
+    float energy;      // Energy level for growth
+    int generation;    // Distance from original seed
+} Pixel;
 
 typedef struct {
-    Algae algae[MAX_ALGAE];
-    int algae_count;
+    Pixel grid[GRID_HEIGHT][GRID_WIDTH];
+    Pixel next_grid[GRID_HEIGHT][GRID_WIDTH];  // For simultaneous updates
     SDL_Renderer* renderer;
     int running;
+    float global_timer;
+    int frame_count;
+    Point mouse_pos;
+    int mouse_pressed;
 } Simulation;
 
-float distance(float x1, float y1, float x2, float y2) {
-    return sqrt((x2 - x1) * (x2 - x1) + (y2 - y1) * (y2 - y1));
-}
-
-void init_algae(Algae* alga) {
-    alga->center_x = (float)(rand() % (WINDOW_WIDTH - 300) + 150);
-    alga->center_y = (float)(rand() % (WINDOW_HEIGHT - 300) + 150);
-    alga->segment_count = 0;
-    alga->chaos_factor = 0.3f + (rand() % 100) / 100.0f;
-    alga->density = 0.5f + (rand() % 100) / 200.0f;
-    alga->maturity = 0.0f;
-    alga->active = 1;
-    alga->connection_count = 0;
-    
-    // Random green color variations
-    int color_type = rand() % 6;
-    switch(color_type) {
-        case 0: // Dark green
-            alga->r = 15 + rand() % 40;
-            alga->g = 60 + rand() % 60;
-            alga->b = 25 + rand() % 30;
-            break;
-        case 1: // Light green
-            alga->r = 50 + rand() % 40;
-            alga->g = 100 + rand() % 80;
-            alga->b = 30 + rand() % 40;
-            break;
-        case 2: // Yellow-green
-            alga->r = 70 + rand() % 50;
-            alga->g = 130 + rand() % 60;
-            alga->b = 15 + rand() % 30;
-            break;
-        case 3: // Blue-green
-            alga->r = 10 + rand() % 30;
-            alga->g = 80 + rand() % 50;
-            alga->b = 60 + rand() % 40;
-            break;
-        case 4: // Olive green
-            alga->r = 60 + rand() % 40;
-            alga->g = 80 + rand() % 50;
-            alga->b = 20 + rand() % 25;
-            break;
-        default: // Dark blue-green
-            alga->r = 20 + rand() % 25;
-            alga->g = 70 + rand() % 40;
-            alga->b = 50 + rand() % 35;
-            break;
-    }
-    
-    for (int i = 0; i < MAX_ALGAE; i++) {
-        alga->connected_to[i] = -1;
-    }
-    
-    // Start with 1-2 random segments from center
-    int initial_count = 1 + rand() % 2;
-    for (int i = 0; i < initial_count; i++) {
-        alga->segments[alga->segment_count].x = alga->center_x;
-        alga->segments[alga->segment_count].y = alga->center_y;
-        alga->segments[alga->segment_count].angle = (rand() % 360) * M_PI / 180.0f;
-        alga->segments[alga->segment_count].length = 8.0f + (rand() % 15);
-        alga->segments[alga->segment_count].thickness = 2.5f + (rand() % 4);
-        alga->segments[alga->segment_count].parent_index = -1;
-        alga->segments[alga->segment_count].age = 0;
-        alga->segment_count++;
-    }
-}
-
-void add_segment(Algae* alga, int parent_index) {
-    if (alga->segment_count >= MAX_SEGMENTS_PER_ALGAE) return;
-    
-    Segment* parent = &alga->segments[parent_index];
-    Segment* new_segment = &alga->segments[alga->segment_count];
-    
-    float parent_end_x = parent->x + cos(parent->angle) * parent->length;
-    float parent_end_y = parent->y + sin(parent->angle) * parent->length;
-    
-    // Don't grow too far from center
-    float dist_from_center = distance(parent_end_x, parent_end_y, alga->center_x, alga->center_y);
-    if (dist_from_center > 120.0f + rand() % 80) return;
-    
-    new_segment->x = parent_end_x;
-    new_segment->y = parent_end_y;
-    new_segment->parent_index = parent_index;
-    new_segment->age = 0;
-    
-    // High chaos in angle - up to ±70 degrees
-    float chaos_angle = (rand() % 140 - 70) * alga->chaos_factor * M_PI / 180.0f;
-    new_segment->angle = parent->angle + chaos_angle;
-    
-    // Random length with high variation
-    new_segment->length = 5.0f + (rand() % 20);
-    
-    // Chaotic thickness changes
-    float thickness_chaos = 0.6f + (rand() % 80) / 100.0f;
-    new_segment->thickness = parent->thickness * thickness_chaos;
-    if (new_segment->thickness > 6.0f) new_segment->thickness = 6.0f;
-    if (new_segment->thickness < 0.5f) new_segment->thickness = 0.5f;
-    
-    alga->segment_count++;
-}
-
-void check_connections(Simulation* sim, int alga_index) {
-    Algae* alga = &sim->algae[alga_index];
-    
-    for (int i = 0; i < sim->algae_count; i++) {
-        if (i == alga_index) continue;
-        
-        Algae* other = &sim->algae[i];
-        if (!other->active) continue;
-        
-        // Check if already connected
-        int already_connected = 0;
-        for (int c = 0; c < alga->connection_count; c++) {
-            if (alga->connected_to[c] == i) {
-                already_connected = 1;
-                break;
-            }
-        }
-        if (already_connected) continue;
-        
-        // Find closest segments
-        float min_dist = CONNECTION_THRESHOLD + 1;
-        
-        for (int s1 = 0; s1 < alga->segment_count; s1++) {
-            float seg1_end_x = alga->segments[s1].x + cos(alga->segments[s1].angle) * alga->segments[s1].length;
-            float seg1_end_y = alga->segments[s1].y + sin(alga->segments[s1].angle) * alga->segments[s1].length;
+// Initialize empty simulation
+void init_simulation(Simulation* sim) {
+    for (int y = 0; y < GRID_HEIGHT; y++) {
+        for (int x = 0; x < GRID_WIDTH; x++) {
+            sim->grid[y][x].state = EMPTY;
+            sim->grid[y][x].age = 0;
+            sim->grid[y][x].energy = 0;
+            sim->grid[y][x].generation = 0;
             
-            for (int s2 = 0; s2 < other->segment_count; s2++) {
-                float seg2_end_x = other->segments[s2].x + cos(other->segments[s2].angle) * other->segments[s2].length;
-                float seg2_end_y = other->segments[s2].y + sin(other->segments[s2].angle) * other->segments[s2].length;
-                
-                float dist = distance(seg1_end_x, seg1_end_y, seg2_end_x, seg2_end_y);
-                
-                if (dist < min_dist) {
-                    min_dist = dist;
+            sim->next_grid[y][x] = sim->grid[y][x];
+        }
+    }
+}
+
+// Plant initial algae seed
+void plant_algae_seed(Simulation* sim, int x, int y) {
+    if (x >= 0 && x < GRID_WIDTH && y >= 0 && y < GRID_HEIGHT) {
+        sim->grid[y][x].state = ALGAE;
+        sim->grid[y][x].age = 0;
+        sim->grid[y][x].energy = 100.0f;
+        sim->grid[y][x].generation = 0;
+    }
+}
+
+// Spawn random nutrients
+void spawn_nutrients(Simulation* sim) {
+    if ((rand() % 1000) / 1000.0f < NUTRIENT_SPAWN_RATE) {
+        int x = rand() % GRID_WIDTH;
+        int y = rand() % GRID_HEIGHT;
+        
+        if (sim->grid[y][x].state == EMPTY) {
+            sim->grid[y][x].state = NUTRIENT;
+            sim->grid[y][x].energy = 20.0f;
+        }
+    }
+}
+
+// Count neighbors of specific type
+int count_neighbors(Simulation* sim, int x, int y, int state_type) {
+    int count = 0;
+    
+    for (int dy = -1; dy <= 1; dy++) {
+        for (int dx = -1; dx <= 1; dx++) {
+            if (dx == 0 && dy == 0) continue; // Skip self
+            
+            int nx = x + dx;
+            int ny = y + dy;
+            
+            if (nx >= 0 && nx < GRID_WIDTH && ny >= 0 && ny < GRID_HEIGHT) {
+                if (sim->grid[ny][nx].state == state_type) {
+                    count++;
                 }
             }
         }
-        
-        // Create connection if close enough
-        if (min_dist <= CONNECTION_THRESHOLD && alga->connection_count < MAX_ALGAE) {
-            alga->connected_to[alga->connection_count] = i;
-            alga->connection_count++;
-            
-            if (other->connection_count < MAX_ALGAE) {
-                other->connected_to[other->connection_count] = alga_index;
-                other->connection_count++;
-            }
-        }
     }
+    
+    return count;
 }
 
-void update_algae(Algae* alga) {
-    if (!alga->active) return;
+// Get average generation of algae neighbors
+float get_neighbor_generation(Simulation* sim, int x, int y) {
+    float total_gen = 0;
+    int algae_count = 0;
     
-    alga->maturity += 0.0005f;
-    
-    // Age all segments
-    for (int i = 0; i < alga->segment_count; i++) {
-        alga->segments[i].age++;
-    }
-    
-    // Multiple chaotic growth attempts per update
-    int growth_attempts = 1 + (rand() % 4);
-    
-    for (int attempt = 0; attempt < growth_attempts; attempt++) {
-        float growth_chance = 0.15f + alga->density * 0.3f - alga->maturity * 0.8f;
-        if (growth_chance < 0.05f) growth_chance = 0.05f;
-        
-        if ((rand() % 1000) / 1000.0f < growth_chance) {
-            // Pick completely random segment
-            if (alga->segment_count > 0) {
-                int growth_point = rand() % alga->segment_count;
-                
-                // Prefer younger segments but not exclusively
-                if (rand() % 100 < 60) {
-                    int young_segments[MAX_SEGMENTS_PER_ALGAE];
-                    int young_count = 0;
-                    int max_age_threshold = 50 + rand() % 100;
-                    
-                    for (int i = 0; i < alga->segment_count; i++) {
-                        if (alga->segments[i].age < max_age_threshold) {
-                            young_segments[young_count] = i;
-                            young_count++;
-                        }
-                    }
-                    
-                    if (young_count > 0) {
-                        growth_point = young_segments[rand() % young_count];
-                    }
+    for (int dy = -1; dy <= 1; dy++) {
+        for (int dx = -1; dx <= 1; dx++) {
+            if (dx == 0 && dy == 0) continue;
+            
+            int nx = x + dx;
+            int ny = y + dy;
+            
+            if (nx >= 0 && nx < GRID_WIDTH && ny >= 0 && ny < GRID_HEIGHT) {
+                if (sim->grid[ny][nx].state == ALGAE) {
+                    total_gen += sim->grid[ny][nx].generation;
+                    algae_count++;
                 }
-                
-                add_segment(alga, growth_point);
-            }
-        }
-        
-        // Spontaneous new branches from center
-        if ((rand() % 2000) == 0) {
-            if (alga->segment_count < MAX_SEGMENTS_PER_ALGAE) {
-                alga->segments[alga->segment_count].x = alga->center_x + (rand() % 10 - 5);
-                alga->segments[alga->segment_count].y = alga->center_y + (rand() % 10 - 5);
-                alga->segments[alga->segment_count].angle = (rand() % 360) * M_PI / 180.0f;
-                alga->segments[alga->segment_count].length = 6.0f + (rand() % 18);
-                alga->segments[alga->segment_count].thickness = 1.5f + (rand() % 4);
-                alga->segments[alga->segment_count].parent_index = -1;
-                alga->segments[alga->segment_count].age = 0;
-                alga->segment_count++;
             }
         }
     }
+    
+    return algae_count > 0 ? total_gen / algae_count : 0;
 }
 
-void draw_connections(SDL_Renderer* renderer, Simulation* sim) {
-    for (int i = 0; i < sim->algae_count; i++) {
-        Algae* alga = &sim->algae[i];
-        if (!alga->active) continue;
-        
-        for (int c = 0; c < alga->connection_count; c++) {
-            int other_index = alga->connected_to[c];
-            if (other_index < 0 || other_index >= sim->algae_count) continue;
-            if (other_index <= i) continue; // Avoid duplicate lines
+// Absorb nearby nutrients
+float absorb_nutrients(Simulation* sim, int x, int y) {
+    float absorbed = 0;
+    
+    for (int dy = -2; dy <= 2; dy++) {
+        for (int dx = -2; dx <= 2; dx++) {
+            int nx = x + dx;
+            int ny = y + dy;
             
-            Algae* other = &sim->algae[other_index];
-            if (!other->active) continue;
-            
-            // Find closest points
-            float min_dist = 1000.0f;
-            float best_x1, best_y1, best_x2, best_y2;
-            
-            for (int s1 = 0; s1 < alga->segment_count; s1++) {
-                float x1 = alga->segments[s1].x + cos(alga->segments[s1].angle) * alga->segments[s1].length;
-                float y1 = alga->segments[s1].y + sin(alga->segments[s1].angle) * alga->segments[s1].length;
-                
-                for (int s2 = 0; s2 < other->segment_count; s2++) {
-                    float x2 = other->segments[s2].x + cos(other->segments[s2].angle) * other->segments[s2].length;
-                    float y2 = other->segments[s2].y + sin(other->segments[s2].angle) * other->segments[s2].length;
+            if (nx >= 0 && nx < GRID_WIDTH && ny >= 0 && ny < GRID_HEIGHT) {
+                if (sim->grid[ny][nx].state == NUTRIENT) {
+                    float distance = sqrt(dx*dx + dy*dy);
+                    float absorption = sim->grid[ny][nx].energy / (distance + 1);
+                    absorbed += absorption;
                     
-                    float dist = distance(x1, y1, x2, y2);
-                    if (dist < min_dist) {
-                        min_dist = dist;
-                        best_x1 = x1; best_y1 = y1;
-                        best_x2 = x2; best_y2 = y2;
+                    sim->grid[ny][nx].energy -= absorption;
+                    if (sim->grid[ny][nx].energy <= 0) {
+                        sim->grid[ny][nx].state = EMPTY;
+                        sim->grid[ny][nx].energy = 0;
                     }
                 }
             }
-            
-            SDL_SetRenderDrawColor(renderer, 
-                                 (alga->r + other->r) / 3, 
-                                 (alga->g + other->g) / 3, 
-                                 (alga->b + other->b) / 3, 255);
-            SDL_RenderDrawLine(renderer, (int)best_x1, (int)best_y1, (int)best_x2, (int)best_y2);
         }
     }
+    
+    return absorbed;
 }
 
-void draw_algae(SDL_Renderer* renderer, Algae* alga) {
-    if (!alga->active) return;
+// Update a single pixel according to algae growth rules
+void update_pixel(Simulation* sim, int x, int y) {
+    Pixel* current = &sim->grid[y][x];
+    Pixel* next = &sim->next_grid[y][x];
     
-    SDL_SetRenderDrawColor(renderer, alga->r, alga->g, alga->b, 255);
+    // Copy current state as default
+    *next = *current;
     
-    for (int i = 0; i < alga->segment_count; i++) {
-        Segment* segment = &alga->segments[i];
-        
-        float end_x = segment->x + cos(segment->angle) * segment->length;
-        float end_y = segment->y + sin(segment->angle) * segment->length;
-        
-        // Variable thickness with slight organic variation
-        int thickness = (int)(segment->thickness * (1.0f + sin(segment->age * 0.1f) * 0.1f));
-        if (thickness < 1) thickness = 1;
-        
-        // Draw thick lines by drawing multiple offset lines
-        for (int t = -thickness/2; t <= thickness/2; t++) {
-            for (int s = -thickness/2; s <= thickness/2; s++) {
-                SDL_RenderDrawLine(renderer, 
-                                 (int)(segment->x + t), (int)(segment->y + s), 
-                                 (int)(end_x + t), (int)(end_y + s));
+    switch (current->state) {
+        case EMPTY:
+            {
+                int algae_neighbors = count_neighbors(sim, x, y, ALGAE);
+                int nutrient_neighbors = count_neighbors(sim, x, y, NUTRIENT);
+                
+                // Growth conditions: 2-3 algae neighbors + nutrients available
+                if (algae_neighbors >= 2 && algae_neighbors <= 3 && nutrient_neighbors > 0) {
+                    if ((rand() % 1000) / 1000.0f < GROWTH_RATE) {
+                        next->state = ALGAE;
+                        next->age = 0;
+                        next->energy = 50.0f;
+                        next->generation = (int)(get_neighbor_generation(sim, x, y) + 1);
+                        
+                        // Consume some nearby nutrients
+                        absorb_nutrients(sim, x, y);
+                    }
+                }
             }
-        }
-        
-        // Add organic details randomly
-        if (thickness > 2 && (rand() % 8) == 0) {
-            SDL_SetRenderDrawColor(renderer, alga->r + 15, alga->g + 15, alga->b + 10, 255);
-            SDL_RenderDrawPoint(renderer, (int)end_x + (rand() % 3 - 1), (int)end_y + (rand() % 3 - 1));
-            SDL_SetRenderDrawColor(renderer, alga->r, alga->g, alga->b, 255);
-        }
+            break;
+            
+        case ALGAE:
+            {
+                next->age = current->age + 1;
+                
+                // Absorb nutrients to maintain energy
+                next->energy = current->energy + absorb_nutrients(sim, x, y) - 1.0f; // Base metabolism
+                
+                // Overcrowding death
+                int algae_neighbors = count_neighbors(sim, x, y, ALGAE);
+                if (algae_neighbors > 5) {
+                    next->energy -= 5.0f; // Stress from overcrowding
+                }
+                
+                // Age-based death
+                if (current->age > DEATH_AGE || next->energy <= 0) {
+                    next->state = DEAD_ALGAE;
+                    next->energy = 30.0f; // Decomposing algae provides some energy
+                    next->age = 0;
+                }
+                
+                // Energy cap
+                if (next->energy > 100.0f) {
+                    next->energy = 100.0f;
+                }
+            }
+            break;
+            
+        case DEAD_ALGAE:
+            {
+                next->age = current->age + 1;
+                next->energy = current->energy - 1.0f; // Decomposition
+                
+                // Decomposed completely
+                if (next->energy <= 0 || current->age > 20) {
+                    next->state = EMPTY;
+                    next->age = 0;
+                    next->energy = 0;
+                    next->generation = 0;
+                }
+            }
+            break;
+            
+        case NUTRIENT:
+            {
+                next->age = current->age + 1;
+                next->energy = current->energy - 0.5f; // Nutrients decay slowly
+                
+                // Nutrient depleted
+                if (next->energy <= 0 || current->age > 50) {
+                    next->state = EMPTY;
+                    next->age = 0;
+                    next->energy = 0;
+                    next->generation = 0;
+                }
+            }
+            break;
     }
 }
 
+// Update entire simulation
 void update_simulation(Simulation* sim) {
-    for (int i = 0; i < sim->algae_count; i++) {
-        update_algae(&sim->algae[i]);
-        check_connections(sim, i);
+    sim->global_timer += 1.0f;
+    sim->frame_count++;
+    
+    // Spawn nutrients periodically
+    if (sim->frame_count % 10 == 0) { // Every 10 frames
+        for (int i = 0; i < 5; i++) { // Spawn multiple nutrients
+            spawn_nutrients(sim);
+        }
     }
     
-    // Add new algae randomly
-    if (sim->algae_count < MAX_ALGAE && (rand() % 1500) == 0) {
-        init_algae(&sim->algae[sim->algae_count]);
-        sim->algae_count++;
+    // Update all pixels simultaneously (cellular automaton style)
+    for (int y = 0; y < GRID_HEIGHT; y++) {
+        for (int x = 0; x < GRID_WIDTH; x++) {
+            update_pixel(sim, x, y);
+        }
+    }
+    
+    // Copy next_grid to current grid
+    for (int y = 0; y < GRID_HEIGHT; y++) {
+        for (int x = 0; x < GRID_WIDTH; x++) {
+            sim->grid[y][x] = sim->next_grid[y][x];
+        }
     }
 }
 
+// Get color for pixel based on state and properties
+SDL_Color get_pixel_color(Pixel* pixel) {
+    SDL_Color color = {0, 0, 0, 255}; // Default black
+    
+    switch (pixel->state) {
+        case EMPTY:
+            color.r = 5; color.g = 5; color.b = 15; // Dark space
+            break;
+            
+        case ALGAE:
+            {
+                // Color based on age and energy
+                float age_factor = 1.0f - (pixel->age / (float)MAX_AGE);
+                float energy_factor = pixel->energy / 100.0f;
+                
+                color.r = (Uint8)(30 + pixel->generation * 10); // More red with generation
+                color.g = (Uint8)(80 + energy_factor * 100);    // Brighter green with more energy
+                color.b = (Uint8)(20 + age_factor * 40);        // More blue when young
+                
+                // Clamp values
+                if (color.r > 255) color.r = 255;
+                if (color.g > 255) color.g = 255;
+                if (color.b > 255) color.b = 255;
+            }
+            break;
+            
+        case DEAD_ALGAE:
+            {
+                float decay = pixel->energy / 30.0f;
+                color.r = (Uint8)(60 * decay);
+                color.g = (Uint8)(40 * decay);
+                color.b = (Uint8)(20 * decay);
+            }
+            break;
+            
+        case NUTRIENT:
+            {
+                float intensity = pixel->energy / 20.0f;
+                color.r = (Uint8)(100 * intensity);
+                color.g = (Uint8)(100 * intensity);
+                color.b = (Uint8)(200 * intensity); // Bluish nutrients
+            }
+            break;
+    }
+    
+    return color;
+}
+
+// Render the simulation
 void render_simulation(Simulation* sim) {
-    SDL_SetRenderDrawColor(sim->renderer, 0, 0, 0, 255);
+    // Clear screen
+    SDL_SetRenderDrawColor(sim->renderer, 2, 2, 8, 255);
     SDL_RenderClear(sim->renderer);
     
-    draw_connections(sim->renderer, sim);
+    // Draw each pixel
+    for (int y = 0; y < GRID_HEIGHT; y++) {
+        for (int x = 0; x < GRID_WIDTH; x++) {
+            Pixel* pixel = &sim->grid[y][x];
+            
+            if (pixel->state != EMPTY) {
+                SDL_Color color = get_pixel_color(pixel);
+                SDL_SetRenderDrawColor(sim->renderer, color.r, color.g, color.b, 255);
+                
+                SDL_Rect rect = {
+                    x * PIXEL_SIZE,
+                    y * PIXEL_SIZE,
+                    PIXEL_SIZE,
+                    PIXEL_SIZE
+                };
+                SDL_RenderFillRect(sim->renderer, &rect);
+            }
+        }
+    }
     
-    for (int i = 0; i < sim->algae_count; i++) {
-        draw_algae(sim->renderer, &sim->algae[i]);
+    // Draw statistics
+    SDL_SetRenderDrawColor(sim->renderer, 100, 150, 200, 255);
+    
+    // Count different pixel types
+    int algae_count = 0, nutrient_count = 0, dead_count = 0;
+    for (int y = 0; y < GRID_HEIGHT; y++) {
+        for (int x = 0; x < GRID_WIDTH; x++) {
+            switch (sim->grid[y][x].state) {
+                case ALGAE: algae_count++; break;
+                case NUTRIENT: nutrient_count++; break;
+                case DEAD_ALGAE: dead_count++; break;
+            }
+        }
+    }
+    
+    // Simple visual stats (dots)
+    for (int i = 0; i < algae_count / 10 && i < 100; i++) {
+        SDL_RenderDrawPoint(sim->renderer, 10 + i, 10); // Algae count
+    }
+    for (int i = 0; i < nutrient_count / 5 && i < 100; i++) {
+        SDL_RenderDrawPoint(sim->renderer, 10 + i, 15); // Nutrient count
+    }
+    for (int i = 0; i < dead_count / 5 && i < 100; i++) {
+        SDL_RenderDrawPoint(sim->renderer, 10 + i, 20); // Dead count
     }
     
     SDL_RenderPresent(sim->renderer);
@@ -360,32 +380,60 @@ void handle_events(Simulation* sim) {
             case SDL_QUIT:
                 sim->running = 0;
                 break;
-            case SDL_KEYDOWN:
-                if (event.key.keysym.sym == SDLK_SPACE) {
-                    if (sim->algae_count < MAX_ALGAE) {
-                        init_algae(&sim->algae[sim->algae_count]);
-                        sim->algae_count++;
-                    }
-                } else if (event.key.keysym.sym == SDLK_r) {
-                    sim->algae_count = 0;
-                } else if (event.key.keysym.sym == SDLK_ESCAPE) {
-                    sim->running = 0;
-                }
-                break;
+                
             case SDL_MOUSEBUTTONDOWN:
                 if (event.button.button == SDL_BUTTON_LEFT) {
-                    if (sim->algae_count < MAX_ALGAE) {
-                        Algae* new_alga = &sim->algae[sim->algae_count];
-                        init_algae(new_alga);
-                        new_alga->center_x = (float)event.button.x;
-                        new_alga->center_y = (float)event.button.y;
-                        // Update first segment position
-                        if (new_alga->segment_count > 0) {
-                            new_alga->segments[0].x = new_alga->center_x;
-                            new_alga->segments[0].y = new_alga->center_y;
+                    sim->mouse_pressed = 1;
+                    sim->mouse_pos.x = event.button.x;
+                    sim->mouse_pos.y = event.button.y;
+                    
+                    // Plant algae at mouse position
+                    int grid_x = event.button.x / PIXEL_SIZE;
+                    int grid_y = event.button.y / PIXEL_SIZE;
+                    plant_algae_seed(sim, grid_x, grid_y);
+                } else if (event.button.button == SDL_BUTTON_RIGHT) {
+                    // Spawn nutrients at mouse position
+                    int grid_x = event.button.x / PIXEL_SIZE;
+                    int grid_y = event.button.y / PIXEL_SIZE;
+                    
+                    for (int dy = -2; dy <= 2; dy++) {
+                        for (int dx = -2; dx <= 2; dx++) {
+                            int nx = grid_x + dx;
+                            int ny = grid_y + dy;
+                            if (nx >= 0 && nx < GRID_WIDTH && ny >= 0 && ny < GRID_HEIGHT) {
+                                if (sim->grid[ny][nx].state == EMPTY && (rand() % 100) < 30) {
+                                    sim->grid[ny][nx].state = NUTRIENT;
+                                    sim->grid[ny][nx].energy = 20.0f;
+                                }
+                            }
                         }
-                        sim->algae_count++;
                     }
+                }
+                break;
+                
+            case SDL_MOUSEBUTTONUP:
+                if (event.button.button == SDL_BUTTON_LEFT) {
+                    sim->mouse_pressed = 0;
+                }
+                break;
+                
+            case SDL_MOUSEMOTION:
+                if (sim->mouse_pressed) {
+                    // Continuous planting while dragging
+                    int grid_x = event.motion.x / PIXEL_SIZE;
+                    int grid_y = event.motion.y / PIXEL_SIZE;
+                    plant_algae_seed(sim, grid_x, grid_y);
+                }
+                break;
+                
+            case SDL_KEYDOWN:
+                if (event.key.keysym.sym == SDLK_r) {
+                    // Reset simulation
+                    init_simulation(sim);
+                    printf("Simulation reset\n");
+                } else if (event.key.keysym.sym == SDLK_SPACE) {
+                    // Plant algae in center
+                    plant_algae_seed(sim, GRID_WIDTH/2, GRID_HEIGHT/2);
                 }
                 break;
         }
@@ -400,7 +448,7 @@ int main(int argc, char* argv[]) {
         return 1;
     }
     
-    SDL_Window* window = SDL_CreateWindow("Chaotic Algae Growth Simulation",
+    SDL_Window* window = SDL_CreateWindow("Pixelbasierte Algen-Wachstumssimulation",
                                         SDL_WINDOWPOS_CENTERED,
                                         SDL_WINDOWPOS_CENTERED,
                                         WINDOW_WIDTH, WINDOW_HEIGHT,
@@ -422,27 +470,42 @@ int main(int argc, char* argv[]) {
     Simulation sim = {0};
     sim.renderer = renderer;
     sim.running = 1;
-    sim.algae_count = 0;
+    sim.global_timer = 0.0f;
+    sim.frame_count = 0;
+    sim.mouse_pressed = 0;
     
-    // Start with 2-3 algae
-    for (int i = 0; i < 2 + rand() % 2; i++) {
-        init_algae(&sim.algae[sim.algae_count]);
-        sim.algae_count++;
+    init_simulation(&sim);
+    
+    printf("Pixelbasierte Algen-Wachstumssimulation\n");
+    printf("Grid: %dx%d Pixel (jeweils %dx%d Bildschirmpixel)\n", GRID_WIDTH, GRID_HEIGHT, PIXEL_SIZE, PIXEL_SIZE);
+    printf("\nWachstumsregeln:\n");
+    printf("- Algen brauchen 2-3 Nachbarn + Nährstoffe zum Wachsen\n");
+    printf("- Überbevölkerung (>5 Nachbarn) führt zu Stress\n");
+    printf("- Algen altern und sterben, werden zu Kompost\n");
+    printf("- Nährstoffe spawnen zufällig und werden verbraucht\n");
+    printf("\nSteuerung:\n");
+    printf("- Linksklick/Drag: Algen pflanzen\n");
+    printf("- Rechtsklick: Nährstoffe hinzufügen\n");
+    printf("- SPACE: Alge im Zentrum pflanzen\n");
+    printf("- R: Simulation zurücksetzen\n");
+    printf("\nFarben:\n");
+    printf("- Grün: Lebende Algen (heller = mehr Energie)\n");
+    printf("- Braun: Tote/verwesende Algen\n");
+    printf("- Blau: Nährstoffe\n");
+    
+    // Plant initial algae seed
+    plant_algae_seed(&sim, GRID_WIDTH/2, GRID_HEIGHT/2);
+    
+    // Add some initial nutrients
+    for (int i = 0; i < 20; i++) {
+        spawn_nutrients(&sim);
     }
-    
-    printf("Chaotic Algae Growth Simulation started!\n");
-    printf("Controls:\n");
-    printf("- SPACE: Add new algae\n");
-    printf("- Left click: Plant algae at mouse position\n");
-    printf("- R: Reset simulation\n");
-    printf("- ESC: Exit\n");
     
     while (sim.running) {
         handle_events(&sim);
         update_simulation(&sim);
         render_simulation(&sim);
-        
-        SDL_Delay(60);
+        SDL_Delay(100); // Slower update for better observation
     }
     
     SDL_DestroyRenderer(renderer);

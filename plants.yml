@@ -1,0 +1,44 @@
+algae:
+  growth_rate: 0.35
+  min_neighbors: 2
+  max_neighbors: 3
+  death_age: 400
+  max_energy: 500
+  base_metabolism: 0
+  max_crowding: 5
+  crowding_stress: 1
+  nutrient_absorption_radius: 2
+  base_color:
+    r: 20
+    g: 150
+    b: 30
+
+reed:
+  growth_rate: 0.25
+  min_neighbors: 2
+  max_neighbors: 4
+  death_age: 500
+  max_energy: 750
+  base_metabolism: 0
+  max_crowding: 6
+  crowding_stress: 1
+  nutrient_absorption_radius: 3
+  base_color:
+    r: 100
+    g: 180
+    b: 60
+
+waterlily:
+  growth_rate: 0.2
+  min_neighbors: 1
+  max_neighbors: 2
+  death_age: 600
+  max_energy: 1000
+  base_metabolism: 0
+  max_crowding: 4
+  crowding_stress: 1
+  nutrient_absorption_radius: 3
+  base_color:
+    r: 200
+    g: 100
+    b: 150

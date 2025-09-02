@@ -4,108 +4,252 @@
 #include <stdlib.h>
 #include <time.h>
 
+// Core constants
 #define WINDOW_WIDTH 1200
 #define WINDOW_HEIGHT 800
-#define MAX_NODES 500
-#define MAX_CHAINS 1000
+#define MAX_NODES 10000000
+#define MAX_CHAINS 10000000
+
+// Physics parameters
 #define OPTIMAL_DISTANCE 50.0f
 #define REPULSION_FORCE 0.05f
 #define CHAIN_FORCE 0.05f
 #define WATER_DRAG 0.95f
+
+// Rendering parameters
 #define NODE_RADIUS 5
+#define CHAIN_THICKNESS 3
+
+// Camera parameters
 #define CAMERA_SPEED 5.0f
 #define ZOOM_SPEED 0.1f
 #define MIN_ZOOM 0.1f
 #define MAX_ZOOM 5.0f
-#define CHAIN_THICKNESS 3
-#define GROWTH_PROBABILITY 0.002f
-#define GROWTH_ATTEMPTS 3
+
+// Growth parameters
+#define GROWTH_PROBABILITY 0.02f
+#define GROWTH_ATTEMPTS 5
+
+// World configuration
+#define WORLD_WIDTH 15000.0f
+#define WORLD_HEIGHT 15000.0f
+#define WORLD_CENTER_X 0.0f
+#define WORLD_CENTER_Y 0.0f
+
+// Derived world bounds
+#define WORLD_LEFT (WORLD_CENTER_X - WORLD_WIDTH / 2.0f)
+#define WORLD_RIGHT (WORLD_CENTER_X + WORLD_WIDTH / 2.0f)
+#define WORLD_TOP (WORLD_CENTER_Y - WORLD_HEIGHT / 2.0f)
+#define WORLD_BOTTOM (WORLD_CENTER_Y + WORLD_HEIGHT / 2.0f)
+
+// Spatial optimization
+#define GRID_SIZE 40.0f
+#define MAX_NODES_PER_CELL 200
+
 #define M_PI 3.14159265358979323846
 
+// Node structure
 typedef struct {
-    float x, y;
-    float vx, vy;
-    int active;
-    int can_grow;
+    float x, y;       // Position
+    float vx, vy;     // Velocity
+    int active;       // Active flag
+    int can_grow;     // Growth capability flag
 } Node;
 
+// Chain structure connecting two nodes
 typedef struct {
     int node1, node2;
     int active;
 } Chain;
 
+// Camera for viewport control
 typedef struct {
-    float x, y;
-    float zoom;
+    float x, y;       // World position
+    float zoom;       // Zoom level
 } Camera;
 
+// Spatial grid cell for optimization
 typedef struct {
-    Node nodes[MAX_NODES];
-    Chain chains[MAX_CHAINS];
-    int node_count;
-    int chain_count;
-    int selected_node;
-    int selection_mode;
-    Camera camera;
-    int keys[4];
-} Simulation;
+    int node_indices[MAX_NODES_PER_CELL];
+    int count;
+} GridCell;
 
-Simulation sim = {0};
+// Global simulation state
+static Node* g_nodes = NULL;
+static Chain* g_chains = NULL;
+static GridCell* g_grid = NULL;
+static int g_grid_width = 0;
+static int g_grid_height = 0;
 
-void init_simulation() {
-    sim.node_count = 0;
-    sim.chain_count = 0;
-    sim.selected_node = -1;
-    sim.selection_mode = 0;
+static int g_node_count = 0;
+static int g_chain_count = 0;
+static int g_selected_node = -1;
+static int g_selection_mode = 0;
+static Camera g_camera = {0};
+static int g_keys[4] = {0};
+static int g_frame_counter = 0;
+
+// Grid access with bounds checking
+static GridCell* get_grid_cell(int grid_x, int grid_y) {
+    if (grid_x < 0 || grid_x >= g_grid_width || 
+        grid_y < 0 || grid_y >= g_grid_height) {
+        return NULL;
+    }
+    return &g_grid[grid_y * g_grid_width + grid_x];
+}
+
+// Convert world coordinates to grid coordinates
+static void world_to_grid(float world_x, float world_y, int* grid_x, int* grid_y) {
+    *grid_x = (int)floor((world_x - WORLD_LEFT) / GRID_SIZE);
+    *grid_y = (int)floor((world_y - WORLD_TOP) / GRID_SIZE);
+}
+
+// Initialize simulation
+static void init_simulation(void) {
+    // Allocate main arrays
+    g_nodes = (Node*)calloc(MAX_NODES, sizeof(Node));
+    g_chains = (Chain*)calloc(MAX_CHAINS, sizeof(Chain));
     
-    sim.camera.x = WINDOW_WIDTH / 2.0f;
-    sim.camera.y = WINDOW_HEIGHT / 2.0f;
-    sim.camera.zoom = 1.0f;
+    if (!g_nodes || !g_chains) {
+        printf("Failed to allocate memory for simulation\n");
+        exit(1);
+    }
     
+    // Calculate and allocate spatial grid
+    g_grid_width = (int)ceil(WORLD_WIDTH / GRID_SIZE);
+    g_grid_height = (int)ceil(WORLD_HEIGHT / GRID_SIZE);
+    g_grid = (GridCell*)calloc(g_grid_width * g_grid_height, sizeof(GridCell));
+    
+    if (!g_grid) {
+        printf("Failed to allocate spatial grid\n");
+        exit(1);
+    }
+    
+    // Initialize state
+    g_node_count = 0;
+    g_chain_count = 0;
+    g_selected_node = -1;
+    g_selection_mode = 0;
+    g_frame_counter = 0;
+    
+    // Initialize camera at center
+    g_camera.x = WINDOW_WIDTH / 2.0f;
+    g_camera.y = WINDOW_HEIGHT / 2.0f;
+    g_camera.zoom = 1.0f;
+    
+    // Clear key states
     for (int i = 0; i < 4; i++) {
-        sim.keys[i] = 0;
+        g_keys[i] = 0;
+    }
+    
+    printf("Simulation initialized: Grid %dx%d, World %.0fx%.0f\n", 
+           g_grid_width, g_grid_height, WORLD_WIDTH, WORLD_HEIGHT);
+}
+
+// Clean up simulation resources
+static void cleanup_simulation(void) {
+    if (g_nodes) {
+        free(g_nodes);
+        g_nodes = NULL;
+    }
+    if (g_chains) {
+        free(g_chains);
+        g_chains = NULL;
+    }
+    if (g_grid) {
+        free(g_grid);
+        g_grid = NULL;
     }
 }
 
-void screen_to_world(int screen_x, int screen_y, float* world_x, float* world_y) {
-    *world_x = (screen_x - WINDOW_WIDTH / 2.0f) / sim.camera.zoom + sim.camera.x;
-    *world_y = (screen_y - WINDOW_HEIGHT / 2.0f) / sim.camera.zoom + sim.camera.y;
-}
-
-void world_to_screen(float world_x, float world_y, int* screen_x, int* screen_y) {
-    *screen_x = (int)((world_x - sim.camera.x) * sim.camera.zoom + WINDOW_WIDTH / 2.0f);
-    *screen_y = (int)((world_y - sim.camera.y) * sim.camera.zoom + WINDOW_HEIGHT / 2.0f);
-}
-
-void update_camera() {
-    float move_speed = CAMERA_SPEED / sim.camera.zoom;
+// Clear spatial grid
+static void clear_grid(void) {
+    if (!g_grid) return;
     
-    if (sim.keys[0]) sim.camera.y -= move_speed; // W
-    if (sim.keys[1]) sim.camera.x -= move_speed; // A
-    if (sim.keys[2]) sim.camera.y += move_speed; // S
-    if (sim.keys[3]) sim.camera.x += move_speed; // D
+    int total_cells = g_grid_width * g_grid_height;
+    for (int i = 0; i < total_cells; i++) {
+        g_grid[i].count = 0;
+    }
 }
 
-void zoom_camera(float zoom_delta, int mouse_x, int mouse_y) {
+// Add node to spatial grid
+static void add_node_to_grid(int node_index) {
+    if (node_index < 0 || node_index >= g_node_count) return;
+    if (!g_nodes[node_index].active) return;
+    
+    int grid_x, grid_y;
+    world_to_grid(g_nodes[node_index].x, g_nodes[node_index].y, &grid_x, &grid_y);
+    
+    GridCell* cell = get_grid_cell(grid_x, grid_y);
+    if (cell && cell->count < MAX_NODES_PER_CELL) {
+        cell->node_indices[cell->count++] = node_index;
+    }
+}
+
+// Rebuild spatial grid from current node positions
+static void rebuild_grid(void) {
+    clear_grid();
+    for (int i = 0; i < g_node_count; i++) {
+        if (g_nodes[i].active) {
+            add_node_to_grid(i);
+        }
+    }
+}
+
+// Convert screen coordinates to world coordinates
+static void screen_to_world(int screen_x, int screen_y, float* world_x, float* world_y) {
+    *world_x = (screen_x - WINDOW_WIDTH / 2.0f) / g_camera.zoom + g_camera.x;
+    *world_y = (screen_y - WINDOW_HEIGHT / 2.0f) / g_camera.zoom + g_camera.y;
+}
+
+// Convert world coordinates to screen coordinates
+static void world_to_screen(float world_x, float world_y, int* screen_x, int* screen_y) {
+    *screen_x = (int)((world_x - g_camera.x) * g_camera.zoom + WINDOW_WIDTH / 2.0f);
+    *screen_y = (int)((world_y - g_camera.y) * g_camera.zoom + WINDOW_HEIGHT / 2.0f);
+}
+
+// Update camera position based on key input
+static void update_camera(void) {
+    float move_speed = CAMERA_SPEED / g_camera.zoom;
+    
+    if (g_keys[0]) g_camera.y -= move_speed; // W
+    if (g_keys[1]) g_camera.x -= move_speed; // A
+    if (g_keys[2]) g_camera.y += move_speed; // S
+    if (g_keys[3]) g_camera.x += move_speed; // D
+}
+
+// Zoom camera at mouse position
+static void zoom_camera(float zoom_delta, int mouse_x, int mouse_y) {
+    // Get world position before zoom
     float world_x_before, world_y_before;
     screen_to_world(mouse_x, mouse_y, &world_x_before, &world_y_before);
     
-    sim.camera.zoom *= (1.0f + zoom_delta);
+    // Apply zoom with limits
+    g_camera.zoom *= (1.0f + zoom_delta);
+    if (g_camera.zoom < MIN_ZOOM) g_camera.zoom = MIN_ZOOM;
+    if (g_camera.zoom > MAX_ZOOM) g_camera.zoom = MAX_ZOOM;
     
-    if (sim.camera.zoom < MIN_ZOOM) sim.camera.zoom = MIN_ZOOM;
-    if (sim.camera.zoom > MAX_ZOOM) sim.camera.zoom = MAX_ZOOM;
-    
+    // Adjust camera to keep world position under mouse cursor
     float world_x_after, world_y_after;
     screen_to_world(mouse_x, mouse_y, &world_x_after, &world_y_after);
-    
-    sim.camera.x += world_x_before - world_x_after;
-    sim.camera.y += world_y_before - world_y_after;
+    g_camera.x += world_x_before - world_x_after;
+    g_camera.y += world_y_before - world_y_after;
 }
 
-int add_node(float x, float y) {
-    if (sim.node_count >= MAX_NODES) return -1;
+// Create new node at position
+static int add_node(float x, float y) {
+    if (g_node_count >= MAX_NODES) {
+        printf("Maximum nodes reached\n");
+        return -1;
+    }
     
-    Node* node = &sim.nodes[sim.node_count];
+    // Clamp to world bounds
+    if (x < WORLD_LEFT) x = WORLD_LEFT;
+    if (x > WORLD_RIGHT) x = WORLD_RIGHT;
+    if (y < WORLD_TOP) y = WORLD_TOP;
+    if (y > WORLD_BOTTOM) y = WORLD_BOTTOM;
+    
+    Node* node = &g_nodes[g_node_count];
     node->x = x;
     node->y = y;
     node->vx = 0;
@@ -113,77 +257,97 @@ int add_node(float x, float y) {
     node->active = 1;
     node->can_grow = 1;
     
-    return sim.node_count++;
+    return g_node_count++;
 }
 
-int add_chain(int node1, int node2) {
-    if (sim.chain_count >= MAX_CHAINS) return -1;
+// Create chain between two nodes
+static int add_chain(int node1, int node2) {
+    if (g_chain_count >= MAX_CHAINS) {
+        printf("Maximum chains reached\n");
+        return -1;
+    }
     if (node1 == node2) return -1;
+    if (node1 < 0 || node1 >= g_node_count) return -1;
+    if (node2 < 0 || node2 >= g_node_count) return -1;
     
-    for (int i = 0; i < sim.chain_count; i++) {
-        if (!sim.chains[i].active) continue;
-        if ((sim.chains[i].node1 == node1 && sim.chains[i].node2 == node2) ||
-            (sim.chains[i].node1 == node2 && sim.chains[i].node2 == node1)) {
+    // Check for duplicate chains in recent history
+    int check_count = (g_chain_count > 1000) ? 1000 : g_chain_count;
+    for (int i = g_chain_count - check_count; i < g_chain_count; i++) {
+        if (i < 0) continue;
+        if (!g_chains[i].active) continue;
+        if ((g_chains[i].node1 == node1 && g_chains[i].node2 == node2) ||
+            (g_chains[i].node1 == node2 && g_chains[i].node2 == node1)) {
             return -1;
         }
     }
     
-    Chain* chain = &sim.chains[sim.chain_count];
+    Chain* chain = &g_chains[g_chain_count];
     chain->node1 = node1;
     chain->node2 = node2;
     chain->active = 1;
     
-    return sim.chain_count++;
+    return g_chain_count++;
 }
 
-int find_node_at_position(float world_x, float world_y) {
-    for (int i = 0; i < sim.node_count; i++) {
-        if (!sim.nodes[i].active) continue;
-        
-        float dx = sim.nodes[i].x - world_x;
-        float dy = sim.nodes[i].y - world_y;
-        float distance = sqrt(dx * dx + dy * dy);
-        
-        if (distance <= NODE_RADIUS * 2 / sim.camera.zoom) {
-            return i;
-        }
-    }
-    return -1;
-}
-
-int is_position_free(float x, float y, float min_distance) {
-    for (int i = 0; i < sim.node_count; i++) {
-        if (!sim.nodes[i].active) continue;
-        
-        float dx = sim.nodes[i].x - x;
-        float dy = sim.nodes[i].y - y;
-        float distance = sqrt(dx * dx + dy * dy);
-        
-        if (distance < min_distance) {
-            return 0;
+// Check if position is free of nearby nodes
+static int is_position_free(float x, float y, float min_distance) {
+    int grid_x, grid_y;
+    world_to_grid(x, y, &grid_x, &grid_y);
+    
+    float min_dist_sq = min_distance * min_distance;
+    int search_radius = (int)(min_distance / GRID_SIZE) + 1;
+    
+    for (int gx = grid_x - search_radius; gx <= grid_x + search_radius; gx++) {
+        for (int gy = grid_y - search_radius; gy <= grid_y + search_radius; gy++) {
+            GridCell* cell = get_grid_cell(gx, gy);
+            if (!cell) continue;
+            
+            for (int k = 0; k < cell->count; k++) {
+                int i = cell->node_indices[k];
+                if (i < 0 || i >= g_node_count) continue;
+                if (!g_nodes[i].active) continue;
+                
+                float dx = g_nodes[i].x - x;
+                float dy = g_nodes[i].y - y;
+                float distance_sq = dx * dx + dy * dy;
+                
+                if (distance_sq < min_dist_sq) {
+                    return 0;
+                }
+            }
         }
     }
     return 1;
 }
 
-void grow_plants() {
-    int current_node_count = sim.node_count;
+// Plant growth system
+static void grow_plants(void) {
+    if (g_frame_counter % 3 != 0) return;
     
-    for (int i = 0; i < current_node_count; i++) {
-        if (!sim.nodes[i].active || !sim.nodes[i].can_grow) continue;
+    int current_node_count = g_node_count;
+    int growth_limit = 50;
+    int grown = 0;
+    
+    for (int i = 0; i < current_node_count && grown < growth_limit; i++) {
+        if (!g_nodes[i].active || !g_nodes[i].can_grow) continue;
         
         if ((float)rand() / RAND_MAX < GROWTH_PROBABILITY) {
             for (int attempt = 0; attempt < GROWTH_ATTEMPTS; attempt++) {
                 float angle = ((float)rand() / RAND_MAX) * 2.0f * M_PI;
+                float new_x = g_nodes[i].x + cos(angle) * OPTIMAL_DISTANCE;
+                float new_y = g_nodes[i].y + sin(angle) * OPTIMAL_DISTANCE;
                 
-                float new_x = sim.nodes[i].x + cos(angle) * OPTIMAL_DISTANCE;
-                float new_y = sim.nodes[i].y + sin(angle) * OPTIMAL_DISTANCE;
+                // Check world bounds
+                if (new_x < WORLD_LEFT || new_x > WORLD_RIGHT ||
+                    new_y < WORLD_TOP || new_y > WORLD_BOTTOM) {
+                    continue;
+                }
                 
                 if (is_position_free(new_x, new_y, OPTIMAL_DISTANCE * 0.8f)) {
                     int new_node = add_node(new_x, new_y);
                     if (new_node >= 0) {
                         add_chain(i, new_node);
-                        printf("Plant growth: Node %d grew new node %d\n", i, new_node);
+                        grown++;
                         break;
                     }
                 }
@@ -192,42 +356,95 @@ void grow_plants() {
     }
 }
 
-void apply_repulsion_forces() {
-    for (int i = 0; i < sim.node_count; i++) {
-        if (!sim.nodes[i].active) continue;
-        
-        for (int j = i + 1; j < sim.node_count; j++) {
-            if (!sim.nodes[j].active) continue;
+// Apply repulsion forces between nearby nodes
+static void apply_repulsion_forces(void) {
+    float optimal_sq = OPTIMAL_DISTANCE * OPTIMAL_DISTANCE;
+    
+    for (int gx = 0; gx < g_grid_width; gx++) {
+        for (int gy = 0; gy < g_grid_height; gy++) {
+            GridCell* cell = get_grid_cell(gx, gy);
+            if (!cell) continue;
             
-            float dx = sim.nodes[j].x - sim.nodes[i].x;
-            float dy = sim.nodes[j].y - sim.nodes[i].y;
-            float distance = sqrt(dx * dx + dy * dy);
+            // Check pairs within same cell
+            for (int a = 0; a < cell->count; a++) {
+                for (int b = a + 1; b < cell->count; b++) {
+                    int i = cell->node_indices[a];
+                    int j = cell->node_indices[b];
+                    
+                    if (i < 0 || i >= g_node_count || j < 0 || j >= g_node_count) continue;
+                    if (!g_nodes[i].active || !g_nodes[j].active) continue;
+                    
+                    float dx = g_nodes[j].x - g_nodes[i].x;
+                    float dy = g_nodes[j].y - g_nodes[i].y;
+                    float distance_sq = dx * dx + dy * dy;
+                    
+                    if (distance_sq < optimal_sq && distance_sq > 0) {
+                        float distance = sqrt(distance_sq);
+                        float force_magnitude = REPULSION_FORCE * (OPTIMAL_DISTANCE - distance) / distance;
+                        float fx = -dx * force_magnitude;
+                        float fy = -dy * force_magnitude;
+                        
+                        g_nodes[i].vx += fx;
+                        g_nodes[i].vy += fy;
+                        g_nodes[j].vx -= fx;
+                        g_nodes[j].vy -= fy;
+                    }
+                }
+            }
             
-            if (distance < OPTIMAL_DISTANCE && distance > 0) {
-                float force_magnitude = REPULSION_FORCE * (OPTIMAL_DISTANCE - distance) / distance;
-                float fx = -dx * force_magnitude;
-                float fy = -dy * force_magnitude;
-                
-                sim.nodes[i].vx += fx;
-                sim.nodes[i].vy += fy;
-                sim.nodes[j].vx -= fx;
-                sim.nodes[j].vy -= fy;
+            // Check pairs with adjacent cells
+            for (int dgx = -1; dgx <= 1; dgx++) {
+                for (int dgy = -1; dgy <= 1; dgy++) {
+                    if (dgx == 0 && dgy == 0) continue;
+                    if (dgx < 0 || (dgx == 0 && dgy < 0)) continue;
+                    
+                    GridCell* adj_cell = get_grid_cell(gx + dgx, gy + dgy);
+                    if (!adj_cell) continue;
+                    
+                    for (int a = 0; a < cell->count; a++) {
+                        for (int b = 0; b < adj_cell->count; b++) {
+                            int i = cell->node_indices[a];
+                            int j = adj_cell->node_indices[b];
+                            
+                            if (i < 0 || i >= g_node_count || j < 0 || j >= g_node_count) continue;
+                            if (!g_nodes[i].active || !g_nodes[j].active) continue;
+                            
+                            float dx = g_nodes[j].x - g_nodes[i].x;
+                            float dy = g_nodes[j].y - g_nodes[i].y;
+                            float distance_sq = dx * dx + dy * dy;
+                            
+                            if (distance_sq < optimal_sq && distance_sq > 0) {
+                                float distance = sqrt(distance_sq);
+                                float force_magnitude = REPULSION_FORCE * (OPTIMAL_DISTANCE - distance) / distance;
+                                float fx = -dx * force_magnitude;
+                                float fy = -dy * force_magnitude;
+                                
+                                g_nodes[i].vx += fx;
+                                g_nodes[i].vy += fy;
+                                g_nodes[j].vx -= fx;
+                                g_nodes[j].vy -= fy;
+                            }
+                        }
+                    }
+                }
             }
         }
     }
 }
 
-void apply_chain_forces() {
-    for (int i = 0; i < sim.chain_count; i++) {
-        if (!sim.chains[i].active) continue;
+// Apply spring forces along chains
+static void apply_chain_forces(void) {
+    for (int i = 0; i < g_chain_count; i++) {
+        if (!g_chains[i].active) continue;
         
-        int n1 = sim.chains[i].node1;
-        int n2 = sim.chains[i].node2;
+        int n1 = g_chains[i].node1;
+        int n2 = g_chains[i].node2;
         
-        if (!sim.nodes[n1].active || !sim.nodes[n2].active) continue;
+        if (n1 < 0 || n1 >= g_node_count || n2 < 0 || n2 >= g_node_count) continue;
+        if (!g_nodes[n1].active || !g_nodes[n2].active) continue;
         
-        float dx = sim.nodes[n2].x - sim.nodes[n1].x;
-        float dy = sim.nodes[n2].y - sim.nodes[n1].y;
+        float dx = g_nodes[n2].x - g_nodes[n1].x;
+        float dy = g_nodes[n2].y - g_nodes[n1].y;
         float distance = sqrt(dx * dx + dy * dy);
         
         if (distance > 0) {
@@ -235,82 +452,156 @@ void apply_chain_forces() {
             float fx = dx * force_magnitude;
             float fy = dy * force_magnitude;
             
-            sim.nodes[n1].vx += fx;
-            sim.nodes[n1].vy += fy;
-            sim.nodes[n2].vx -= fx;
-            sim.nodes[n2].vy -= fy;
+            g_nodes[n1].vx += fx;
+            g_nodes[n1].vy += fy;
+            g_nodes[n2].vx -= fx;
+            g_nodes[n2].vy -= fy;
         }
     }
 }
 
-void update_physics() {
+// Update physics simulation
+static void update_physics(void) {
+    g_frame_counter++;
+    
+    // Rebuild spatial grid periodically
+    if (g_frame_counter % 5 == 0) {
+        rebuild_grid();
+    }
+    
+    // Apply forces
     apply_repulsion_forces();
     apply_chain_forces();
-    grow_plants();
     
-    for (int i = 0; i < sim.node_count; i++) {
-        if (!sim.nodes[i].active) continue;
-        
-        sim.nodes[i].vx *= WATER_DRAG;
-        sim.nodes[i].vy *= WATER_DRAG;
-        
-        sim.nodes[i].x += sim.nodes[i].vx;
-        sim.nodes[i].y += sim.nodes[i].vy;
+    // Plant growth
+    if (g_frame_counter % 10 == 0) {
+        grow_plants();
     }
-}
-
-void draw_thick_line(SDL_Renderer* renderer, int x1, int y1, int x2, int y2, int thickness) {
-    for (int i = -thickness/2; i <= thickness/2; i++) {
-        for (int j = -thickness/2; j <= thickness/2; j++) {
-            SDL_RenderDrawLine(renderer, x1 + i, y1 + j, x2 + i, y2 + j);
+    
+    // Update positions with drag and world bounds
+    for (int i = 0; i < g_node_count; i++) {
+        if (!g_nodes[i].active) continue;
+        
+        // Apply drag
+        g_nodes[i].vx *= WATER_DRAG;
+        g_nodes[i].vy *= WATER_DRAG;
+        
+        // Update position
+        g_nodes[i].x += g_nodes[i].vx;
+        g_nodes[i].y += g_nodes[i].vy;
+        
+        // World bounds collision
+        if (g_nodes[i].x < WORLD_LEFT) {
+            g_nodes[i].x = WORLD_LEFT;
+            g_nodes[i].vx = 0;
+        }
+        if (g_nodes[i].x > WORLD_RIGHT) {
+            g_nodes[i].x = WORLD_RIGHT;
+            g_nodes[i].vx = 0;
+        }
+        if (g_nodes[i].y < WORLD_TOP) {
+            g_nodes[i].y = WORLD_TOP;
+            g_nodes[i].vy = 0;
+        }
+        if (g_nodes[i].y > WORLD_BOTTOM) {
+            g_nodes[i].y = WORLD_BOTTOM;
+            g_nodes[i].vy = 0;
         }
     }
 }
 
-void render(SDL_Renderer* renderer) {
+// Draw thick line for chain rendering
+static void draw_thick_line(SDL_Renderer* renderer, int x1, int y1, int x2, int y2, int thickness) {
+    if (thickness <= 1) {
+        SDL_RenderDrawLine(renderer, x1, y1, x2, y2);
+        return;
+    }
+    
+    for (int i = -thickness/2; i <= thickness/2; i++) {
+        SDL_RenderDrawLine(renderer, x1 + i, y1, x2 + i, y2);
+        SDL_RenderDrawLine(renderer, x1, y1 + i, x2, y2 + i);
+    }
+}
+
+// Main rendering function
+static void render(SDL_Renderer* renderer) {
+    // Clear background
     SDL_SetRenderDrawColor(renderer, 30, 60, 120, 255);
     SDL_RenderClear(renderer);
     
+    // Calculate viewport bounds for culling
+    float world_left, world_top, world_right, world_bottom;
+    screen_to_world(0, 0, &world_left, &world_top);
+    screen_to_world(WINDOW_WIDTH, WINDOW_HEIGHT, &world_right, &world_bottom);
+    
+    // Render chains
     SDL_SetRenderDrawColor(renderer, 100, 200, 100, 255);
-    for (int i = 0; i < sim.chain_count; i++) {
-        if (!sim.chains[i].active) continue;
+    for (int i = 0; i < g_chain_count; i++) {
+        if (!g_chains[i].active) continue;
         
-        int n1 = sim.chains[i].node1;
-        int n2 = sim.chains[i].node2;
+        int n1 = g_chains[i].node1;
+        int n2 = g_chains[i].node2;
         
-        if (!sim.nodes[n1].active || !sim.nodes[n2].active) continue;
+        if (n1 < 0 || n1 >= g_node_count || n2 < 0 || n2 >= g_node_count) continue;
+        if (!g_nodes[n1].active || !g_nodes[n2].active) continue;
+        
+        // Frustum culling
+        float min_x = fminf(g_nodes[n1].x, g_nodes[n2].x);
+        float max_x = fmaxf(g_nodes[n1].x, g_nodes[n2].x);
+        float min_y = fminf(g_nodes[n1].y, g_nodes[n2].y);
+        float max_y = fmaxf(g_nodes[n1].y, g_nodes[n2].y);
+        
+        if (max_x < world_left || min_x > world_right || 
+            max_y < world_top || min_y > world_bottom) {
+            continue;
+        }
         
         int screen_x1, screen_y1, screen_x2, screen_y2;
-        world_to_screen(sim.nodes[n1].x, sim.nodes[n1].y, &screen_x1, &screen_y1);
-        world_to_screen(sim.nodes[n2].x, sim.nodes[n2].y, &screen_x2, &screen_y2);
+        world_to_screen(g_nodes[n1].x, g_nodes[n1].y, &screen_x1, &screen_y1);
+        world_to_screen(g_nodes[n2].x, g_nodes[n2].y, &screen_x2, &screen_y2);
         
-        int thickness = (int)(CHAIN_THICKNESS * sim.camera.zoom);
+        int thickness = (int)(CHAIN_THICKNESS * g_camera.zoom);
         if (thickness < 1) thickness = 1;
         
         draw_thick_line(renderer, screen_x1, screen_y1, screen_x2, screen_y2, thickness);
     }
     
-    for (int i = 0; i < sim.node_count; i++) {
-        if (!sim.nodes[i].active) continue;
+    // Render nodes
+    for (int i = 0; i < g_node_count; i++) {
+        if (!g_nodes[i].active) continue;
         
-        int screen_x, screen_y;
-        world_to_screen(sim.nodes[i].x, sim.nodes[i].y, &screen_x, &screen_y);
-        
-        int scaled_radius = (int)(NODE_RADIUS * sim.camera.zoom);
-        if (screen_x < -scaled_radius || screen_x > WINDOW_WIDTH + scaled_radius ||
-            screen_y < -scaled_radius || screen_y > WINDOW_HEIGHT + scaled_radius) {
+        // Frustum culling
+        if (g_nodes[i].x < world_left - NODE_RADIUS || g_nodes[i].x > world_right + NODE_RADIUS ||
+            g_nodes[i].y < world_top - NODE_RADIUS || g_nodes[i].y > world_bottom + NODE_RADIUS) {
             continue;
         }
         
-        if (i == sim.selected_node && sim.selection_mode == 1) {
+        int screen_x, screen_y;
+        world_to_screen(g_nodes[i].x, g_nodes[i].y, &screen_x, &screen_y);
+        
+        int scaled_radius = (int)(NODE_RADIUS * g_camera.zoom);
+        if (scaled_radius < 1) scaled_radius = 1;
+        
+        // Set color based on selection state
+        if (i == g_selected_node && g_selection_mode == 1) {
             SDL_SetRenderDrawColor(renderer, 255, 255, 0, 255);
         } else {
             SDL_SetRenderDrawColor(renderer, 150, 255, 150, 255);
         }
         
-        for (int dx = -scaled_radius; dx <= scaled_radius; dx++) {
-            for (int dy = -scaled_radius; dy <= scaled_radius; dy++) {
-                if (dx * dx + dy * dy <= scaled_radius * scaled_radius) {
+        // Draw node as circle
+        if (scaled_radius <= 2) {
+            SDL_RenderDrawPoint(renderer, screen_x, screen_y);
+            if (scaled_radius > 1) {
+                SDL_RenderDrawPoint(renderer, screen_x-1, screen_y);
+                SDL_RenderDrawPoint(renderer, screen_x+1, screen_y);
+                SDL_RenderDrawPoint(renderer, screen_x, screen_y-1);
+                SDL_RenderDrawPoint(renderer, screen_x, screen_y+1);
+            }
+        } else {
+            for (int dx = -scaled_radius; dx <= scaled_radius; dx++) {
+                int dy_max = (int)sqrt(scaled_radius * scaled_radius - dx * dx);
+                for (int dy = -dy_max; dy <= dy_max; dy++) {
                     int px = screen_x + dx;
                     int py = screen_y + dy;
                     if (px >= 0 && px < WINDOW_WIDTH && py >= 0 && py < WINDOW_HEIGHT) {
@@ -324,45 +615,79 @@ void render(SDL_Renderer* renderer) {
     SDL_RenderPresent(renderer);
 }
 
-void handle_mouse_click(int screen_x, int screen_y, int button) {
+// Find node at world position for interaction
+static int find_node_at_position(float world_x, float world_y) {
+    int grid_x, grid_y;
+    world_to_grid(world_x, world_y, &grid_x, &grid_y);
+    
+    // Check 3x3 grid area around position
+    for (int gx = grid_x - 1; gx <= grid_x + 1; gx++) {
+        for (int gy = grid_y - 1; gy <= grid_y + 1; gy++) {
+            GridCell* cell = get_grid_cell(gx, gy);
+            if (!cell) continue;
+            
+            for (int k = 0; k < cell->count; k++) {
+                int i = cell->node_indices[k];
+                if (i < 0 || i >= g_node_count) continue;
+                if (!g_nodes[i].active) continue;
+                
+                float dx = g_nodes[i].x - world_x;
+                float dy = g_nodes[i].y - world_y;
+                float distance = dx * dx + dy * dy;
+                
+                float threshold = NODE_RADIUS * 2 / g_camera.zoom;
+                if (distance <= threshold * threshold) {
+                    return i;
+                }
+            }
+        }
+    }
+    return -1;
+}
+
+// Handle mouse click events
+static void handle_mouse_click(int screen_x, int screen_y, int button) {
     float world_x, world_y;
     screen_to_world(screen_x, screen_y, &world_x, &world_y);
     
     if (button == SDL_BUTTON_LEFT) {
-        add_node(world_x, world_y);
-        printf("Created growing plant node at world (%.1f, %.1f)\n", world_x, world_y);
+        // Create new node
+        int new_node = add_node(world_x, world_y);
+        if (new_node >= 0) {
+            printf("Created node %d at (%.1f, %.1f)\n", new_node, world_x, world_y);
+        }
     } else if (button == SDL_BUTTON_RIGHT) {
+        // Node selection for chaining
         int clicked_node = find_node_at_position(world_x, world_y);
         
         if (clicked_node >= 0) {
-            if (sim.selection_mode == 0) {
-                sim.selected_node = clicked_node;
-                sim.selection_mode = 1;
+            if (g_selection_mode == 0) {
+                g_selected_node = clicked_node;
+                g_selection_mode = 1;
                 printf("Selected node %d for chaining\n", clicked_node);
-            } else if (sim.selection_mode == 1) {
-                if (clicked_node != sim.selected_node) {
-                    int chain_id = add_chain(sim.selected_node, clicked_node);
+            } else if (g_selection_mode == 1) {
+                if (clicked_node != g_selected_node) {
+                    int chain_id = add_chain(g_selected_node, clicked_node);
                     if (chain_id >= 0) {
-                        printf("Created chain between nodes %d and %d\n", sim.selected_node, clicked_node);
+                        printf("Created chain between nodes %d and %d\n", g_selected_node, clicked_node);
                     }
                 }
-                sim.selection_mode = 0;
-                sim.selected_node = -1;
+                g_selection_mode = 0;
+                g_selected_node = -1;
             }
         } else {
-            sim.selection_mode = 0;
-            sim.selected_node = -1;
-            printf("Selection cancelled\n");
+            g_selection_mode = 0;
+            g_selected_node = -1;
         }
     }
 }
 
+// Main program entry point
 int main(int argc, char* argv[]) {
     srand((unsigned int)time(NULL));
     
     if (SDL_Init(SDL_INIT_VIDEO) < 0) {
         printf("SDL initialization failed: %s\n", SDL_GetError());
-        return 1;
     }
     
     SDL_Window* window = SDL_CreateWindow("Organism Simulation",
@@ -392,12 +717,11 @@ int main(int argc, char* argv[]) {
     int mouse_x = 0, mouse_y = 0;
     
     printf("Controls:\n");
-    printf("Left click: Create node (growing plant)\n");
-    printf("Right click: Select nodes for chaining\n");
-    printf("WASD: Move camera\n");
-    printf("Mouse wheel: Zoom in/out\n");
-    printf("ESC: Exit\n");
-    printf("Plants will grow automatically over time!\n");
+    printf("  Left click: Create node\n");
+    printf("  Right click: Select nodes for chaining\n");
+    printf("  WASD: Move camera\n");
+    printf("  Mouse wheel: Zoom in/out\n");
+    printf("  ESC: Exit\n");
     
     while (running) {
         while (SDL_PollEvent(&event)) {
@@ -410,17 +734,17 @@ int main(int argc, char* argv[]) {
                     if (event.key.keysym.sym == SDLK_ESCAPE) {
                         running = 0;
                     }
-                    else if (event.key.keysym.sym == SDLK_w) sim.keys[0] = 1;
-                    else if (event.key.keysym.sym == SDLK_a) sim.keys[1] = 1;
-                    else if (event.key.keysym.sym == SDLK_s) sim.keys[2] = 1;
-                    else if (event.key.keysym.sym == SDLK_d) sim.keys[3] = 1;
+                    else if (event.key.keysym.sym == SDLK_w) g_keys[0] = 1;
+                    else if (event.key.keysym.sym == SDLK_a) g_keys[1] = 1;
+                    else if (event.key.keysym.sym == SDLK_s) g_keys[2] = 1;
+                    else if (event.key.keysym.sym == SDLK_d) g_keys[3] = 1;
                     break;
                     
                 case SDL_KEYUP:
-                    if (event.key.keysym.sym == SDLK_w) sim.keys[0] = 0;
-                    else if (event.key.keysym.sym == SDLK_a) sim.keys[1] = 0;
-                    else if (event.key.keysym.sym == SDLK_s) sim.keys[2] = 0;
-                    else if (event.key.keysym.sym == SDLK_d) sim.keys[3] = 0;
+                    if (event.key.keysym.sym == SDLK_w) g_keys[0] = 0;
+                    else if (event.key.keysym.sym == SDLK_a) g_keys[1] = 0;
+                    else if (event.key.keysym.sym == SDLK_s) g_keys[2] = 0;
+                    else if (event.key.keysym.sym == SDLK_d) g_keys[3] = 0;
                     break;
                     
                 case SDL_MOUSEBUTTONDOWN:
@@ -449,6 +773,8 @@ int main(int argc, char* argv[]) {
         
         SDL_Delay(16);
     }
+    
+    cleanup_simulation();
     
     SDL_DestroyRenderer(renderer);
     SDL_DestroyWindow(window);

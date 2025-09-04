@@ -21,7 +21,7 @@
 
 // Rendering parameters
 #define NODE_RADIUS 5
-#define CHAIN_THICKNESS 3
+#define CHAIN_THICKNESS 6
 
 // Camera parameters
 #define CAMERA_SPEED 5.0f
@@ -81,6 +81,8 @@ typedef struct {
     int active;
     int plant_type;   // Plant type for rendering
     int age;          // Age in frames
+    float curve_strength; // Curve strength (-1.0 to 1.0)
+    float curve_offset;   // Perpendicular offset for curve direction
 } Chain;
 
 // Camera for viewport control
@@ -114,25 +116,93 @@ static Camera g_camera = {0};
 static int g_keys[4] = {0};
 static int g_frame_counter = 0;
 
-// Age color calculation - makes colors darker and more brownish over time
+// Forward declarations
+static void draw_thick_line(SDL_Renderer* renderer, int x1, int y1, int x2, int y2, int thickness);
+
+// Age color calculation - makes colors darker but not fully brown
 static void calculate_aged_color(int base_r, int base_g, int base_b, int age, int* aged_r, int* aged_g, int* aged_b) {
-    // Age factor: 0.0 (young) to 0.7 (old, max 70% aging)
-    float age_factor = fminf((float)age / 3600.0f, 0.7f); // 1 minute at 60fps = fully aged
+    // Age factor: 0.0 (young) to 0.5 (old, max 50% aging)
+    float age_factor = fminf((float)age / 3600.0f, 0.5f); // 1 minute at 60fps = fully aged
     
-    // Brown target color (wood-like)
-    int brown_r = 101;
-    int brown_g = 67;
-    int brown_b = 33;
+    // Darker but not brown target - keep some of original hue
+    int dark_r = base_r * 0.3f;
+    int dark_g = base_g * 0.4f; 
+    int dark_b = base_b * 0.3f;
     
-    // Interpolate between base color and brown, then darken
+    // Interpolate between base color and darker version
     float inv_age = 1.0f - age_factor;
-    float aged_float_r = (base_r * inv_age + brown_r * age_factor) * (1.0f - age_factor * 0.4f);
-    float aged_float_g = (base_g * inv_age + brown_g * age_factor) * (1.0f - age_factor * 0.4f);
-    float aged_float_b = (base_b * inv_age + brown_b * age_factor) * (1.0f - age_factor * 0.4f);
+    float aged_float_r = base_r * inv_age + dark_r * age_factor;
+    float aged_float_g = base_g * inv_age + dark_g * age_factor;
+    float aged_float_b = base_b * inv_age + dark_b * age_factor;
     
     *aged_r = (int)(aged_float_r > 0 ? aged_float_r : 0);
     *aged_g = (int)(aged_float_g > 0 ? aged_float_g : 0);
     *aged_b = (int)(aged_float_b > 0 ? aged_float_b : 0);
+}
+
+// Draw thick line for basic line rendering
+static void draw_thick_line(SDL_Renderer* renderer, int x1, int y1, int x2, int y2, int thickness) {
+    if (thickness <= 1) {
+        SDL_RenderDrawLine(renderer, x1, y1, x2, y2);
+        return;
+    }
+    
+    for (int i = -thickness/2; i <= thickness/2; i++) {
+        SDL_RenderDrawLine(renderer, x1 + i, y1, x2 + i, y2);
+        SDL_RenderDrawLine(renderer, x1, y1 + i, x2, y2 + i);
+    }
+}
+
+// Draw curved line using quadratic bezier curve
+static void draw_curved_line(SDL_Renderer* renderer, int x1, int y1, int x2, int y2, float curve_strength, float curve_offset, int thickness) {
+    // Calculate midpoint and perpendicular direction
+    float mid_x = (x1 + x2) * 0.5f;
+    float mid_y = (y1 + y2) * 0.5f;
+    
+    // Direction vector
+    float dx = x2 - x1;
+    float dy = y2 - y1;
+    float length = sqrt(dx * dx + dy * dy);
+    
+    if (length < 1.0f) {
+        // Too short for curve, draw straight line
+        draw_thick_line(renderer, x1, y1, x2, y2, thickness);
+        return;
+    }
+    
+    // Normalize direction
+    dx /= length;
+    dy /= length;
+    
+    // Perpendicular vector (rotated 90 degrees)
+    float perp_x = -dy;
+    float perp_y = dx;
+    
+    // Control point for quadratic curve
+    float curve_amount = curve_strength * length * 0.3f + curve_offset;
+    float ctrl_x = mid_x + perp_x * curve_amount;
+    float ctrl_y = mid_y + perp_y * curve_amount;
+    
+    // Draw curve using multiple line segments
+    int segments = (int)(length / 8.0f) + 3; // More segments for smoother curves
+    if (segments > 20) segments = 20; // Cap segments for performance
+    
+    float prev_x = x1;
+    float prev_y = y1;
+    
+    for (int i = 1; i <= segments; i++) {
+        float t = (float)i / segments;
+        float inv_t = 1.0f - t;
+        
+        // Quadratic bezier formula: (1-t)²P0 + 2(1-t)tP1 + t²P2
+        float curr_x = inv_t * inv_t * x1 + 2 * inv_t * t * ctrl_x + t * t * x2;
+        float curr_y = inv_t * inv_t * y1 + 2 * inv_t * t * ctrl_y + t * t * y2;
+        
+        draw_thick_line(renderer, (int)prev_x, (int)prev_y, (int)curr_x, (int)curr_y, thickness);
+        
+        prev_x = curr_x;
+        prev_y = curr_y;
+    }
 }
 
 // Parse color from hex string (e.g., "#FF0000" or "FF0000")
@@ -442,6 +512,10 @@ static int add_chain(int node1, int node2) {
     chain->plant_type = g_nodes[node1].plant_type; // Use plant type from first node
     chain->age = 0;
     
+    // Generate random curve parameters
+    chain->curve_strength = ((float)rand() / RAND_MAX - 0.5f) * 0.6f; // -0.3 to 0.3
+    chain->curve_offset = ((float)rand() / RAND_MAX - 0.5f) * 20.0f;   // -20 to 20
+    
     return g_chain_count++;
 }
 
@@ -685,19 +759,6 @@ static void update_physics(void) {
     }
 }
 
-// Draw thick line for chain rendering
-static void draw_thick_line(SDL_Renderer* renderer, int x1, int y1, int x2, int y2, int thickness) {
-    if (thickness <= 1) {
-        SDL_RenderDrawLine(renderer, x1, y1, x2, y2);
-        return;
-    }
-    
-    for (int i = -thickness/2; i <= thickness/2; i++) {
-        SDL_RenderDrawLine(renderer, x1 + i, y1, x2 + i, y2);
-        SDL_RenderDrawLine(renderer, x1, y1 + i, x2, y2 + i);
-    }
-}
-
 // Main rendering function
 static void render(SDL_Renderer* renderer) {
     // Clear background
@@ -746,9 +807,11 @@ static void render(SDL_Renderer* renderer) {
         world_to_screen(g_nodes[n2].x, g_nodes[n2].y, &screen_x2, &screen_y2);
         
         int thickness = (int)(CHAIN_THICKNESS * g_camera.zoom);
-        if (thickness < 1) thickness = 1;
+        if (thickness < 2) thickness = 2; // Minimum thickness of 2
         
-        draw_thick_line(renderer, screen_x1, screen_y1, screen_x2, screen_y2, thickness);
+        // Use curved line instead of straight line
+        draw_curved_line(renderer, screen_x1, screen_y1, screen_x2, screen_y2, 
+                        g_chains[i].curve_strength, g_chains[i].curve_offset, thickness);
     }
     
     // Render nodes

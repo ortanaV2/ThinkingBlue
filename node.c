@@ -8,8 +8,8 @@
 // Core constants
 #define WINDOW_WIDTH 1200
 #define WINDOW_HEIGHT 800
-#define MAX_NODES 100000000
-#define MAX_CHAINS 100000000
+#define MAX_NODES 10000000
+#define MAX_CHAINS 10000000
 #define MAX_PLANT_TYPES 64
 #define MAX_NAME_LENGTH 64
 
@@ -21,7 +21,7 @@
 
 // Rendering parameters
 #define NODE_RADIUS 5
-#define CHAIN_THICKNESS 4
+#define CHAIN_THICKNESS 3
 
 // Camera parameters
 #define CAMERA_SPEED 5.0f
@@ -72,6 +72,7 @@ typedef struct {
     int can_grow;     // Growth capability flag
     int plant_type;   // Plant type index
     int branch_count; // Current branch count
+    int age;          // Age in frames
 } Node;
 
 // Chain structure connecting two nodes
@@ -79,6 +80,7 @@ typedef struct {
     int node1, node2;
     int active;
     int plant_type;   // Plant type for rendering
+    int age;          // Age in frames
 } Chain;
 
 // Camera for viewport control
@@ -111,6 +113,27 @@ static int g_selection_mode = 0;
 static Camera g_camera = {0};
 static int g_keys[4] = {0};
 static int g_frame_counter = 0;
+
+// Age color calculation - makes colors darker and more brownish over time
+static void calculate_aged_color(int base_r, int base_g, int base_b, int age, int* aged_r, int* aged_g, int* aged_b) {
+    // Age factor: 0.0 (young) to 0.7 (old, max 70% aging)
+    float age_factor = fminf((float)age / 3600.0f, 0.7f); // 1 minute at 60fps = fully aged
+    
+    // Brown target color (wood-like)
+    int brown_r = 101;
+    int brown_g = 67;
+    int brown_b = 33;
+    
+    // Interpolate between base color and brown, then darken
+    float inv_age = 1.0f - age_factor;
+    float aged_float_r = (base_r * inv_age + brown_r * age_factor) * (1.0f - age_factor * 0.4f);
+    float aged_float_g = (base_g * inv_age + brown_g * age_factor) * (1.0f - age_factor * 0.4f);
+    float aged_float_b = (base_b * inv_age + brown_b * age_factor) * (1.0f - age_factor * 0.4f);
+    
+    *aged_r = (int)(aged_float_r > 0 ? aged_float_r : 0);
+    *aged_g = (int)(aged_float_g > 0 ? aged_float_g : 0);
+    *aged_b = (int)(aged_float_b > 0 ? aged_float_b : 0);
+}
 
 // Parse color from hex string (e.g., "#FF0000" or "FF0000")
 static void parse_color(const char* color_str, int* r, int* g, int* b) {
@@ -386,6 +409,7 @@ static int add_node(float x, float y, int plant_type) {
     node->can_grow = 1;
     node->plant_type = plant_type;
     node->branch_count = 0;
+    node->age = 0;
     
     return g_node_count++;
 }
@@ -416,6 +440,7 @@ static int add_chain(int node1, int node2) {
     chain->node2 = node2;
     chain->active = 1;
     chain->plant_type = g_nodes[node1].plant_type; // Use plant type from first node
+    chain->age = 0;
     
     return g_chain_count++;
 }
@@ -453,10 +478,9 @@ static int is_position_free(float x, float y, float min_distance) {
 
 // Plant growth system with configurable parameters
 static void grow_plants(void) {
-    if (g_frame_counter % 3 != 0) return;
-    
+    // Run every frame for smoother growth
     int current_node_count = g_node_count;
-    int growth_limit = 50;
+    int growth_limit = 3;  // Much lower limit per frame
     int grown = 0;
     
     for (int i = 0; i < current_node_count && grown < growth_limit; i++) {
@@ -467,8 +491,11 @@ static void grow_plants(void) {
         
         PlantType* pt = &g_plant_types[plant_type];
         
-        // Check branch limit
+        // Check branch limit and age limit
         if (g_nodes[i].branch_count >= pt->max_branches) continue;
+        
+        // Stop growing after 30 seconds (1800 frames at 60fps)
+        if (g_nodes[i].age > 1800) continue;
         
         if ((float)rand() / RAND_MAX < pt->growth_probability) {
             for (int attempt = 0; attempt < pt->growth_attempts; attempt++) {
@@ -620,6 +647,9 @@ static void update_physics(void) {
     for (int i = 0; i < g_node_count; i++) {
         if (!g_nodes[i].active) continue;
         
+        // Age nodes
+        g_nodes[i].age++;
+        
         // Apply drag
         g_nodes[i].vx *= WATER_DRAG;
         g_nodes[i].vy *= WATER_DRAG;
@@ -644,6 +674,13 @@ static void update_physics(void) {
         if (g_nodes[i].y > WORLD_BOTTOM) {
             g_nodes[i].y = WORLD_BOTTOM;
             g_nodes[i].vy = 0;
+        }
+    }
+    
+    // Age chains
+    for (int i = 0; i < g_chain_count; i++) {
+        if (g_chains[i].active) {
+            g_chains[i].age++;
         }
     }
 }
@@ -693,11 +730,13 @@ static void render(SDL_Renderer* renderer) {
             continue;
         }
         
-        // Set chain color based on plant type
+        // Set chain color based on plant type and age
         int plant_type = g_chains[i].plant_type;
         if (plant_type >= 0 && plant_type < g_plant_type_count) {
             PlantType* pt = &g_plant_types[plant_type];
-            SDL_SetRenderDrawColor(renderer, pt->chain_r, pt->chain_g, pt->chain_b, 255);
+            int aged_r, aged_g, aged_b;
+            calculate_aged_color(pt->chain_r, pt->chain_g, pt->chain_b, g_chains[i].age, &aged_r, &aged_g, &aged_b);
+            SDL_SetRenderDrawColor(renderer, aged_r, aged_g, aged_b, 255);
         } else {
             SDL_SetRenderDrawColor(renderer, 100, 200, 100, 255);
         }
@@ -728,14 +767,16 @@ static void render(SDL_Renderer* renderer) {
         int scaled_radius = (int)(NODE_RADIUS * g_camera.zoom);
         if (scaled_radius < 1) scaled_radius = 1;
         
-        // Set color based on selection state and plant type
+        // Set color based on selection state, plant type and age
         if (i == g_selected_node && g_selection_mode == 1) {
             SDL_SetRenderDrawColor(renderer, 255, 255, 0, 255);
         } else {
             int plant_type = g_nodes[i].plant_type;
             if (plant_type >= 0 && plant_type < g_plant_type_count) {
                 PlantType* pt = &g_plant_types[plant_type];
-                SDL_SetRenderDrawColor(renderer, pt->node_r, pt->node_g, pt->node_b, 255);
+                int aged_r, aged_g, aged_b;
+                calculate_aged_color(pt->node_r, pt->node_g, pt->node_b, g_nodes[i].age, &aged_r, &aged_g, &aged_b);
+                SDL_SetRenderDrawColor(renderer, aged_r, aged_g, aged_b, 255);
             } else {
                 SDL_SetRenderDrawColor(renderer, 150, 255, 150, 255);
             }

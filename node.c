@@ -3,12 +3,15 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <time.h>
+#include <string.h>
 
 // Core constants
 #define WINDOW_WIDTH 1200
 #define WINDOW_HEIGHT 800
-#define MAX_NODES 10000000
-#define MAX_CHAINS 10000000
+#define MAX_NODES 100000000
+#define MAX_CHAINS 100000000
+#define MAX_PLANT_TYPES 64
+#define MAX_NAME_LENGTH 64
 
 // Physics parameters
 #define OPTIMAL_DISTANCE 50.0f
@@ -18,17 +21,13 @@
 
 // Rendering parameters
 #define NODE_RADIUS 5
-#define CHAIN_THICKNESS 3
+#define CHAIN_THICKNESS 4
 
 // Camera parameters
 #define CAMERA_SPEED 5.0f
 #define ZOOM_SPEED 0.1f
 #define MIN_ZOOM 0.1f
 #define MAX_ZOOM 5.0f
-
-// Growth parameters
-#define GROWTH_PROBABILITY 0.02f
-#define GROWTH_ATTEMPTS 5
 
 // World configuration
 #define WORLD_WIDTH 15000.0f
@@ -48,18 +47,38 @@
 
 #define M_PI 3.14159265358979323846
 
+// Plant type configuration
+typedef struct {
+    char name[MAX_NAME_LENGTH];
+    float growth_probability;
+    int growth_attempts;
+    int max_branches;
+    float branch_distance;
+    
+    // Node colors (RGB 0-255)
+    int node_r, node_g, node_b;
+    
+    // Chain colors (RGB 0-255)
+    int chain_r, chain_g, chain_b;
+    
+    int active;
+} PlantType;
+
 // Node structure
 typedef struct {
     float x, y;       // Position
     float vx, vy;     // Velocity
     int active;       // Active flag
     int can_grow;     // Growth capability flag
+    int plant_type;   // Plant type index
+    int branch_count; // Current branch count
 } Node;
 
 // Chain structure connecting two nodes
 typedef struct {
     int node1, node2;
     int active;
+    int plant_type;   // Plant type for rendering
 } Chain;
 
 // Camera for viewport control
@@ -78,6 +97,10 @@ typedef struct {
 static Node* g_nodes = NULL;
 static Chain* g_chains = NULL;
 static GridCell* g_grid = NULL;
+static PlantType g_plant_types[MAX_PLANT_TYPES];
+static int g_plant_type_count = 0;
+static int g_current_plant_type = 0;
+
 static int g_grid_width = 0;
 static int g_grid_height = 0;
 
@@ -88,6 +111,105 @@ static int g_selection_mode = 0;
 static Camera g_camera = {0};
 static int g_keys[4] = {0};
 static int g_frame_counter = 0;
+
+// Parse color from hex string (e.g., "#FF0000" or "FF0000")
+static void parse_color(const char* color_str, int* r, int* g, int* b) {
+    const char* hex = color_str;
+    if (hex[0] == '#') hex++; // Skip '#' if present
+    
+    unsigned int color = (unsigned int)strtoul(hex, NULL, 16);
+    *r = (color >> 16) & 0xFF;
+    *g = (color >> 8) & 0xFF;
+    *b = color & 0xFF;
+}
+
+// Load plant configurations from file
+static int load_plant_config(const char* filename) {
+    FILE* file = fopen(filename, "r");
+    if (!file) {
+        printf("Error: Cannot open config file '%s'\n", filename);
+        return 0;
+    }
+    
+    char line[256];
+    PlantType* current_plant = NULL;
+    g_plant_type_count = 0;
+    
+    while (fgets(line, sizeof(line), file) && g_plant_type_count < MAX_PLANT_TYPES) {
+        // Remove newline
+        line[strcspn(line, "\n")] = 0;
+        
+        // Skip empty lines and comments
+        if (line[0] == '\0' || line[0] == '#') continue;
+        
+        // Check for plant type declaration [PlantName]
+        if (line[0] == '[' && line[strlen(line)-1] == ']') {
+            current_plant = &g_plant_types[g_plant_type_count];
+            memset(current_plant, 0, sizeof(PlantType));
+            
+            // Extract plant name
+            strncpy(current_plant->name, line + 1, strlen(line) - 2);
+            current_plant->name[strlen(line) - 2] = '\0';
+            current_plant->active = 1;
+            
+            // Set default values
+            current_plant->growth_probability = 0.02f;
+            current_plant->growth_attempts = 5;
+            current_plant->max_branches = 3;
+            current_plant->branch_distance = OPTIMAL_DISTANCE;
+            current_plant->node_r = 150;
+            current_plant->node_g = 255;
+            current_plant->node_b = 150;
+            current_plant->chain_r = 100;
+            current_plant->chain_g = 200;
+            current_plant->chain_b = 100;
+            
+            g_plant_type_count++;
+            continue;
+        }
+        
+        if (!current_plant) continue;
+        
+        // Parse key=value pairs
+        char* equals = strchr(line, '=');
+        if (!equals) continue;
+        
+        *equals = '\0';
+        char* key = line;
+        char* value = equals + 1;
+        
+        // Trim whitespace
+        while (*key == ' ' || *key == '\t') key++;
+        while (*value == ' ' || *value == '\t') value++;
+        
+        // Parse configuration values
+        if (strcmp(key, "growth_probability") == 0) {
+            current_plant->growth_probability = (float)atof(value);
+        } else if (strcmp(key, "growth_attempts") == 0) {
+            current_plant->growth_attempts = atoi(value);
+        } else if (strcmp(key, "max_branches") == 0) {
+            current_plant->max_branches = atoi(value);
+        } else if (strcmp(key, "branch_distance") == 0) {
+            current_plant->branch_distance = (float)atof(value);
+        } else if (strcmp(key, "node_color") == 0) {
+            parse_color(value, &current_plant->node_r, &current_plant->node_g, &current_plant->node_b);
+        } else if (strcmp(key, "chain_color") == 0) {
+            parse_color(value, &current_plant->chain_r, &current_plant->chain_g, &current_plant->chain_b);
+        }
+    }
+    
+    fclose(file);
+    
+    printf("Loaded %d plant types from config\n", g_plant_type_count);
+    for (int i = 0; i < g_plant_type_count; i++) {
+        PlantType* pt = &g_plant_types[i];
+        printf("  %s: prob=%.3f, attempts=%d, branches=%d, distance=%.1f\n",
+               pt->name, pt->growth_probability, pt->growth_attempts, 
+               pt->max_branches, pt->branch_distance);
+    }
+    
+    return g_plant_type_count > 0;
+}
 
 // Grid access with bounds checking
 static GridCell* get_grid_cell(int grid_x, int grid_y) {
@@ -131,6 +253,7 @@ static void init_simulation(void) {
     g_selected_node = -1;
     g_selection_mode = 0;
     g_frame_counter = 0;
+    g_current_plant_type = 0;
     
     // Initialize camera at center
     g_camera.x = WINDOW_WIDTH / 2.0f;
@@ -236,10 +359,15 @@ static void zoom_camera(float zoom_delta, int mouse_x, int mouse_y) {
     g_camera.y += world_y_before - world_y_after;
 }
 
-// Create new node at position
-static int add_node(float x, float y) {
+// Create new node at position with specific plant type
+static int add_node(float x, float y, int plant_type) {
     if (g_node_count >= MAX_NODES) {
         printf("Maximum nodes reached\n");
+        return -1;
+    }
+    
+    if (plant_type < 0 || plant_type >= g_plant_type_count) {
+        printf("Invalid plant type: %d\n", plant_type);
         return -1;
     }
     
@@ -256,6 +384,8 @@ static int add_node(float x, float y) {
     node->vy = 0;
     node->active = 1;
     node->can_grow = 1;
+    node->plant_type = plant_type;
+    node->branch_count = 0;
     
     return g_node_count++;
 }
@@ -285,6 +415,7 @@ static int add_chain(int node1, int node2) {
     chain->node1 = node1;
     chain->node2 = node2;
     chain->active = 1;
+    chain->plant_type = g_nodes[node1].plant_type; // Use plant type from first node
     
     return g_chain_count++;
 }
@@ -320,7 +451,7 @@ static int is_position_free(float x, float y, float min_distance) {
     return 1;
 }
 
-// Plant growth system
+// Plant growth system with configurable parameters
 static void grow_plants(void) {
     if (g_frame_counter % 3 != 0) return;
     
@@ -331,11 +462,19 @@ static void grow_plants(void) {
     for (int i = 0; i < current_node_count && grown < growth_limit; i++) {
         if (!g_nodes[i].active || !g_nodes[i].can_grow) continue;
         
-        if ((float)rand() / RAND_MAX < GROWTH_PROBABILITY) {
-            for (int attempt = 0; attempt < GROWTH_ATTEMPTS; attempt++) {
+        int plant_type = g_nodes[i].plant_type;
+        if (plant_type < 0 || plant_type >= g_plant_type_count) continue;
+        
+        PlantType* pt = &g_plant_types[plant_type];
+        
+        // Check branch limit
+        if (g_nodes[i].branch_count >= pt->max_branches) continue;
+        
+        if ((float)rand() / RAND_MAX < pt->growth_probability) {
+            for (int attempt = 0; attempt < pt->growth_attempts; attempt++) {
                 float angle = ((float)rand() / RAND_MAX) * 2.0f * M_PI;
-                float new_x = g_nodes[i].x + cos(angle) * OPTIMAL_DISTANCE;
-                float new_y = g_nodes[i].y + sin(angle) * OPTIMAL_DISTANCE;
+                float new_x = g_nodes[i].x + cos(angle) * pt->branch_distance;
+                float new_y = g_nodes[i].y + sin(angle) * pt->branch_distance;
                 
                 // Check world bounds
                 if (new_x < WORLD_LEFT || new_x > WORLD_RIGHT ||
@@ -343,10 +482,11 @@ static void grow_plants(void) {
                     continue;
                 }
                 
-                if (is_position_free(new_x, new_y, OPTIMAL_DISTANCE * 0.8f)) {
-                    int new_node = add_node(new_x, new_y);
+                if (is_position_free(new_x, new_y, pt->branch_distance * 0.8f)) {
+                    int new_node = add_node(new_x, new_y, plant_type);
                     if (new_node >= 0) {
                         add_chain(i, new_node);
+                        g_nodes[i].branch_count++;
                         grown++;
                         break;
                     }
@@ -535,7 +675,6 @@ static void render(SDL_Renderer* renderer) {
     screen_to_world(WINDOW_WIDTH, WINDOW_HEIGHT, &world_right, &world_bottom);
     
     // Render chains
-    SDL_SetRenderDrawColor(renderer, 100, 200, 100, 255);
     for (int i = 0; i < g_chain_count; i++) {
         if (!g_chains[i].active) continue;
         
@@ -554,6 +693,15 @@ static void render(SDL_Renderer* renderer) {
         if (max_x < world_left || min_x > world_right || 
             max_y < world_top || min_y > world_bottom) {
             continue;
+        }
+        
+        // Set chain color based on plant type
+        int plant_type = g_chains[i].plant_type;
+        if (plant_type >= 0 && plant_type < g_plant_type_count) {
+            PlantType* pt = &g_plant_types[plant_type];
+            SDL_SetRenderDrawColor(renderer, pt->chain_r, pt->chain_g, pt->chain_b, 255);
+        } else {
+            SDL_SetRenderDrawColor(renderer, 100, 200, 100, 255);
         }
         
         int screen_x1, screen_y1, screen_x2, screen_y2;
@@ -582,11 +730,17 @@ static void render(SDL_Renderer* renderer) {
         int scaled_radius = (int)(NODE_RADIUS * g_camera.zoom);
         if (scaled_radius < 1) scaled_radius = 1;
         
-        // Set color based on selection state
+        // Set color based on selection state and plant type
         if (i == g_selected_node && g_selection_mode == 1) {
             SDL_SetRenderDrawColor(renderer, 255, 255, 0, 255);
         } else {
-            SDL_SetRenderDrawColor(renderer, 150, 255, 150, 255);
+            int plant_type = g_nodes[i].plant_type;
+            if (plant_type >= 0 && plant_type < g_plant_type_count) {
+                PlantType* pt = &g_plant_types[plant_type];
+                SDL_SetRenderDrawColor(renderer, pt->node_r, pt->node_g, pt->node_b, 255);
+            } else {
+                SDL_SetRenderDrawColor(renderer, 150, 255, 150, 255);
+            }
         }
         
         // Draw node as circle
@@ -651,10 +805,13 @@ static void handle_mouse_click(int screen_x, int screen_y, int button) {
     screen_to_world(screen_x, screen_y, &world_x, &world_y);
     
     if (button == SDL_BUTTON_LEFT) {
-        // Create new node
-        int new_node = add_node(world_x, world_y);
-        if (new_node >= 0) {
-            printf("Created node %d at (%.1f, %.1f)\n", new_node, world_x, world_y);
+        // Create new node with current plant type
+        if (g_plant_type_count > 0) {
+            int new_node = add_node(world_x, world_y, g_current_plant_type);
+            if (new_node >= 0) {
+                printf("Created %s node %d at (%.1f, %.1f)\n", 
+                       g_plant_types[g_current_plant_type].name, new_node, world_x, world_y);
+            }
         }
     } else if (button == SDL_BUTTON_RIGHT) {
         // Node selection for chaining
@@ -686,11 +843,18 @@ static void handle_mouse_click(int screen_x, int screen_y, int button) {
 int main(int argc, char* argv[]) {
     srand((unsigned int)time(NULL));
     
-    if (SDL_Init(SDL_INIT_VIDEO) < 0) {
-        printf("SDL initialization failed: %s\n", SDL_GetError());
+    // Load plant configuration
+    if (!load_plant_config("items.conf")) {
+        printf("Error: No plant types loaded. Please create items.conf file.\n");
+        return 1;
     }
     
-    SDL_Window* window = SDL_CreateWindow("Organism Simulation",
+    if (SDL_Init(SDL_INIT_VIDEO) < 0) {
+        printf("SDL initialization failed: %s\n", SDL_GetError());
+        return 1;
+    }
+    
+    SDL_Window* window = SDL_CreateWindow("Customizable Plant Ecosystem",
                                          SDL_WINDOWPOS_CENTERED,
                                          SDL_WINDOWPOS_CENTERED,
                                          WINDOW_WIDTH, WINDOW_HEIGHT,
@@ -716,12 +880,14 @@ int main(int argc, char* argv[]) {
     SDL_Event event;
     int mouse_x = 0, mouse_y = 0;
     
-    printf("Controls:\n");
-    printf("  Left click: Create node\n");
+    printf("\nControls:\n");
+    printf("  Left click: Create node (current: %s)\n", 
+           g_plant_type_count > 0 ? g_plant_types[g_current_plant_type].name : "none");
     printf("  Right click: Select nodes for chaining\n");
     printf("  WASD: Move camera\n");
     printf("  Mouse wheel: Zoom in/out\n");
-    printf("  ESC: Exit\n");
+    printf("  1-9: Switch plant type\n");
+    printf("  ESC: Exit\n\n");
     
     while (running) {
         while (SDL_PollEvent(&event)) {
@@ -738,6 +904,14 @@ int main(int argc, char* argv[]) {
                     else if (event.key.keysym.sym == SDLK_a) g_keys[1] = 1;
                     else if (event.key.keysym.sym == SDLK_s) g_keys[2] = 1;
                     else if (event.key.keysym.sym == SDLK_d) g_keys[3] = 1;
+                    // Plant type selection
+                    else if (event.key.keysym.sym >= SDLK_1 && event.key.keysym.sym <= SDLK_9) {
+                        int plant_index = event.key.keysym.sym - SDLK_1;
+                        if (plant_index < g_plant_type_count) {
+                            g_current_plant_type = plant_index;
+                            printf("Selected plant type: %s\n", g_plant_types[g_current_plant_type].name);
+                        }
+                    }
                     break;
                     
                 case SDL_KEYUP:

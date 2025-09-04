@@ -613,10 +613,8 @@ static void update_physics(void) {
     apply_repulsion_forces();
     apply_chain_forces();
     
-    // Plant growth
-    if (g_frame_counter % 10 == 0) {
-        grow_plants();
-    }
+    // Plant growth - run every frame now
+    grow_plants();
     
     // Update positions with drag and world bounds
     for (int i = 0; i < g_node_count; i++) {

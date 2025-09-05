@@ -54,6 +54,7 @@ typedef struct {
     int growth_attempts;
     int max_branches;
     float branch_distance;
+    float mobility_factor;    // How moveable nodes are (0.0 = static, 1.0 = fully mobile)
     
     // Node colors (RGB 0-255)
     int node_r, node_g, node_b;
@@ -250,6 +251,7 @@ static int load_plant_config(const char* filename) {
             current_plant->growth_attempts = 5;
             current_plant->max_branches = 3;
             current_plant->branch_distance = OPTIMAL_DISTANCE;
+            current_plant->mobility_factor = 1.0f; // Fully mobile by default
             current_plant->node_r = 150;
             current_plant->node_g = 255;
             current_plant->node_b = 150;
@@ -284,6 +286,8 @@ static int load_plant_config(const char* filename) {
             current_plant->max_branches = atoi(value);
         } else if (strcmp(key, "branch_distance") == 0) {
             current_plant->branch_distance = (float)atof(value);
+        } else if (strcmp(key, "mobility_factor") == 0) {
+            current_plant->mobility_factor = (float)atof(value);
         } else if (strcmp(key, "node_color") == 0) {
             parse_color(value, &current_plant->node_r, &current_plant->node_g, &current_plant->node_b);
         } else if (strcmp(key, "chain_color") == 0) {
@@ -296,9 +300,9 @@ static int load_plant_config(const char* filename) {
     printf("Loaded %d plant types from config\n", g_plant_type_count);
     for (int i = 0; i < g_plant_type_count; i++) {
         PlantType* pt = &g_plant_types[i];
-        printf("  %s: prob=%.3f, attempts=%d, branches=%d, distance=%.1f\n",
+        printf("  %s: prob=%.3f, attempts=%d, branches=%d, distance=%.1f, mobility=%.2f\n",
                pt->name, pt->growth_probability, pt->growth_attempts, 
-               pt->max_branches, pt->branch_distance);
+               pt->max_branches, pt->branch_distance, pt->mobility_factor);
     }
     
     return g_plant_type_count > 0;
@@ -514,7 +518,7 @@ static int add_chain(int node1, int node2) {
     
     // Generate random curve parameters
     chain->curve_strength = ((float)rand() / RAND_MAX - 0.5f) * 0.6f; // -0.3 to 0.3
-    chain->curve_offset = ((float)rand() / RAND_MAX - 0.5f) * 20.0f;   // -20 to 20
+    chain->curve_offset = ((float)rand() / RAND_MAX - 0.5f) * 20.0f;   // -10 to 10
     
     return g_chain_count++;
 }
@@ -554,8 +558,10 @@ static int is_position_free(float x, float y, float min_distance) {
 static void grow_plants(void) {
     // Run every frame for smoother growth
     int current_node_count = g_node_count;
-
+    
+    // Dynamic growth limit: allow more growth as ecosystem grows
     int growth_limit = (current_node_count / 100) + 3;  // Scale with node count
+    if (growth_limit > 50) growth_limit = 50; // Cap at reasonable maximum
     
     int grown = 0;
     
@@ -627,10 +633,19 @@ static void apply_repulsion_forces(void) {
                         float fx = -dx * force_magnitude;
                         float fy = -dy * force_magnitude;
                         
-                        g_nodes[i].vx += fx;
-                        g_nodes[i].vy += fy;
-                        g_nodes[j].vx -= fx;
-                        g_nodes[j].vy -= fy;
+                        // Apply mobility factor to reduce movement for static plants
+                        int plant_type_i = g_nodes[i].plant_type;
+                        int plant_type_j = g_nodes[j].plant_type;
+                        
+                        float mobility_i = (plant_type_i >= 0 && plant_type_i < g_plant_type_count) ? 
+                                         g_plant_types[plant_type_i].mobility_factor : 1.0f;
+                        float mobility_j = (plant_type_j >= 0 && plant_type_j < g_plant_type_count) ? 
+                                         g_plant_types[plant_type_j].mobility_factor : 1.0f;
+                        
+                        g_nodes[i].vx += fx * mobility_i;
+                        g_nodes[i].vy += fy * mobility_i;
+                        g_nodes[j].vx -= fx * mobility_j;
+                        g_nodes[j].vy -= fy * mobility_j;
                     }
                 }
             }
@@ -658,14 +673,30 @@ static void apply_repulsion_forces(void) {
                             
                             if (distance_sq < optimal_sq && distance_sq > 0) {
                                 float distance = sqrt(distance_sq);
-                                float force_magnitude = REPULSION_FORCE * (OPTIMAL_DISTANCE - distance) / distance;
-                                float fx = -dx * force_magnitude;
-                                float fy = -dy * force_magnitude;
+                                float base_force = REPULSION_FORCE * (OPTIMAL_DISTANCE - distance) / distance;
                                 
-                                g_nodes[i].vx += fx;
-                                g_nodes[i].vy += fy;
-                                g_nodes[j].vx -= fx;
-                                g_nodes[j].vy -= fy;
+                                // Apply mobility factor to reduce movement for static plants
+                                int plant_type_i = g_nodes[i].plant_type;
+                                int plant_type_j = g_nodes[j].plant_type;
+                                
+                                float mobility_i = (plant_type_i >= 0 && plant_type_i < g_plant_type_count) ? 
+                                                 g_plant_types[plant_type_i].mobility_factor : 1.0f;
+                                float mobility_j = (plant_type_j >= 0 && plant_type_j < g_plant_type_count) ? 
+                                                 g_plant_types[plant_type_j].mobility_factor : 1.0f;
+                                
+                                // Static plants create stronger repulsion (inverse relationship)
+                                float repulsion_strength_i = 2.0f - mobility_i; // 1.0 to 2.0 range
+                                float repulsion_strength_j = 2.0f - mobility_j;
+                                
+                                float fx = -dx * base_force * repulsion_strength_j; // j affects i
+                                float fy = -dy * base_force * repulsion_strength_j;
+                                float fx2 = dx * base_force * repulsion_strength_i; // i affects j  
+                                float fy2 = dy * base_force * repulsion_strength_i;
+                                
+                                g_nodes[i].vx += fx * mobility_i;
+                                g_nodes[i].vy += fy * mobility_i;
+                                g_nodes[j].vx += fx2 * mobility_j;
+                                g_nodes[j].vy += fy2 * mobility_j;
                             }
                         }
                     }
@@ -695,10 +726,19 @@ static void apply_chain_forces(void) {
             float fx = dx * force_magnitude;
             float fy = dy * force_magnitude;
             
-            g_nodes[n1].vx += fx;
-            g_nodes[n1].vy += fy;
-            g_nodes[n2].vx -= fx;
-            g_nodes[n2].vy -= fy;
+            // Apply mobility factor for chain forces
+            int plant_type_n1 = g_nodes[n1].plant_type;
+            int plant_type_n2 = g_nodes[n2].plant_type;
+            
+            float mobility_n1 = (plant_type_n1 >= 0 && plant_type_n1 < g_plant_type_count) ? 
+                               g_plant_types[plant_type_n1].mobility_factor : 1.0f;
+            float mobility_n2 = (plant_type_n2 >= 0 && plant_type_n2 < g_plant_type_count) ? 
+                               g_plant_types[plant_type_n2].mobility_factor : 1.0f;
+            
+            g_nodes[n1].vx += fx * mobility_n1;
+            g_nodes[n1].vy += fy * mobility_n1;
+            g_nodes[n2].vx -= fx * mobility_n2;
+            g_nodes[n2].vy -= fy * mobility_n2;
         }
     }
 }

@@ -554,7 +554,9 @@ static int is_position_free(float x, float y, float min_distance) {
 static void grow_plants(void) {
     // Run every frame for smoother growth
     int current_node_count = g_node_count;
-    int growth_limit = 3;  // Much lower limit per frame
+
+    int growth_limit = (current_node_count / 100) + 3;  // Scale with node count
+    
     int grown = 0;
     
     for (int i = 0; i < current_node_count && grown < growth_limit; i++) {

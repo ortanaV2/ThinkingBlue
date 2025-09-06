@@ -7,6 +7,7 @@
 #include "plants.h"
 #include "simulation.h"
 #include "grid.h"
+#include "nutrition.h"
 
 static PlantType g_plant_types[MAX_PLANT_TYPES];
 static int g_plant_type_count = 0;
@@ -141,9 +142,33 @@ static int is_position_free(float x, float y, float min_distance) {
     return 1;
 }
 
+static float calculate_nutrition_growth_modifier(float nutrition_value) {
+    // Much more extreme nutrition effects for dramatic gameplay
+    if (nutrition_value < 0.2f) {
+        return 0.05f; // Almost no growth in very poor soil
+    } else if (nutrition_value < 0.3f) {
+        return 0.05f + (nutrition_value - 0.2f) / 0.1f * 0.05f; // 0.05 to 0.1
+    } else if (nutrition_value < 0.4f) {
+        return 0.1f + (nutrition_value - 0.3f) / 0.1f * 0.15f; // 0.1 to 0.25
+    } else if (nutrition_value < 0.5f) {
+        return 0.25f + (nutrition_value - 0.4f) / 0.1f * 0.25f; // 0.25 to 0.5
+    } else if (nutrition_value < 0.6f) {
+        return 0.5f + (nutrition_value - 0.5f) / 0.1f * 0.5f; // 0.5 to 1.0
+    } else if (nutrition_value < 0.7f) {
+        return 1.0f + (nutrition_value - 0.6f) / 0.1f * 0.8f; // 1.0 to 1.8
+    } else if (nutrition_value < 0.8f) {
+        return 1.8f + (nutrition_value - 0.7f) / 0.1f * 0.7f; // 1.8 to 2.5
+    } else {
+        return 2.5f + (nutrition_value - 0.8f) / 0.2f * 1.0f; // 2.5 to 3.5
+    }
+}
+
 void plants_grow(void) {
     Node* nodes = simulation_get_nodes();
     int current_node_count = simulation_get_node_count();
+    
+    // Call nutrition regeneration every frame
+    nutrition_regenerate();
     
     // Dynamic growth limit
     int growth_limit = (current_node_count / 100) + 3;
@@ -163,8 +188,27 @@ void plants_grow(void) {
         if (nodes[i].branch_count >= pt->max_branches) continue;
         if (nodes[i].age > 1800) continue; // 30 seconds at 60fps
         
-        if ((float)rand() / RAND_MAX < pt->growth_probability) {
-            for (int attempt = 0; attempt < pt->growth_attempts; attempt++) {
+        // Get nutrition value at this node's position
+        float nutrition_value = nutrition_get_value_at(nodes[i].x, nodes[i].y);
+        float nutrition_modifier = calculate_nutrition_growth_modifier(nutrition_value);
+        
+        // Apply nutrition modifier to growth probability
+        float modified_growth_prob = pt->growth_probability * nutrition_modifier;
+        
+        if ((float)rand() / RAND_MAX < modified_growth_prob) {
+            // Dramatically modify growth attempts based on nutrition
+            float attempt_modifier = nutrition_modifier;
+            if (nutrition_value < 0.3f) {
+                attempt_modifier *= 0.3f; // Very few attempts in poor soil
+            } else if (nutrition_value > 0.7f) {
+                attempt_modifier *= 1.8f; // Many more attempts in rich soil
+            }
+            
+            int modified_attempts = (int)(pt->growth_attempts * attempt_modifier);
+            if (modified_attempts < 1) modified_attempts = 1;
+            if (modified_attempts > pt->growth_attempts * 3) modified_attempts = pt->growth_attempts * 3;
+            
+            for (int attempt = 0; attempt < modified_attempts; attempt++) {
                 float angle = ((float)rand() / RAND_MAX) * 2.0f * M_PI;
                 float new_x = nodes[i].x + cos(angle) * pt->branch_distance;
                 float new_y = nodes[i].y + sin(angle) * pt->branch_distance;
@@ -181,6 +225,20 @@ void plants_grow(void) {
                         simulation_add_chain(i, new_node);
                         nodes[i].branch_count++;
                         grown++;
+                        
+                        // MASSIVELY STRONG nutrition depletion - VERY VISIBLE
+                        float base_depletion = 0.12f; // HUGE depletion (12% per node!)
+                        float depletion_radius = pt->branch_distance * 4.0f; // MASSIVE radius (4x branch distance!)
+                        
+                        // Stronger plants deplete even more
+                        float size_factor = (pt->max_branches / 3.0f) * (pt->branch_distance / OPTIMAL_DISTANCE);
+                        float actual_depletion = base_depletion * size_factor;
+                        
+                        // Apply massive depletion
+                        nutrition_deplete_at_position(new_x, new_y, actual_depletion, depletion_radius);
+                        
+                        printf("Plant grown! Depleted %.3f nutrition in radius %.1f\n", actual_depletion, depletion_radius);
+                        
                         break;
                     }
                 }

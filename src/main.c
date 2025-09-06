@@ -9,6 +9,7 @@
 #include "plants.h"
 #include "physics.h"
 #include "rendering.h"
+#include "nutrition.h"
 
 static int g_keys[4] = {0};
 static int g_current_plant_type = 0;
@@ -90,8 +91,11 @@ int main(int argc, char* argv[]) {
         return 1;
     }
     
+    // Enable alpha blending for nutrition layer
+    SDL_SetRenderDrawBlendMode(renderer, SDL_BLENDMODE_BLEND);
+    
     // Initialize systems
-    if (!simulation_init() || !camera_init() || !rendering_init(renderer)) {
+    if (!simulation_init() || !camera_init() || !rendering_init(renderer) || !nutrition_init()) {
         printf("System initialization failed\n");
         SDL_DestroyRenderer(renderer);
         SDL_DestroyWindow(window);
@@ -110,6 +114,7 @@ int main(int argc, char* argv[]) {
     printf("  WASD: Move camera\n");
     printf("  Mouse wheel: Zoom in/out\n");
     printf("  1-9: Switch plant type\n");
+    printf("  N: Toggle nutrition layer\n");
     printf("  ESC: Exit\n\n");
     
     while (running) {
@@ -127,6 +132,9 @@ int main(int argc, char* argv[]) {
                     else if (event.key.keysym.sym == SDLK_a) g_keys[1] = 1;
                     else if (event.key.keysym.sym == SDLK_s) g_keys[2] = 1;
                     else if (event.key.keysym.sym == SDLK_d) g_keys[3] = 1;
+                    else if (event.key.keysym.sym == SDLK_n) {
+                        nutrition_toggle_visibility();
+                    }
                     // Plant type selection
                     else if (event.key.keysym.sym >= SDLK_1 && event.key.keysym.sym <= SDLK_9) {
                         int plant_index = event.key.keysym.sym - SDLK_1;
@@ -172,6 +180,7 @@ int main(int argc, char* argv[]) {
     }
     
     // Cleanup systems
+    nutrition_cleanup();
     simulation_cleanup();
     rendering_cleanup();
     

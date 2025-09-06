@@ -11,6 +11,9 @@
 #define MAX_PLANT_TYPES 64
 #define MAX_NAME_LENGTH 64
 
+// Layer resolution (shared by nutrition and gas layers)
+#define LAYER_GRID_SIZE 30.0f
+
 // Physics parameters
 #define OPTIMAL_DISTANCE 50.0f
 #define REPULSION_FORCE 0.05f

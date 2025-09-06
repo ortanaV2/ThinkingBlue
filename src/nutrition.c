@@ -1,17 +1,19 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <math.h>
+#include <time.h>
+#include <stdint.h>
+#include <unistd.h>
 #include <SDL2/SDL.h>
 
 #include "types.h"
 #include "nutrition.h"
 #include "camera.h"
 
-#define NUTRITION_GRID_SIZE 35.0f
 #define NUTRITION_SMOOTHNESS 10.0f
 
 static float* g_nutrition_grid = NULL;
-static float* g_original_nutrition = NULL; // Store original values to prevent terrain destruction
+static float* g_original_nutrition = NULL;
 static int g_grid_width = 0;
 static int g_grid_height = 0;
 static int g_visible = 0;
@@ -97,16 +99,38 @@ static float octave_perlin(float x, float y, int octaves, float persistence, flo
 }
 
 static void generate_perlin_terrain(void) {
+    // Better randomization using multiple sources
+    unsigned int seed = (unsigned int)time(NULL);
+    seed ^= (unsigned int)clock();
+    seed ^= (unsigned int)getpid();
+    seed += (unsigned int)((uintptr_t)&seed);
+    srand(seed);
+    
+    // Randomize perlin permutation table
+    for (int i = 0; i < 256; i++) {
+        int j = rand() % 256;
+        int temp = permutation[i];
+        permutation[i] = permutation[j];
+        permutation[j] = temp;
+    }
+    
     init_perlin();
+    
+    // Add random offsets to perlin sampling
+    float offset_x = ((float)rand() / RAND_MAX) * 1000.0f;
+    float offset_y = ((float)rand() / RAND_MAX) * 1000.0f;
     
     for (int y = 0; y < g_grid_height; y++) {
         for (int x = 0; x < g_grid_width; x++) {
             float value = 0.0f;
             
-            value += octave_perlin(x, y, 4, 0.6f, 0.005f) * 1.0f;
-            value += octave_perlin(x, y, 6, 0.5f, 0.02f) * 0.4f;
-            value += octave_perlin(x, y, 4, 0.4f, 0.08f) * 0.3f;
-            value += octave_perlin(x, y, 2, 0.3f, 0.2f) * 0.2f;
+            float px = x + offset_x;
+            float py = y + offset_y;
+            
+            value += octave_perlin(px, py, 4, 0.6f, 0.005f) * 1.0f;
+            value += octave_perlin(px, py, 6, 0.5f, 0.02f) * 0.4f;
+            value += octave_perlin(px, py, 4, 0.4f, 0.08f) * 0.3f;
+            value += octave_perlin(px, py, 2, 0.3f, 0.2f) * 0.2f;
             
             value = (value + 1.0f) * 0.5f;
             value += ((float)rand() / RAND_MAX - 0.5f) * 0.3f;
@@ -169,10 +193,9 @@ static void apply_smoothing(void) {
 }
 
 int nutrition_init(void) {
-    g_grid_width = (int)ceil(WORLD_WIDTH / NUTRITION_GRID_SIZE);
-    g_grid_height = (int)ceil(WORLD_HEIGHT / NUTRITION_GRID_SIZE);
+    g_grid_width = (int)ceil(WORLD_WIDTH / LAYER_GRID_SIZE);
+    g_grid_height = (int)ceil(WORLD_HEIGHT / LAYER_GRID_SIZE);
     
-    // Allocate both current and original grids
     g_nutrition_grid = malloc(g_grid_width * g_grid_height * sizeof(float));
     g_original_nutrition = malloc(g_grid_width * g_grid_height * sizeof(float));
     
@@ -184,14 +207,15 @@ int nutrition_init(void) {
     generate_perlin_terrain();
     apply_smoothing();
     
-    // Copy original values for regeneration reference
+    // Store original values for regeneration
     for (int i = 0; i < g_grid_width * g_grid_height; i++) {
         g_original_nutrition[i] = g_nutrition_grid[i];
     }
     
     g_visible = 0;
     
-    printf("Nutrition initialized: %dx%d grid with rainbow colors\n", g_grid_width, g_grid_height);
+    printf("Nutrition initialized: %dx%d grid (%.1f unit cells)\n", 
+           g_grid_width, g_grid_height, LAYER_GRID_SIZE);
     return 1;
 }
 
@@ -220,8 +244,8 @@ int nutrition_is_visible(void) {
 }
 
 static void world_to_nutrition_grid(float world_x, float world_y, int* grid_x, int* grid_y) {
-    *grid_x = (int)floor((world_x - WORLD_LEFT) / NUTRITION_GRID_SIZE);
-    *grid_y = (int)floor((world_y - WORLD_TOP) / NUTRITION_GRID_SIZE);
+    *grid_x = (int)floor((world_x - WORLD_LEFT) / LAYER_GRID_SIZE);
+    *grid_y = (int)floor((world_y - WORLD_TOP) / LAYER_GRID_SIZE);
 }
 
 float nutrition_get_value_at(float world_x, float world_y) {
@@ -238,10 +262,10 @@ float nutrition_get_value_at(float world_x, float world_y) {
 void nutrition_deplete_at_position(float world_x, float world_y, float depletion_amount, float radius) {
     if (!g_nutrition_grid) return;
     
-    int center_x = (int)floor((world_x - WORLD_LEFT) / NUTRITION_GRID_SIZE);
-    int center_y = (int)floor((world_y - WORLD_TOP) / NUTRITION_GRID_SIZE);
+    int center_x = (int)floor((world_x - WORLD_LEFT) / LAYER_GRID_SIZE);
+    int center_y = (int)floor((world_y - WORLD_TOP) / LAYER_GRID_SIZE);
     
-    int grid_radius = (int)ceil(radius / NUTRITION_GRID_SIZE);
+    int grid_radius = (int)ceil(radius / LAYER_GRID_SIZE);
     
     for (int dy = -grid_radius; dy <= grid_radius; dy++) {
         for (int dx = -grid_radius; dx <= grid_radius; dx++) {
@@ -252,7 +276,7 @@ void nutrition_deplete_at_position(float world_x, float world_y, float depletion
                 continue;
             }
             
-            float distance = sqrt(dx * dx + dy * dy) * NUTRITION_GRID_SIZE;
+            float distance = sqrt(dx * dx + dy * dy) * LAYER_GRID_SIZE;
             
             if (distance <= radius) {
                 float falloff = 1.0f - (distance / radius);
@@ -274,17 +298,15 @@ void nutrition_deplete_at_position(float world_x, float world_y, float depletion
 void nutrition_regenerate(void) {
     if (!g_nutrition_grid || !g_original_nutrition) return;
     
-    float regen_rate = 0.0002f; // Very slow regeneration
+    float regen_rate = 0.0002f;
     
     for (int i = 0; i < g_grid_width * g_grid_height; i++) {
         float current = g_nutrition_grid[i];
         float original = g_original_nutrition[i];
         
-        // Only regenerate towards original value if significantly depleted
         if (current < original * 0.8f) {
             g_nutrition_grid[i] += regen_rate;
             
-            // Don't exceed original value
             if (g_nutrition_grid[i] > original) {
                 g_nutrition_grid[i] = original;
             }
@@ -292,12 +314,13 @@ void nutrition_regenerate(void) {
     }
 }
 
-static void value_to_rainbow_color(float value, int* r, int* g, int* b) {
-    // Rainbow color mapping: 0.0 = red, 0.33 = green, 0.66 = blue, 1.0 = magenta
+// High nutrition = red, low nutrition = blue
+static void value_to_nutrition_color(float value, int* r, int* g, int* b) {
     if (value < 0.0f) value = 0.0f;
     if (value > 1.0f) value = 1.0f;
     
-    float h = value * 5.0f; // 0-5 range for smooth transitions
+    // Reversed mapping: 0.0 = blue, 1.0 = red
+    float h = (1.0f - value) * 5.0f;
     int i = (int)floor(h);
     float f = h - i;
     
@@ -341,10 +364,10 @@ void nutrition_render(void) {
     float world_left, world_top, world_right, world_bottom;
     camera_get_viewport_bounds(&world_left, &world_top, &world_right, &world_bottom);
     
-    int start_x = (int)floor((world_left - WORLD_LEFT) / NUTRITION_GRID_SIZE) - 1;
-    int end_x = (int)ceil((world_right - WORLD_LEFT) / NUTRITION_GRID_SIZE) + 1;
-    int start_y = (int)floor((world_top - WORLD_TOP) / NUTRITION_GRID_SIZE) - 1;
-    int end_y = (int)ceil((world_bottom - WORLD_TOP) / NUTRITION_GRID_SIZE) + 1;
+    int start_x = (int)floor((world_left - WORLD_LEFT) / LAYER_GRID_SIZE) - 1;
+    int end_x = (int)ceil((world_right - WORLD_LEFT) / LAYER_GRID_SIZE) + 1;
+    int start_y = (int)floor((world_top - WORLD_TOP) / LAYER_GRID_SIZE) - 1;
+    int end_y = (int)ceil((world_bottom - WORLD_TOP) / LAYER_GRID_SIZE) + 1;
     
     if (start_x < 0) start_x = 0;
     if (end_x >= g_grid_width) end_x = g_grid_width - 1;
@@ -355,18 +378,17 @@ void nutrition_render(void) {
         for (int gx = start_x; gx <= end_x; gx++) {
             float nutrition_value = g_nutrition_grid[gy * g_grid_width + gx];
             
-            // Rainbow color scheme
             int r, g, b;
-            value_to_rainbow_color(nutrition_value, &r, &g, &b);
+            value_to_nutrition_color(nutrition_value, &r, &g, &b);
             
-            SDL_SetRenderDrawColor(g_renderer, r, g, b, 140); // Semi-transparent
+            SDL_SetRenderDrawColor(g_renderer, r, g, b, 140);
             
-            float world_x = WORLD_LEFT + gx * NUTRITION_GRID_SIZE;
-            float world_y = WORLD_TOP + gy * NUTRITION_GRID_SIZE;
+            float world_x = WORLD_LEFT + gx * LAYER_GRID_SIZE;
+            float world_y = WORLD_TOP + gy * LAYER_GRID_SIZE;
             
             int screen_x1, screen_y1, screen_x2, screen_y2;
             camera_world_to_screen(world_x, world_y, &screen_x1, &screen_y1);
-            camera_world_to_screen(world_x + NUTRITION_GRID_SIZE, world_y + NUTRITION_GRID_SIZE, 
+            camera_world_to_screen(world_x + LAYER_GRID_SIZE, world_y + LAYER_GRID_SIZE, 
                                  &screen_x2, &screen_y2);
             
             SDL_Rect rect;

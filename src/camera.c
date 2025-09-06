@@ -20,6 +20,20 @@ void camera_update(int keys[4]) {
     if (keys[3]) g_camera.x += move_speed; // D
 }
 
+void camera_update_with_sprint(int keys[4], int sprint_active) {
+    float move_speed = CAMERA_SPEED / g_camera.zoom;
+    
+    // Double speed when sprinting
+    if (sprint_active) {
+        move_speed *= 2.5f;
+    }
+    
+    if (keys[0]) g_camera.y -= move_speed; // W
+    if (keys[1]) g_camera.x -= move_speed; // A
+    if (keys[2]) g_camera.y += move_speed; // S
+    if (keys[3]) g_camera.x += move_speed; // D
+}
+
 void camera_zoom(float zoom_delta, int mouse_x, int mouse_y) {
     // Get world position before zoom
     float world_x_before, world_y_before;

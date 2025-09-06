@@ -11,23 +11,21 @@
 static SDL_Renderer* g_renderer = NULL;
 
 static void calculate_aged_color(int base_r, int base_g, int base_b, int age, int* aged_r, int* aged_g, int* aged_b) {
-    // Age factor: 0.0 (young) to 0.5 (old, max 50% aging)
-    float age_factor = fminf((float)age / 3600.0f, 0.5f); // 1 minute at 60fps = fully aged
+    // Much more conservative aging - maximum 30% darkening
+    float age_factor = fminf((float)age / 7200.0f, 0.3f); // 2 minutes at 60fps = max aging
     
-    // Darker but not brown target - keep some of original hue
-    int dark_r = base_r * 0.3f;
-    int dark_g = base_g * 0.4f; 
-    int dark_b = base_b * 0.3f;
+    // Darken colors more conservatively
+    float darkening = 0.7f; // Keep 70% of original brightness at max age
+    float final_factor = 1.0f - (age_factor * (1.0f - darkening));
     
-    // Interpolate between base color and darker version
-    float inv_age = 1.0f - age_factor;
-    float aged_float_r = base_r * inv_age + dark_r * age_factor;
-    float aged_float_g = base_g * inv_age + dark_g * age_factor;
-    float aged_float_b = base_b * inv_age + dark_b * age_factor;
+    *aged_r = (int)(base_r * final_factor);
+    *aged_g = (int)(base_g * final_factor);
+    *aged_b = (int)(base_b * final_factor);
     
-    *aged_r = (int)(aged_float_r > 0 ? aged_float_r : 0);
-    *aged_g = (int)(aged_float_g > 0 ? aged_float_g : 0);
-    *aged_b = (int)(aged_float_b > 0 ? aged_float_b : 0);
+    // Ensure minimum visibility
+    if (*aged_r < 20) *aged_r = 20;
+    if (*aged_g < 20) *aged_g = 20;
+    if (*aged_b < 20) *aged_b = 20;
 }
 
 static void draw_thick_line(SDL_Renderer* renderer, int x1, int y1, int x2, int y2, int thickness) {
@@ -145,15 +143,19 @@ void rendering_render(void) {
             continue;
         }
         
-        // Set chain color based on plant type and age
+        // Get plant type and set chain color
         int plant_type = chains[i].plant_type;
-        PlantType* pt = plants_get_type(plant_type);
-        if (pt) {
-            int aged_r, aged_g, aged_b;
-            calculate_aged_color(pt->chain_r, pt->chain_g, pt->chain_b, chains[i].age, &aged_r, &aged_g, &aged_b);
-            SDL_SetRenderDrawColor(g_renderer, aged_r, aged_g, aged_b, 255);
+        if (plant_type >= 0 && plant_type < plants_get_type_count()) {
+            PlantType* pt = plants_get_type(plant_type);
+            if (pt) {
+                int aged_r, aged_g, aged_b;
+                calculate_aged_color(pt->chain_r, pt->chain_g, pt->chain_b, chains[i].age, &aged_r, &aged_g, &aged_b);
+                SDL_SetRenderDrawColor(g_renderer, aged_r, aged_g, aged_b, 255);
+            } else {
+                SDL_SetRenderDrawColor(g_renderer, 100, 200, 100, 255); // Fallback green
+            }
         } else {
-            SDL_SetRenderDrawColor(g_renderer, 100, 200, 100, 255);
+            SDL_SetRenderDrawColor(g_renderer, 100, 200, 100, 255); // Fallback green
         }
         
         int screen_x1, screen_y1, screen_x2, screen_y2;
@@ -183,18 +185,22 @@ void rendering_render(void) {
         int scaled_radius = (int)(NODE_RADIUS * camera_get_zoom());
         if (scaled_radius < 1) scaled_radius = 1;
         
-        // Set color based on selection state, plant type and age
+        // Set color based on selection state and plant type
         if (i == selected_node && selection_mode == 1) {
-            SDL_SetRenderDrawColor(g_renderer, 255, 255, 0, 255);
+            SDL_SetRenderDrawColor(g_renderer, 255, 255, 0, 255); // Yellow for selected
         } else {
             int plant_type = nodes[i].plant_type;
-            PlantType* pt = plants_get_type(plant_type);
-            if (pt) {
-                int aged_r, aged_g, aged_b;
-                calculate_aged_color(pt->node_r, pt->node_g, pt->node_b, nodes[i].age, &aged_r, &aged_g, &aged_b);
-                SDL_SetRenderDrawColor(g_renderer, aged_r, aged_g, aged_b, 255);
+            if (plant_type >= 0 && plant_type < plants_get_type_count()) {
+                PlantType* pt = plants_get_type(plant_type);
+                if (pt) {
+                    int aged_r, aged_g, aged_b;
+                    calculate_aged_color(pt->node_r, pt->node_g, pt->node_b, nodes[i].age, &aged_r, &aged_g, &aged_b);
+                    SDL_SetRenderDrawColor(g_renderer, aged_r, aged_g, aged_b, 255);
+                } else {
+                    SDL_SetRenderDrawColor(g_renderer, 150, 255, 150, 255); // Fallback light green
+                }
             } else {
-                SDL_SetRenderDrawColor(g_renderer, 150, 255, 150, 255);
+                SDL_SetRenderDrawColor(g_renderer, 150, 255, 150, 255); // Fallback light green
             }
         }
         

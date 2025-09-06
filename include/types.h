@@ -24,7 +24,7 @@
 // Camera parameters
 #define CAMERA_SPEED 5.0f
 #define ZOOM_SPEED 0.1f
-#define MIN_ZOOM 0.1f
+#define MIN_ZOOM 0.01f
 #define MAX_ZOOM 5.0f
 
 // World configuration
@@ -55,6 +55,10 @@ typedef struct {
     int max_branches;
     float branch_distance;
     float mobility_factor;    // How moveable nodes are (0.0 = static, 1.0 = fully mobile)
+    
+    // Nutrition depletion settings
+    float nutrition_depletion_strength;  // Base depletion amount per growth
+    float nutrition_depletion_radius;    // Radius of depletion effect
     
     // Node colors (RGB 0-255)
     int node_r, node_g, node_b;

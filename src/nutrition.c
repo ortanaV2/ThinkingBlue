@@ -184,14 +184,14 @@ int nutrition_init(void) {
     generate_perlin_terrain();
     apply_smoothing();
     
-    // Copy original values for regeneration reference - PREVENTS TERRAIN DESTRUCTION
+    // Copy original values for regeneration reference
     for (int i = 0; i < g_grid_width * g_grid_height; i++) {
         g_original_nutrition[i] = g_nutrition_grid[i];
     }
     
     g_visible = 0;
     
-    printf("Nutrition v2 initialized: %dx%d grid with original terrain preservation\n", g_grid_width, g_grid_height);
+    printf("Nutrition initialized: %dx%d grid with rainbow colors\n", g_grid_width, g_grid_height);
     return 1;
 }
 
@@ -212,7 +212,7 @@ void nutrition_set_renderer(SDL_Renderer* renderer) {
 
 void nutrition_toggle_visibility(void) {
     g_visible = !g_visible;
-    printf("Nutrition layer v2: %s\n", g_visible ? "ON" : "OFF");
+    printf("Nutrition layer: %s\n", g_visible ? "ON" : "OFF");
 }
 
 int nutrition_is_visible(void) {
@@ -235,7 +235,6 @@ float nutrition_get_value_at(float world_x, float world_y) {
     return g_nutrition_grid[grid_y * g_grid_width + grid_x];
 }
 
-// EXTREME nutrition depletion - VERY VISIBLE EFFECTS
 void nutrition_deplete_at_position(float world_x, float world_y, float depletion_amount, float radius) {
     if (!g_nutrition_grid) return;
     
@@ -272,7 +271,6 @@ void nutrition_deplete_at_position(float world_x, float world_y, float depletion
     }
 }
 
-// SMART regeneration - preserves original terrain, prevents fade-out
 void nutrition_regenerate(void) {
     if (!g_nutrition_grid || !g_original_nutrition) return;
     
@@ -282,15 +280,58 @@ void nutrition_regenerate(void) {
         float current = g_nutrition_grid[i];
         float original = g_original_nutrition[i];
         
-        // Only regenerate towards original value, and only if significantly depleted
-        if (current < original * 0.8f) { // Only if depleted by more than 20%
+        // Only regenerate towards original value if significantly depleted
+        if (current < original * 0.8f) {
             g_nutrition_grid[i] += regen_rate;
             
-            // Don't exceed original value - PREVENTS TERRAIN DESTRUCTION
+            // Don't exceed original value
             if (g_nutrition_grid[i] > original) {
                 g_nutrition_grid[i] = original;
             }
         }
+    }
+}
+
+static void value_to_rainbow_color(float value, int* r, int* g, int* b) {
+    // Rainbow color mapping: 0.0 = red, 0.33 = green, 0.66 = blue, 1.0 = magenta
+    if (value < 0.0f) value = 0.0f;
+    if (value > 1.0f) value = 1.0f;
+    
+    float h = value * 5.0f; // 0-5 range for smooth transitions
+    int i = (int)floor(h);
+    float f = h - i;
+    
+    switch (i) {
+        case 0: // Red to Yellow
+            *r = 255;
+            *g = (int)(255 * f);
+            *b = 0;
+            break;
+        case 1: // Yellow to Green
+            *r = (int)(255 * (1.0f - f));
+            *g = 255;
+            *b = 0;
+            break;
+        case 2: // Green to Cyan
+            *r = 0;
+            *g = 255;
+            *b = (int)(255 * f);
+            break;
+        case 3: // Cyan to Blue
+            *r = 0;
+            *g = (int)(255 * (1.0f - f));
+            *b = 255;
+            break;
+        case 4: // Blue to Magenta
+            *r = (int)(255 * f);
+            *g = 0;
+            *b = 255;
+            break;
+        default: // Magenta
+            *r = 255;
+            *g = 0;
+            *b = 255;
+            break;
     }
 }
 
@@ -314,42 +355,11 @@ void nutrition_render(void) {
         for (int gx = start_x; gx <= end_x; gx++) {
             float nutrition_value = g_nutrition_grid[gy * g_grid_width + gx];
             
-            // INFERNO COLOR SCHEME - FULL RANGE PRESERVED
+            // Rainbow color scheme
             int r, g, b;
+            value_to_rainbow_color(nutrition_value, &r, &g, &b);
             
-            if (nutrition_value < 0.2f) {
-                // Dark purple to purple (very low nutrition)
-                float t = nutrition_value / 0.2f;
-                r = (int)(20 + t * 60);   // 20-80
-                g = (int)(5 + t * 15);    // 5-20
-                b = (int)(40 + t * 80);   // 40-120
-            } else if (nutrition_value < 0.4f) {
-                // Purple to dark red (low nutrition)
-                float t = (nutrition_value - 0.2f) / 0.2f;
-                r = (int)(80 + t * 100);  // 80-180
-                g = (int)(20 + t * 10);   // 20-30
-                b = (int)(120 - t * 80);  // 120-40
-            } else if (nutrition_value < 0.6f) {
-                // Dark red to bright red (medium-low nutrition)
-                float t = (nutrition_value - 0.4f) / 0.2f;
-                r = (int)(180 + t * 75);  // 180-255
-                g = (int)(30 + t * 50);   // 30-80
-                b = (int)(40 - t * 30);   // 40-10
-            } else if (nutrition_value < 0.8f) {
-                // Bright red to orange (medium-high nutrition)
-                float t = (nutrition_value - 0.6f) / 0.2f;
-                r = 255;
-                g = (int)(80 + t * 120);  // 80-200
-                b = (int)(10 + t * 20);   // 10-30
-            } else {
-                // Orange to bright yellow/white (high nutrition)
-                float t = (nutrition_value - 0.8f) / 0.2f;
-                r = 255;
-                g = (int)(200 + t * 55);  // 200-255
-                b = (int)(30 + t * 150);  // 30-180
-            }
-            
-            SDL_SetRenderDrawColor(g_renderer, r, g, b, 160); // High visibility
+            SDL_SetRenderDrawColor(g_renderer, r, g, b, 140); // Semi-transparent
             
             float world_x = WORLD_LEFT + gx * NUTRITION_GRID_SIZE;
             float world_y = WORLD_TOP + gy * NUTRITION_GRID_SIZE;

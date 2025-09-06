@@ -6,6 +6,7 @@ int camera_init(void);
 
 // Camera movement and control
 void camera_update(int keys[4]);
+void camera_update_with_sprint(int keys[4], int sprint_active);
 void camera_zoom(float zoom_delta, int mouse_x, int mouse_y);
 
 // Coordinate transformations

@@ -11,8 +11,37 @@
 #include "rendering.h"
 #include "nutrition.h"
 
-static int g_keys[4] = {0};
 static int g_current_plant_type = 0;
+
+static void populate_reef_randomly(void) {
+    int total_species = plants_get_type_count();
+    if (total_species == 0) return;
+    
+    // Spawn initial reef population across the world
+    int spawn_count = 500; // Total initial organisms
+    
+    printf("Populating reef with %d organisms across %d species...\n", spawn_count, total_species);
+    
+    for (int i = 0; i < spawn_count; i++) {
+        // Random position across the world
+        float x = WORLD_LEFT + ((float)rand() / RAND_MAX) * WORLD_WIDTH;
+        float y = WORLD_TOP + ((float)rand() / RAND_MAX) * WORLD_HEIGHT;
+        
+        // Random species selection
+        int species = rand() % total_species;
+        
+        // Create organism
+        int node_id = simulation_add_node(x, y, species);
+        if (node_id >= 0) {
+            PlantType* pt = plants_get_type(species);
+            if (pt) {
+                printf("Spawned %s at (%.0f, %.0f)\n", pt->name, x, y);
+            }
+        }
+    }
+    
+    printf("Reef population complete!\n");
+}
 
 static void handle_mouse_click(int screen_x, int screen_y, int button) {
     float world_x, world_y;
@@ -71,7 +100,7 @@ int main(int argc, char* argv[]) {
         return 1;
     }
     
-    SDL_Window* window = SDL_CreateWindow("Customizable Plant Ecosystem",
+    SDL_Window* window = SDL_CreateWindow("Great Barrier Reef Ecosystem",
                                          SDL_WINDOWPOS_CENTERED,
                                          SDL_WINDOWPOS_CENTERED,
                                          WINDOW_WIDTH, WINDOW_HEIGHT,
@@ -103,21 +132,39 @@ int main(int argc, char* argv[]) {
         return 1;
     }
     
+    // Populate reef with random organisms
+    populate_reef_randomly();
+    
     int running = 1;
     SDL_Event event;
     int mouse_x = 0, mouse_y = 0;
     
-    printf("\nControls:\n");
-    printf("  Left click: Create node (current: %s)\n", 
+    printf("\nGreat Barrier Reef Ecosystem Controls:\n");
+    printf("  Left click: Create organism (current: %s)\n", 
            plants_get_type_count() > 0 ? plants_get_type(g_current_plant_type)->name : "none");
     printf("  Right click: Select nodes for chaining\n");
     printf("  WASD: Move camera\n");
+    printf("  Shift + WASD: Sprint (2x speed)\n");
     printf("  Mouse wheel: Zoom in/out\n");
-    printf("  1-9: Switch plant type\n");
-    printf("  N: Toggle nutrition layer\n");
+    printf("  1-8: Switch species type\n");
+    printf("  N: Toggle nutrition layer (rainbow)\n");
+    printf("  R: Repopulate reef randomly\n");
     printf("  ESC: Exit\n\n");
     
     while (running) {
+        // Get current keyboard state for smooth movement
+        const Uint8* keyboard_state = SDL_GetKeyboardState(NULL);
+        
+        // Movement keys
+        int keys[4] = {0};
+        keys[0] = keyboard_state[SDL_SCANCODE_W];
+        keys[1] = keyboard_state[SDL_SCANCODE_A];
+        keys[2] = keyboard_state[SDL_SCANCODE_S];
+        keys[3] = keyboard_state[SDL_SCANCODE_D];
+        
+        // Sprint detection
+        int sprint_active = keyboard_state[SDL_SCANCODE_LSHIFT] || keyboard_state[SDL_SCANCODE_RSHIFT];
+        
         while (SDL_PollEvent(&event)) {
             switch (event.type) {
                 case SDL_QUIT:
@@ -128,28 +175,23 @@ int main(int argc, char* argv[]) {
                     if (event.key.keysym.sym == SDLK_ESCAPE) {
                         running = 0;
                     }
-                    else if (event.key.keysym.sym == SDLK_w) g_keys[0] = 1;
-                    else if (event.key.keysym.sym == SDLK_a) g_keys[1] = 1;
-                    else if (event.key.keysym.sym == SDLK_s) g_keys[2] = 1;
-                    else if (event.key.keysym.sym == SDLK_d) g_keys[3] = 1;
                     else if (event.key.keysym.sym == SDLK_n) {
                         nutrition_toggle_visibility();
                     }
-                    // Plant type selection
-                    else if (event.key.keysym.sym >= SDLK_1 && event.key.keysym.sym <= SDLK_9) {
-                        int plant_index = event.key.keysym.sym - SDLK_1;
-                        if (plant_index < plants_get_type_count()) {
-                            g_current_plant_type = plant_index;
-                            printf("Selected plant type: %s\n", plants_get_type(g_current_plant_type)->name);
+                    else if (event.key.keysym.sym == SDLK_r) {
+                        // Repopulate reef
+                        populate_reef_randomly();
+                    }
+                    // Species selection
+                    else if (event.key.keysym.sym >= SDLK_1 && event.key.keysym.sym <= SDLK_8) {
+                        int species_index = event.key.keysym.sym - SDLK_1;
+                        if (species_index < plants_get_type_count()) {
+                            g_current_plant_type = species_index;
+                            printf("Selected species: %s%s\n", 
+                                   plants_get_type(g_current_plant_type)->name,
+                                   sprint_active ? " (SPRINT MODE)" : "");
                         }
                     }
-                    break;
-                    
-                case SDL_KEYUP:
-                    if (event.key.keysym.sym == SDLK_w) g_keys[0] = 0;
-                    else if (event.key.keysym.sym == SDLK_a) g_keys[1] = 0;
-                    else if (event.key.keysym.sym == SDLK_s) g_keys[2] = 0;
-                    else if (event.key.keysym.sym == SDLK_d) g_keys[3] = 0;
                     break;
                     
                 case SDL_MOUSEBUTTONDOWN:
@@ -172,7 +214,8 @@ int main(int argc, char* argv[]) {
             }
         }
         
-        camera_update(g_keys);
+        // Update camera with sprint
+        camera_update_with_sprint(keys, sprint_active);
         physics_update();
         rendering_render();
         

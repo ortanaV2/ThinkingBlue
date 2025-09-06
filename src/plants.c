@@ -56,6 +56,8 @@ int plants_load_config(const char* filename) {
             current_plant->max_branches = 3;
             current_plant->branch_distance = OPTIMAL_DISTANCE;
             current_plant->mobility_factor = 1.0f;
+            current_plant->nutrition_depletion_strength = 0.08f;  // Default depletion strength
+            current_plant->nutrition_depletion_radius = 120.0f;   // Default depletion radius
             current_plant->node_r = 150;
             current_plant->node_g = 255;
             current_plant->node_b = 150;
@@ -92,6 +94,10 @@ int plants_load_config(const char* filename) {
             current_plant->branch_distance = (float)atof(value);
         } else if (strcmp(key, "mobility_factor") == 0) {
             current_plant->mobility_factor = (float)atof(value);
+        } else if (strcmp(key, "nutrition_depletion_strength") == 0) {
+            current_plant->nutrition_depletion_strength = (float)atof(value);
+        } else if (strcmp(key, "nutrition_depletion_radius") == 0) {
+            current_plant->nutrition_depletion_radius = (float)atof(value);
         } else if (strcmp(key, "node_color") == 0) {
             parse_color(value, &current_plant->node_r, &current_plant->node_g, &current_plant->node_b);
         } else if (strcmp(key, "chain_color") == 0) {
@@ -104,9 +110,10 @@ int plants_load_config(const char* filename) {
     printf("Loaded %d plant types from config\n", g_plant_type_count);
     for (int i = 0; i < g_plant_type_count; i++) {
         PlantType* pt = &g_plant_types[i];
-        printf("  %s: prob=%.3f, attempts=%d, branches=%d, distance=%.1f, mobility=%.2f\n",
+        printf("  %s: prob=%.3f, attempts=%d, branches=%d, distance=%.1f, mobility=%.2f, depletion=%.3f/%.1f\n",
                pt->name, pt->growth_probability, pt->growth_attempts, 
-               pt->max_branches, pt->branch_distance, pt->mobility_factor);
+               pt->max_branches, pt->branch_distance, pt->mobility_factor,
+               pt->nutrition_depletion_strength, pt->nutrition_depletion_radius);
     }
     
     return g_plant_type_count > 0;
@@ -143,7 +150,7 @@ static int is_position_free(float x, float y, float min_distance) {
 }
 
 static float calculate_nutrition_growth_modifier(float nutrition_value) {
-    // Much more extreme nutrition effects for dramatic gameplay
+    // Extreme nutrition effects for dramatic gameplay
     if (nutrition_value < 0.2f) {
         return 0.05f; // Almost no growth in very poor soil
     } else if (nutrition_value < 0.3f) {
@@ -196,7 +203,7 @@ void plants_grow(void) {
         float modified_growth_prob = pt->growth_probability * nutrition_modifier;
         
         if ((float)rand() / RAND_MAX < modified_growth_prob) {
-            // Dramatically modify growth attempts based on nutrition
+            // Modify growth attempts based on nutrition
             float attempt_modifier = nutrition_modifier;
             if (nutrition_value < 0.3f) {
                 attempt_modifier *= 0.3f; // Very few attempts in poor soil
@@ -226,18 +233,16 @@ void plants_grow(void) {
                         nodes[i].branch_count++;
                         grown++;
                         
-                        // MASSIVELY STRONG nutrition depletion - VERY VISIBLE
-                        float base_depletion = 0.12f; // HUGE depletion (12% per node!)
-                        float depletion_radius = pt->branch_distance * 4.0f; // MASSIVE radius (4x branch distance!)
+                        // Use configurable nutrition depletion from plant type
+                        float depletion_strength = pt->nutrition_depletion_strength;
+                        float depletion_radius = pt->nutrition_depletion_radius;
                         
-                        // Stronger plants deplete even more
+                        // Apply size factor based on plant characteristics
                         float size_factor = (pt->max_branches / 3.0f) * (pt->branch_distance / OPTIMAL_DISTANCE);
-                        float actual_depletion = base_depletion * size_factor;
+                        float actual_depletion = depletion_strength * size_factor;
                         
-                        // Apply massive depletion
+                        // Apply nutrition depletion
                         nutrition_deplete_at_position(new_x, new_y, actual_depletion, depletion_radius);
-                        
-                        printf("Plant grown! Depleted %.3f nutrition in radius %.1f\n", actual_depletion, depletion_radius);
                         
                         break;
                     }

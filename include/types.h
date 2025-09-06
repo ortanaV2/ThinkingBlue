@@ -61,6 +61,10 @@ typedef struct {
     float nutrition_depletion_strength;  // Base depletion amount per growth
     float nutrition_depletion_radius;    // Radius of depletion effect
     
+    // Oxygen production settings
+    float oxygen_production_factor;      // Oxygen production intensity (0.0 to 1.0+)
+    float oxygen_production_radius;      // Radius of oxygen production effect
+    
     // Node colors (RGB 0-255)
     int node_r, node_g, node_b;
     

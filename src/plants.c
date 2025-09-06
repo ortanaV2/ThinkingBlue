@@ -23,49 +23,6 @@ static void parse_color(const char* color_str, int* r, int* g, int* b) {
     *b = color & 0xFF;
 }
 
-static float get_plant_oxygen_production(int plant_type) {
-    // Different oxygen production rates based on plant type
-    if (plant_type < 0 || plant_type >= g_plant_type_count) {
-        return 0.001f; // Default minimal production
-    }
-    
-    PlantType* pt = &g_plant_types[plant_type];
-    
-    // Check if it's a coral type (less oxygen production)
-    if (strstr(pt->name, "Coral") != NULL) {
-        return 0.0008f; // Corals produce less oxygen
-    }
-    
-    // Plants like Kelp and SeaGrass produce more oxygen
-    if (strcmp(pt->name, "Kelp") == 0 || strcmp(pt->name, "SeaGrass") == 0) {
-        return 0.003f; // High oxygen producers
-    }
-    
-    // Other plants moderate production
-    return 0.0015f;
-}
-
-static float get_plant_oxygen_radius(int plant_type) {
-    if (plant_type < 0 || plant_type >= g_plant_type_count) {
-        return 80.0f;
-    }
-    
-    PlantType* pt = &g_plant_types[plant_type];
-    
-    // Larger plants have bigger oxygen production radius
-    float base_radius = pt->branch_distance * 2.0f;
-    
-    if (strcmp(pt->name, "Kelp") == 0) {
-        return base_radius * 1.8f; // Kelp has large oxygen field
-    } else if (strcmp(pt->name, "SeaGrass") == 0) {
-        return base_radius * 1.5f;
-    } else if (strstr(pt->name, "Coral") != NULL) {
-        return base_radius * 0.8f; // Corals have smaller radius
-    }
-    
-    return base_radius;
-}
-
 int plants_load_config(const char* filename) {
     FILE* file = fopen(filename, "r");
     if (!file) {
@@ -103,6 +60,8 @@ int plants_load_config(const char* filename) {
             current_plant->age_mature = 1800; // Default 30 seconds at 60fps
             current_plant->nutrition_depletion_strength = 0.08f;
             current_plant->nutrition_depletion_radius = 120.0f;
+            current_plant->oxygen_production_factor = 0.2f; // Default low oxygen production
+            current_plant->oxygen_production_radius = 80.0f; // Default radius
             current_plant->node_r = 150;
             current_plant->node_g = 255;
             current_plant->node_b = 150;
@@ -145,6 +104,10 @@ int plants_load_config(const char* filename) {
             current_plant->nutrition_depletion_strength = (float)atof(value);
         } else if (strcmp(key, "nutrition_depletion_radius") == 0) {
             current_plant->nutrition_depletion_radius = (float)atof(value);
+        } else if (strcmp(key, "oxygen_production_factor") == 0) {
+            current_plant->oxygen_production_factor = (float)atof(value);
+        } else if (strcmp(key, "oxygen_production_radius") == 0) {
+            current_plant->oxygen_production_radius = (float)atof(value);
         } else if (strcmp(key, "node_color") == 0) {
             parse_color(value, &current_plant->node_r, &current_plant->node_g, &current_plant->node_b);
         } else if (strcmp(key, "chain_color") == 0) {
@@ -157,9 +120,8 @@ int plants_load_config(const char* filename) {
     printf("Loaded %d plant types from config\n", g_plant_type_count);
     for (int i = 0; i < g_plant_type_count; i++) {
         PlantType* pt = &g_plant_types[i];
-        printf("  %s: prob=%.3f, attempts=%d, branches=%d, distance=%.1f, mobility=%.2f, mature_age=%d\n",
-               pt->name, pt->growth_probability, pt->growth_attempts, 
-               pt->max_branches, pt->branch_distance, pt->mobility_factor, pt->age_mature);
+        printf("  %s: O2_factor=%.2f, O2_radius=%.1f, mobility=%.2f\n",
+               pt->name, pt->oxygen_production_factor, pt->oxygen_production_radius, pt->mobility_factor);
     }
     
     return g_plant_type_count > 0;
@@ -220,29 +182,15 @@ void plants_grow(void) {
     Node* nodes = simulation_get_nodes();
     int current_node_count = simulation_get_node_count();
     
-    // Call nutrition regeneration and gas decay every frame
+    // Call nutrition regeneration and gas heatmap update every frame
     nutrition_regenerate();
-    gas_decay_oxygen();
+    gas_update_heatmap(); // This handles decay and recalculation
     
     // Dynamic growth limit
     int growth_limit = (current_node_count / 100) + 3;
     if (growth_limit > 50) growth_limit = 50;
     
     int grown = 0;
-    
-    // Process oxygen production for all existing nodes
-    for (int i = 0; i < current_node_count; i++) {
-        if (!nodes[i].active) continue;
-        
-        int plant_type = nodes[i].plant_type;
-        if (plant_type < 0 || plant_type >= g_plant_type_count) continue;
-        
-        // Produce oxygen based on plant type
-        float oxygen_production = get_plant_oxygen_production(plant_type);
-        float oxygen_radius = get_plant_oxygen_radius(plant_type);
-        
-        gas_produce_oxygen_at_position(nodes[i].x, nodes[i].y, oxygen_production, oxygen_radius);
-    }
     
     // Growth logic
     for (int i = 0; i < current_node_count && grown < growth_limit; i++) {

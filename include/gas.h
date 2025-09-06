@@ -18,8 +18,8 @@ void gas_render(void);
 // Get oxygen value at world position
 float gas_get_oxygen_at(float world_x, float world_y);
 
-// Oxygen production and decay
-void gas_produce_oxygen_at_position(float world_x, float world_y, float production_amount, float radius);
+// Oxygen decay and heatmap update
 void gas_decay_oxygen(void);
+void gas_update_heatmap(void);
 
 #endif // GAS_H

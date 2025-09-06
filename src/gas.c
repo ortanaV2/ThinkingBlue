@@ -1,17 +1,21 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <math.h>
+#include <string.h>
 #include <SDL2/SDL.h>
 
 #include "types.h"
 #include "gas.h"
 #include "camera.h"
+#include "simulation.h"
+#include "plants.h"
 
-#define GAS_GRID_SIZE 30.0f
-#define GAS_DECAY_RATE 0.0008f
-#define GAS_BASE_LEVEL 0.3f
+#define GAS_GRID_SIZE 25.0f
+#define GAS_DECAY_RATE 0.002f
+#define GAS_BASE_LEVEL 0.0f
 
 static float* g_oxygen_grid = NULL;
+static float* g_oxygen_target = NULL; // Target values from current plant positions
 static int g_grid_width = 0;
 static int g_grid_height = 0;
 static int g_visible = 0;
@@ -22,20 +26,22 @@ int gas_init(void) {
     g_grid_height = (int)ceil(WORLD_HEIGHT / GAS_GRID_SIZE);
     
     g_oxygen_grid = malloc(g_grid_width * g_grid_height * sizeof(float));
+    g_oxygen_target = malloc(g_grid_width * g_grid_height * sizeof(float));
     
-    if (!g_oxygen_grid) {
-        printf("Failed to allocate oxygen grid\n");
+    if (!g_oxygen_grid || !g_oxygen_target) {
+        printf("Failed to allocate oxygen grids\n");
         return 0;
     }
     
-    // Initialize with base oxygen level
+    // Initialize both grids with base oxygen level
     for (int i = 0; i < g_grid_width * g_grid_height; i++) {
         g_oxygen_grid[i] = GAS_BASE_LEVEL;
+        g_oxygen_target[i] = GAS_BASE_LEVEL;
     }
     
     g_visible = 0;
     
-    printf("Gas layer initialized: %dx%d grid\n", g_grid_width, g_grid_height);
+    printf("Gas layer initialized: %dx%d dual-grid system\n", g_grid_width, g_grid_height);
     return 1;
 }
 
@@ -43,6 +49,10 @@ void gas_cleanup(void) {
     if (g_oxygen_grid) {
         free(g_oxygen_grid);
         g_oxygen_grid = NULL;
+    }
+    if (g_oxygen_target) {
+        free(g_oxygen_target);
+        g_oxygen_target = NULL;
     }
 }
 
@@ -75,43 +85,6 @@ float gas_get_oxygen_at(float world_x, float world_y) {
     return g_oxygen_grid[grid_y * g_grid_width + grid_x];
 }
 
-void gas_produce_oxygen_at_position(float world_x, float world_y, float production_amount, float radius) {
-    if (!g_oxygen_grid) return;
-    
-    int center_x = (int)floor((world_x - WORLD_LEFT) / GAS_GRID_SIZE);
-    int center_y = (int)floor((world_y - WORLD_TOP) / GAS_GRID_SIZE);
-    
-    int grid_radius = (int)ceil(radius / GAS_GRID_SIZE);
-    
-    for (int dy = -grid_radius; dy <= grid_radius; dy++) {
-        for (int dx = -grid_radius; dx <= grid_radius; dx++) {
-            int grid_x = center_x + dx;
-            int grid_y = center_y + dy;
-            
-            if (grid_x < 0 || grid_x >= g_grid_width || grid_y < 0 || grid_y >= g_grid_height) {
-                continue;
-            }
-            
-            float distance = sqrt(dx * dx + dy * dy) * GAS_GRID_SIZE;
-            
-            if (distance <= radius) {
-                float falloff = 1.0f - (distance / radius);
-                falloff = falloff * falloff; // Quadratic falloff
-                
-                float actual_production = production_amount * falloff;
-                
-                int index = grid_y * g_grid_width + grid_x;
-                g_oxygen_grid[index] += actual_production;
-                
-                // Cap at maximum oxygen level
-                if (g_oxygen_grid[index] > 1.0f) {
-                    g_oxygen_grid[index] = 1.0f;
-                }
-            }
-        }
-    }
-}
-
 void gas_decay_oxygen(void) {
     if (!g_oxygen_grid) return;
     
@@ -125,36 +98,160 @@ void gas_decay_oxygen(void) {
     }
 }
 
-static void value_to_oxygen_color(float value, int* r, int* g, int* b) {
-    // Blue-to-cyan gradient for oxygen levels
-    // 0.0 = dark blue (low oxygen), 1.0 = bright cyan (high oxygen)
-    if (value < 0.0f) value = 0.0f;
-    if (value > 1.0f) value = 1.0f;
+void gas_update_heatmap(void) {
+    if (!g_oxygen_grid || !g_oxygen_target) return;
     
-    if (value < 0.2f) {
-        // Very low oxygen: dark blue to navy
-        float t = value / 0.2f;
-        *r = (int)(20 * t);
+    // Step 1: Clear target grid
+    memset(g_oxygen_target, 0, g_grid_width * g_grid_height * sizeof(float));
+    
+    // Step 2: Calculate target oxygen levels from current plant positions
+    Node* nodes = simulation_get_nodes();
+    int node_count = simulation_get_node_count();
+    
+    for (int node_idx = 0; node_idx < node_count; node_idx++) {
+        if (!nodes[node_idx].active) continue;
+        
+        int plant_type = nodes[node_idx].plant_type;
+        if (plant_type < 0 || plant_type >= plants_get_type_count()) continue;
+        
+        PlantType* pt = plants_get_type(plant_type);
+        if (!pt) continue;
+        
+        float node_x = nodes[node_idx].x;
+        float node_y = nodes[node_idx].y;
+        float production_factor = pt->oxygen_production_factor;
+        float production_radius = pt->oxygen_production_radius;
+        
+        if (production_factor <= 0.0f || production_radius <= 0.0f) continue;
+        
+        // Calculate grid bounds for this node's influence
+        int center_grid_x = (int)floor((node_x - WORLD_LEFT) / GAS_GRID_SIZE);
+        int center_grid_y = (int)floor((node_y - WORLD_TOP) / GAS_GRID_SIZE);
+        
+        int grid_radius = (int)ceil(production_radius / GAS_GRID_SIZE);
+        
+        // Apply oxygen production to target grid
+        for (int dy = -grid_radius; dy <= grid_radius; dy++) {
+            for (int dx = -grid_radius; dx <= grid_radius; dx++) {
+                int grid_x = center_grid_x + dx;
+                int grid_y = center_grid_y + dy;
+                
+                if (grid_x < 0 || grid_x >= g_grid_width || 
+                    grid_y < 0 || grid_y >= g_grid_height) {
+                    continue;
+                }
+                
+                // Calculate world position of this grid cell center
+                float grid_world_x = WORLD_LEFT + (grid_x + 0.5f) * GAS_GRID_SIZE;
+                float grid_world_y = WORLD_TOP + (grid_y + 0.5f) * GAS_GRID_SIZE;
+                
+                // Calculate distance from node to grid cell
+                float distance = sqrt((grid_world_x - node_x) * (grid_world_x - node_x) + 
+                                    (grid_world_y - node_y) * (grid_world_y - node_y));
+                
+                if (distance <= production_radius) {
+                    // Calculate normalized distance (0.0 at center, 1.0 at edge)
+                    float normalized_distance = distance / production_radius;
+                    
+                    // Very aggressive falloff
+                    float falloff;
+                    
+                    if (normalized_distance < 0.3f) {
+                        // Inner 30%: full strength with slight dropoff
+                        falloff = 1.0f - (normalized_distance / 0.3f) * 0.2f; // 100% to 80%
+                    } else if (normalized_distance < 0.6f) {
+                        // Middle 30%: rapid dropoff
+                        float t = (normalized_distance - 0.3f) / 0.3f;
+                        falloff = 0.8f - t * t * t * 0.7f; // 80% to 10%
+                    } else {
+                        // Outer 40%: very steep dropoff to near zero
+                        float t = (normalized_distance - 0.6f) / 0.4f;
+                        falloff = 0.1f * (1.0f - t * t * t * t); // 10% to ~0%
+                    }
+                    
+                    // Set target oxygen level (take maximum if multiple plants overlap)
+                    float target_contribution = production_factor * falloff;
+                    
+                    int index = grid_y * g_grid_width + grid_x;
+                    if (target_contribution > g_oxygen_target[index]) {
+                        g_oxygen_target[index] = target_contribution;
+                    }
+                }
+            }
+        }
+    }
+    
+    // Step 3: Blend current oxygen levels towards target values
+    // This creates the "trail" effect when plants move
+    float blend_rate = 0.08f; // How fast oxygen adjusts to new target
+    
+    for (int i = 0; i < g_grid_width * g_grid_height; i++) {
+        float current = g_oxygen_grid[i];
+        float target = g_oxygen_target[i];
+        
+        if (target > current) {
+            // Oxygen increasing: blend towards target quickly
+            g_oxygen_grid[i] = current + (target - current) * blend_rate * 0.5f;
+        } else {
+            // Oxygen decreasing: decay slowly for trail effect
+            g_oxygen_grid[i] = current + (target - current) * blend_rate * 0.05f;
+            
+            // Additional natural decay
+            g_oxygen_grid[i] -= GAS_DECAY_RATE;
+        }
+        
+        // Clamp values
+        if (g_oxygen_grid[i] < 0.0f) {
+            g_oxygen_grid[i] = 0.0f;
+        }
+        if (g_oxygen_grid[i] > 2.0f) {
+            g_oxygen_grid[i] = 2.0f;
+        }
+    }
+}
+
+static void value_to_oxygen_color(float value, int* r, int* g, int* b) {
+    // Aggressive heatmap: black -> dark blue -> blue -> cyan -> yellow -> red
+    if (value < 0.0f) value = 0.0f;
+    if (value > 2.0f) value = 2.0f;
+    
+    if (value < 0.05f) {
+        // Almost nothing: pure black to very dark blue
+        float t = value / 0.05f;
+        *r = 0;
+        *g = 0;
+        *b = (int)(20 * t);
+    } else if (value < 0.15f) {
+        // Very low: dark blue
+        float t = (value - 0.05f) / 0.1f;
+        *r = 0;
+        *g = 0;
+        *b = (int)(20 + 60 * t);
+    } else if (value < 0.3f) {
+        // Low: dark blue to medium blue
+        float t = (value - 0.15f) / 0.15f;
+        *r = 0;
         *g = (int)(30 * t);
-        *b = (int)(80 + 60 * t);
+        *b = (int)(80 + 80 * t);
     } else if (value < 0.5f) {
-        // Low to medium oxygen: navy to blue
-        float t = (value - 0.2f) / 0.3f;
-        *r = (int)(20 + 30 * t);
-        *g = (int)(30 + 70 * t);
-        *b = (int)(140 + 55 * t);
+        // Medium: blue to cyan
+        float t = (value - 0.3f) / 0.2f;
+        *r = (int)(60 * t);
+        *g = (int)(30 + 120 * t);
+        *b = (int)(160 + 60 * t);
     } else if (value < 0.8f) {
-        // Medium to high oxygen: blue to light blue
+        // High: cyan to yellow
         float t = (value - 0.5f) / 0.3f;
-        *r = (int)(50 + 80 * t);
-        *g = (int)(100 + 100 * t);
-        *b = (int)(195 + 35 * t);
+        *r = (int)(60 + 195 * t);
+        *g = (int)(150 + 105 * t);
+        *b = (int)(220 * (1.0f - t));
     } else {
-        // High oxygen: light blue to cyan
-        float t = (value - 0.8f) / 0.2f;
-        *r = (int)(130 + 95 * t);
-        *g = (int)(200 + 55 * t);
-        *b = (int)(230 + 25 * t);
+        // Very high: yellow to bright red
+        float t = (value - 0.8f) / 1.2f; // Scale for values up to 2.0
+        if (t > 1.0f) t = 1.0f;
+        *r = 255;
+        *g = (int)(255 * (1.0f - t * 0.8f)); // Keep some yellow
+        *b = 0;
     }
 }
 
@@ -178,10 +275,17 @@ void gas_render(void) {
         for (int gx = start_x; gx <= end_x; gx++) {
             float oxygen_value = g_oxygen_grid[gy * g_grid_width + gx];
             
+            // Skip rendering cells with very low oxygen (optimization)
+            if (oxygen_value < 0.02f) continue;
+            
             int r, g, b;
             value_to_oxygen_color(oxygen_value, &r, &g, &b);
             
-            SDL_SetRenderDrawColor(g_renderer, r, g, b, 120); // Semi-transparent
+            // Dynamic alpha based on oxygen concentration
+            int alpha = (int)(120 * fminf(oxygen_value / 1.0f, 1.0f));
+            if (alpha < 30) alpha = 30; // Minimum visibility
+            
+            SDL_SetRenderDrawColor(g_renderer, r, g, b, alpha);
             
             float world_x = WORLD_LEFT + gx * GAS_GRID_SIZE;
             float world_y = WORLD_TOP + gy * GAS_GRID_SIZE;

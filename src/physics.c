@@ -153,7 +153,7 @@ void physics_update(void) {
     apply_repulsion_forces();
     apply_chain_forces();
     
-    // Plant growth
+    // Plant growth (includes gas heatmap update)
     plants_grow();
     
     // Update positions with drag and world bounds

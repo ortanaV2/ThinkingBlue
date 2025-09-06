@@ -56,8 +56,9 @@ int plants_load_config(const char* filename) {
             current_plant->max_branches = 3;
             current_plant->branch_distance = OPTIMAL_DISTANCE;
             current_plant->mobility_factor = 1.0f;
-            current_plant->nutrition_depletion_strength = 0.08f;  // Default depletion strength
-            current_plant->nutrition_depletion_radius = 120.0f;   // Default depletion radius
+            current_plant->age_mature = 1800; // Default 30 seconds at 60fps
+            current_plant->nutrition_depletion_strength = 0.08f;
+            current_plant->nutrition_depletion_radius = 120.0f;
             current_plant->node_r = 150;
             current_plant->node_g = 255;
             current_plant->node_b = 150;
@@ -94,6 +95,8 @@ int plants_load_config(const char* filename) {
             current_plant->branch_distance = (float)atof(value);
         } else if (strcmp(key, "mobility_factor") == 0) {
             current_plant->mobility_factor = (float)atof(value);
+        } else if (strcmp(key, "age_mature") == 0) {
+            current_plant->age_mature = atoi(value);
         } else if (strcmp(key, "nutrition_depletion_strength") == 0) {
             current_plant->nutrition_depletion_strength = (float)atof(value);
         } else if (strcmp(key, "nutrition_depletion_radius") == 0) {
@@ -110,10 +113,9 @@ int plants_load_config(const char* filename) {
     printf("Loaded %d plant types from config\n", g_plant_type_count);
     for (int i = 0; i < g_plant_type_count; i++) {
         PlantType* pt = &g_plant_types[i];
-        printf("  %s: prob=%.3f, attempts=%d, branches=%d, distance=%.1f, mobility=%.2f, depletion=%.3f/%.1f\n",
+        printf("  %s: prob=%.3f, attempts=%d, branches=%d, distance=%.1f, mobility=%.2f, mature_age=%d\n",
                pt->name, pt->growth_probability, pt->growth_attempts, 
-               pt->max_branches, pt->branch_distance, pt->mobility_factor,
-               pt->nutrition_depletion_strength, pt->nutrition_depletion_radius);
+               pt->max_branches, pt->branch_distance, pt->mobility_factor, pt->age_mature);
     }
     
     return g_plant_type_count > 0;
@@ -191,9 +193,9 @@ void plants_grow(void) {
         
         PlantType* pt = &g_plant_types[plant_type];
         
-        // Check branch limit and age limit
+        // Check branch limit and age limit (use configurable age_mature)
         if (nodes[i].branch_count >= pt->max_branches) continue;
-        if (nodes[i].age > 1800) continue; // 30 seconds at 60fps
+        if (nodes[i].age > pt->age_mature) continue;
         
         // Get nutrition value at this node's position
         float nutrition_value = nutrition_get_value_at(nodes[i].x, nodes[i].y);

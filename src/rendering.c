@@ -10,22 +10,41 @@
 
 static SDL_Renderer* g_renderer = NULL;
 
-static void calculate_aged_color(int base_r, int base_g, int base_b, int age, int* aged_r, int* aged_g, int* aged_b) {
-    // Much more conservative aging - maximum 30% darkening
-    float age_factor = fminf((float)age / 7200.0f, 0.3f); // 2 minutes at 60fps = max aging
+static void calculate_aged_color(int base_r, int base_g, int base_b, int age, int age_mature, int* aged_r, int* aged_g, int* aged_b) {
+    if (age_mature <= 0) age_mature = 1800; // Fallback value
     
-    // Darken colors more conservatively
-    float darkening = 0.7f; // Keep 70% of original brightness at max age
-    float final_factor = 1.0f - (age_factor * (1.0f - darkening));
+    // Calculate aging factor from 0.0 (young) to 1.0 (fully mature)
+    float age_factor = fminf((float)age / (float)age_mature, 1.0f);
     
-    *aged_r = (int)(base_r * final_factor);
-    *aged_g = (int)(base_g * final_factor);
-    *aged_b = (int)(base_b * final_factor);
+    // Progressive color darkening with subtle brown tones
+    // Young plants: original color
+    // Mature plants: darker version with slight brown tint
     
-    // Ensure minimum visibility
+    // Brown target color (subtle brownish tone)
+    int brown_r = 101; // RGB(101, 67, 33) - dark brown
+    int brown_g = 67;
+    int brown_b = 33;
+    
+    // Reduced brown influence - more darkening than browning
+    float brown_influence = age_factor * 0.35f; // Max 35% brown influence (halved)
+    float original_influence = 1.0f - brown_influence;
+    
+    // Stronger darkening effect for aging
+    float darkness_factor = 1.0f - (age_factor * 0.15f);
+    
+    *aged_r = (int)((base_r * original_influence + brown_r * brown_influence) * darkness_factor);
+    *aged_g = (int)((base_g * original_influence + brown_g * brown_influence) * darkness_factor);
+    *aged_b = (int)((base_b * original_influence + brown_b * brown_influence) * darkness_factor);
+    
+    // Ensure minimum visibility (not completely black)
     if (*aged_r < 20) *aged_r = 20;
-    if (*aged_g < 20) *aged_g = 20;
-    if (*aged_b < 20) *aged_b = 20;
+    if (*aged_g < 15) *aged_g = 15;
+    if (*aged_b < 10) *aged_b = 10;
+    
+    // Ensure maximum values don't exceed 255
+    if (*aged_r > 255) *aged_r = 255;
+    if (*aged_g > 255) *aged_g = 255;
+    if (*aged_b > 255) *aged_b = 255;
 }
 
 static void draw_thick_line(SDL_Renderer* renderer, int x1, int y1, int x2, int y2, int thickness) {
@@ -149,7 +168,7 @@ void rendering_render(void) {
             PlantType* pt = plants_get_type(plant_type);
             if (pt) {
                 int aged_r, aged_g, aged_b;
-                calculate_aged_color(pt->chain_r, pt->chain_g, pt->chain_b, chains[i].age, &aged_r, &aged_g, &aged_b);
+                calculate_aged_color(pt->chain_r, pt->chain_g, pt->chain_b, chains[i].age, pt->age_mature, &aged_r, &aged_g, &aged_b);
                 SDL_SetRenderDrawColor(g_renderer, aged_r, aged_g, aged_b, 255);
             } else {
                 SDL_SetRenderDrawColor(g_renderer, 100, 200, 100, 255); // Fallback green
@@ -194,7 +213,7 @@ void rendering_render(void) {
                 PlantType* pt = plants_get_type(plant_type);
                 if (pt) {
                     int aged_r, aged_g, aged_b;
-                    calculate_aged_color(pt->node_r, pt->node_g, pt->node_b, nodes[i].age, &aged_r, &aged_g, &aged_b);
+                    calculate_aged_color(pt->node_r, pt->node_g, pt->node_b, nodes[i].age, pt->age_mature, &aged_r, &aged_g, &aged_b);
                     SDL_SetRenderDrawColor(g_renderer, aged_r, aged_g, aged_b, 255);
                 } else {
                     SDL_SetRenderDrawColor(g_renderer, 150, 255, 150, 255); // Fallback light green

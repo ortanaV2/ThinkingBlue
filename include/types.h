@@ -55,6 +55,7 @@ typedef struct {
     int max_branches;
     float branch_distance;
     float mobility_factor;    // How moveable nodes are (0.0 = static, 1.0 = fully mobile)
+    int age_mature;           // Age at which plant stops growing/branching (in frames)
     
     // Nutrition depletion settings
     float nutrition_depletion_strength;  // Base depletion amount per growth

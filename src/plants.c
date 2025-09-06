@@ -8,6 +8,7 @@
 #include "simulation.h"
 #include "grid.h"
 #include "nutrition.h"
+#include "gas.h"
 
 static PlantType g_plant_types[MAX_PLANT_TYPES];
 static int g_plant_type_count = 0;
@@ -20,6 +21,49 @@ static void parse_color(const char* color_str, int* r, int* g, int* b) {
     *r = (color >> 16) & 0xFF;
     *g = (color >> 8) & 0xFF;
     *b = color & 0xFF;
+}
+
+static float get_plant_oxygen_production(int plant_type) {
+    // Different oxygen production rates based on plant type
+    if (plant_type < 0 || plant_type >= g_plant_type_count) {
+        return 0.001f; // Default minimal production
+    }
+    
+    PlantType* pt = &g_plant_types[plant_type];
+    
+    // Check if it's a coral type (less oxygen production)
+    if (strstr(pt->name, "Coral") != NULL) {
+        return 0.0008f; // Corals produce less oxygen
+    }
+    
+    // Plants like Kelp and SeaGrass produce more oxygen
+    if (strcmp(pt->name, "Kelp") == 0 || strcmp(pt->name, "SeaGrass") == 0) {
+        return 0.003f; // High oxygen producers
+    }
+    
+    // Other plants moderate production
+    return 0.0015f;
+}
+
+static float get_plant_oxygen_radius(int plant_type) {
+    if (plant_type < 0 || plant_type >= g_plant_type_count) {
+        return 80.0f;
+    }
+    
+    PlantType* pt = &g_plant_types[plant_type];
+    
+    // Larger plants have bigger oxygen production radius
+    float base_radius = pt->branch_distance * 2.0f;
+    
+    if (strcmp(pt->name, "Kelp") == 0) {
+        return base_radius * 1.8f; // Kelp has large oxygen field
+    } else if (strcmp(pt->name, "SeaGrass") == 0) {
+        return base_radius * 1.5f;
+    } else if (strstr(pt->name, "Coral") != NULL) {
+        return base_radius * 0.8f; // Corals have smaller radius
+    }
+    
+    return base_radius;
 }
 
 int plants_load_config(const char* filename) {
@@ -176,8 +220,9 @@ void plants_grow(void) {
     Node* nodes = simulation_get_nodes();
     int current_node_count = simulation_get_node_count();
     
-    // Call nutrition regeneration every frame
+    // Call nutrition regeneration and gas decay every frame
     nutrition_regenerate();
+    gas_decay_oxygen();
     
     // Dynamic growth limit
     int growth_limit = (current_node_count / 100) + 3;
@@ -185,6 +230,21 @@ void plants_grow(void) {
     
     int grown = 0;
     
+    // Process oxygen production for all existing nodes
+    for (int i = 0; i < current_node_count; i++) {
+        if (!nodes[i].active) continue;
+        
+        int plant_type = nodes[i].plant_type;
+        if (plant_type < 0 || plant_type >= g_plant_type_count) continue;
+        
+        // Produce oxygen based on plant type
+        float oxygen_production = get_plant_oxygen_production(plant_type);
+        float oxygen_radius = get_plant_oxygen_radius(plant_type);
+        
+        gas_produce_oxygen_at_position(nodes[i].x, nodes[i].y, oxygen_production, oxygen_radius);
+    }
+    
+    // Growth logic
     for (int i = 0; i < current_node_count && grown < growth_limit; i++) {
         if (!nodes[i].active || !nodes[i].can_grow) continue;
         
@@ -193,7 +253,7 @@ void plants_grow(void) {
         
         PlantType* pt = &g_plant_types[plant_type];
         
-        // Check branch limit and age limit (use configurable age_mature)
+        // Check branch limit and age limit
         if (nodes[i].branch_count >= pt->max_branches) continue;
         if (nodes[i].age > pt->age_mature) continue;
         

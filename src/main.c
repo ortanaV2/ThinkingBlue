@@ -10,6 +10,7 @@
 #include "physics.h"
 #include "rendering.h"
 #include "nutrition.h"
+#include "gas.h"
 
 static int g_current_plant_type = 0;
 
@@ -120,17 +121,22 @@ int main(int argc, char* argv[]) {
         return 1;
     }
     
-    // Enable alpha blending for nutrition layer
+    // Enable alpha blending for layers
     SDL_SetRenderDrawBlendMode(renderer, SDL_BLENDMODE_BLEND);
     
     // Initialize systems
-    if (!simulation_init() || !camera_init() || !rendering_init(renderer) || !nutrition_init()) {
+    if (!simulation_init() || !camera_init() || !rendering_init(renderer) || 
+        !nutrition_init() || !gas_init()) {
         printf("System initialization failed\n");
         SDL_DestroyRenderer(renderer);
         SDL_DestroyWindow(window);
         SDL_Quit();
         return 1;
     }
+    
+    // Set renderer for both layers
+    nutrition_set_renderer(renderer);
+    gas_set_renderer(renderer);
     
     // Populate reef with random organisms
     populate_reef_randomly();
@@ -148,6 +154,7 @@ int main(int argc, char* argv[]) {
     printf("  Mouse wheel: Zoom in/out\n");
     printf("  1-8: Switch species type\n");
     printf("  N: Toggle nutrition layer (rainbow)\n");
+    printf("  G: Toggle gas/oxygen layer (blue)\n");
     printf("  R: Repopulate reef randomly\n");
     printf("  ESC: Exit\n\n");
     
@@ -177,6 +184,9 @@ int main(int argc, char* argv[]) {
                     }
                     else if (event.key.keysym.sym == SDLK_n) {
                         nutrition_toggle_visibility();
+                    }
+                    else if (event.key.keysym.sym == SDLK_g) {
+                        gas_toggle_visibility();
                     }
                     else if (event.key.keysym.sym == SDLK_r) {
                         // Repopulate reef
@@ -223,6 +233,7 @@ int main(int argc, char* argv[]) {
     }
     
     // Cleanup systems
+    gas_cleanup();
     nutrition_cleanup();
     simulation_cleanup();
     rendering_cleanup();

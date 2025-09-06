@@ -7,6 +7,7 @@
 #include "camera.h"
 #include "plants.h"
 #include "nutrition.h"
+#include "gas.h"
 
 static SDL_Renderer* g_renderer = NULL;
 
@@ -113,6 +114,7 @@ static void draw_curved_line(SDL_Renderer* renderer, int x1, int y1, int x2, int
 int rendering_init(SDL_Renderer* renderer) {
     g_renderer = renderer;
     nutrition_set_renderer(renderer);
+    gas_set_renderer(renderer);
     return 1;
 }
 
@@ -127,8 +129,9 @@ void rendering_render(void) {
     SDL_SetRenderDrawColor(g_renderer, 30, 60, 120, 255);
     SDL_RenderClear(g_renderer);
     
-    // Render nutrition layer first (behind everything)
+    // Render layers in order (behind everything)
     nutrition_render();
+    gas_render();
     
     // Calculate viewport bounds for culling
     float world_left, world_top, world_right, world_bottom;

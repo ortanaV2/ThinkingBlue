@@ -8,7 +8,9 @@
 #define WINDOW_HEIGHT 800
 #define MAX_NODES 10000000
 #define MAX_CHAINS 10000000
+#define MAX_FISH 50000
 #define MAX_PLANT_TYPES 64
+#define MAX_FISH_TYPES 32
 #define MAX_NAME_LENGTH 64
 
 // Layer resolution (shared by nutrition and gas layers)
@@ -20,9 +22,13 @@
 #define CHAIN_FORCE 0.05f
 #define WATER_DRAG 0.95f
 
+// Fish physics parameters (removed - now using same as plants)
+#define FISH_EAT_RADIUS 80.0f
+
 // Rendering parameters
 #define NODE_RADIUS 5
 #define CHAIN_THICKNESS 6
+#define FISH_RADIUS 8
 
 // Camera parameters
 #define CAMERA_SPEED 5.0f
@@ -77,6 +83,19 @@ typedef struct {
     int active;
 } PlantType;
 
+// Fish type configuration
+typedef struct {
+    char name[MAX_NAME_LENGTH];
+    float acceleration;       // Force applied when moving
+    float eat_radius;         // How close fish needs to be to eat
+    float hunger_rate;        // How fast fish gets hungry (per frame)
+    
+    // Fish colors (RGB 0-255)
+    int fish_r, fish_g, fish_b;
+    
+    int active;
+} FishType;
+
 // Node structure
 typedef struct {
     float x, y;       // Position
@@ -87,6 +106,18 @@ typedef struct {
     int branch_count; // Current branch count
     int age;          // Age in frames
 } Node;
+
+// Fish structure (same physics as nodes, but with additional properties)
+typedef struct {
+    float x, y;       // Position
+    float vx, vy;     // Velocity
+    int active;       // Active flag
+    int fish_type;    // Fish type index
+    float hunger;     // Hunger level (0.0 = full, 1.0 = starving)
+    int age;          // Age in frames
+    int is_player;    // Player controlled flag
+    float force_x, force_y;  // Force accumulation for player control
+} Fish;
 
 // Chain structure connecting two nodes
 typedef struct {

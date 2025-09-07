@@ -11,6 +11,7 @@
 #include "rendering.h"
 #include "nutrition.h"
 #include "gas.h"
+#include "fish.h"
 
 #define TARGET_FPS 60
 #define FRAME_DELAY (1000 / TARGET_FPS)
@@ -41,6 +42,20 @@ static void populate_reef_randomly(void) {
     }
     
     printf("Reef population complete!\n");
+}
+
+static void spawn_player_fish(void) {
+    // Spawn fish at center of world
+    float x = WORLD_CENTER_X;
+    float y = WORLD_CENTER_Y;
+    
+    int fish_id = fish_add(x, y, 0); // Use first fish type
+    if (fish_id >= 0) {
+        FishType* ft = fish_get_type(0);
+        if (ft) {
+            printf("Spawned player fish (%s) at (%.0f, %.0f)\n", ft->name, x, y);
+        }
+    }
 }
 
 static void handle_mouse_click(int screen_x, int screen_y, int button) {
@@ -120,7 +135,7 @@ int main(int argc, char* argv[]) {
     SDL_SetRenderDrawBlendMode(renderer, SDL_BLENDMODE_BLEND);
     
     if (!simulation_init() || !camera_init() || !rendering_init(renderer) || 
-        !nutrition_init() || !gas_init()) {
+        !nutrition_init() || !gas_init() || !fish_init()) {
         printf("System initialization failed\n");
         SDL_DestroyRenderer(renderer);
         SDL_DestroyWindow(window);
@@ -132,6 +147,7 @@ int main(int argc, char* argv[]) {
     gas_set_renderer(renderer);
     
     populate_reef_randomly();
+    spawn_player_fish();
     
     int running = 1;
     SDL_Event event;
@@ -143,7 +159,9 @@ int main(int argc, char* argv[]) {
            plants_get_type_count() > 0 ? plants_get_type(g_current_plant_type)->name : "none");
     printf("  Right click: Select nodes for chaining\n");
     printf("  WASD: Move camera\n");
-    printf("  Shift + WASD: Sprint (2x speed)\n");
+    printf("  Arrow keys: Move fish\n");
+    printf("  E: Fish eat plants\n");
+    printf("  Shift + WASD: Sprint camera (2x speed)\n");
     printf("  Mouse wheel: Zoom in/out\n");
     printf("  1-8: Switch species type\n");
     printf("  N: Toggle nutrition layer (rainbow)\n");
@@ -156,13 +174,24 @@ int main(int argc, char* argv[]) {
         
         const Uint8* keyboard_state = SDL_GetKeyboardState(NULL);
         
-        int keys[4] = {0};
-        keys[0] = keyboard_state[SDL_SCANCODE_W];
-        keys[1] = keyboard_state[SDL_SCANCODE_A];
-        keys[2] = keyboard_state[SDL_SCANCODE_S];
-        keys[3] = keyboard_state[SDL_SCANCODE_D];
+        // Camera movement keys
+        int camera_keys[4] = {0};
+        camera_keys[0] = keyboard_state[SDL_SCANCODE_W];
+        camera_keys[1] = keyboard_state[SDL_SCANCODE_A];
+        camera_keys[2] = keyboard_state[SDL_SCANCODE_S];
+        camera_keys[3] = keyboard_state[SDL_SCANCODE_D];
+        
+        // Fish movement keys (arrow keys)
+        int fish_keys[4] = {0};
+        fish_keys[0] = keyboard_state[SDL_SCANCODE_UP];
+        fish_keys[1] = keyboard_state[SDL_SCANCODE_LEFT];
+        fish_keys[2] = keyboard_state[SDL_SCANCODE_DOWN];
+        fish_keys[3] = keyboard_state[SDL_SCANCODE_RIGHT];
         
         int sprint_active = keyboard_state[SDL_SCANCODE_LSHIFT] || keyboard_state[SDL_SCANCODE_RSHIFT];
+        
+        // Set fish controls
+        fish_set_player_control(fish_keys);
         
         while (SDL_PollEvent(&event)) {
             switch (event.type) {
@@ -183,13 +212,15 @@ int main(int argc, char* argv[]) {
                     else if (event.key.keysym.sym == SDLK_r) {
                         populate_reef_randomly();
                     }
+                    else if (event.key.keysym.sym == SDLK_e) {
+                        fish_player_eat();
+                    }
                     else if (event.key.keysym.sym >= SDLK_1 && event.key.keysym.sym <= SDLK_8) {
                         int species_index = event.key.keysym.sym - SDLK_1;
                         if (species_index < plants_get_type_count()) {
                             g_current_plant_type = species_index;
-                            printf("Selected species: %s%s\n", 
-                                   plants_get_type(g_current_plant_type)->name,
-                                   sprint_active ? " (SPRINT MODE)" : "");
+                            printf("Selected species: %s\n", 
+                                   plants_get_type(g_current_plant_type)->name);
                         }
                     }
                     break;
@@ -214,7 +245,7 @@ int main(int argc, char* argv[]) {
             }
         }
         
-        camera_update_with_sprint(keys, sprint_active);
+        camera_update_with_sprint(camera_keys, sprint_active);
         physics_update();
         rendering_render();
         
@@ -225,6 +256,7 @@ int main(int argc, char* argv[]) {
         }
     }
     
+    fish_cleanup();
     gas_cleanup();
     nutrition_cleanup();
     simulation_cleanup();

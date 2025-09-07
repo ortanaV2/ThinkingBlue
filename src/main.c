@@ -12,26 +12,25 @@
 #include "nutrition.h"
 #include "gas.h"
 
+#define TARGET_FPS 60
+#define FRAME_DELAY (1000 / TARGET_FPS)
+
 static int g_current_plant_type = 0;
 
 static void populate_reef_randomly(void) {
     int total_species = plants_get_type_count();
     if (total_species == 0) return;
     
-    // Spawn initial reef population across the world
-    int spawn_count = 500; // Total initial organisms
+    int spawn_count = 500;
     
     printf("Populating reef with %d organisms across %d species...\n", spawn_count, total_species);
     
     for (int i = 0; i < spawn_count; i++) {
-        // Random position across the world
         float x = WORLD_LEFT + ((float)rand() / RAND_MAX) * WORLD_WIDTH;
         float y = WORLD_TOP + ((float)rand() / RAND_MAX) * WORLD_HEIGHT;
         
-        // Random species selection
         int species = rand() % total_species;
         
-        // Create organism
         int node_id = simulation_add_node(x, y, species);
         if (node_id >= 0) {
             PlantType* pt = plants_get_type(species);
@@ -49,7 +48,6 @@ static void handle_mouse_click(int screen_x, int screen_y, int button) {
     camera_screen_to_world(screen_x, screen_y, &world_x, &world_y);
     
     if (button == SDL_BUTTON_LEFT) {
-        // Create new node with current plant type
         if (plants_get_type_count() > 0) {
             int new_node = simulation_add_node(world_x, world_y, g_current_plant_type);
             if (new_node >= 0) {
@@ -59,7 +57,6 @@ static void handle_mouse_click(int screen_x, int screen_y, int button) {
             }
         }
     } else if (button == SDL_BUTTON_RIGHT) {
-        // Node selection for chaining
         int clicked_node = simulation_find_node_at_position(world_x, world_y);
         
         if (clicked_node >= 0) {
@@ -85,14 +82,13 @@ static void handle_mouse_click(int screen_x, int screen_y, int button) {
 }
 
 int main(int argc, char* argv[]) {
-    // Suppress unused parameter warnings
     (void)argc;
     (void)argv;
     srand((unsigned int)time(NULL));
     
-    // Load plant configuration
-    if (!plants_load_config("items.conf")) {
-        printf("Error: No plant types loaded. Please create items.conf file.\n");
+    // Load plant configuration from plants.conf
+    if (!plants_load_config("plants.conf")) {
+        printf("Error: No plant types loaded. Please create plants.conf file.\n");
         return 1;
     }
     
@@ -121,10 +117,8 @@ int main(int argc, char* argv[]) {
         return 1;
     }
     
-    // Enable alpha blending for layers
     SDL_SetRenderDrawBlendMode(renderer, SDL_BLENDMODE_BLEND);
     
-    // Initialize systems
     if (!simulation_init() || !camera_init() || !rendering_init(renderer) || 
         !nutrition_init() || !gas_init()) {
         printf("System initialization failed\n");
@@ -134,16 +128,15 @@ int main(int argc, char* argv[]) {
         return 1;
     }
     
-    // Set renderer for both layers
     nutrition_set_renderer(renderer);
     gas_set_renderer(renderer);
     
-    // Populate reef with random organisms
     populate_reef_randomly();
     
     int running = 1;
     SDL_Event event;
     int mouse_x = 0, mouse_y = 0;
+    Uint32 frame_start_time = 0;
     
     printf("\nGreat Barrier Reef Ecosystem Controls:\n");
     printf("  Left click: Create organism (current: %s)\n", 
@@ -159,17 +152,16 @@ int main(int argc, char* argv[]) {
     printf("  ESC: Exit\n\n");
     
     while (running) {
-        // Get current keyboard state for smooth movement
+        frame_start_time = SDL_GetTicks();
+        
         const Uint8* keyboard_state = SDL_GetKeyboardState(NULL);
         
-        // Movement keys
         int keys[4] = {0};
         keys[0] = keyboard_state[SDL_SCANCODE_W];
         keys[1] = keyboard_state[SDL_SCANCODE_A];
         keys[2] = keyboard_state[SDL_SCANCODE_S];
         keys[3] = keyboard_state[SDL_SCANCODE_D];
         
-        // Sprint detection
         int sprint_active = keyboard_state[SDL_SCANCODE_LSHIFT] || keyboard_state[SDL_SCANCODE_RSHIFT];
         
         while (SDL_PollEvent(&event)) {
@@ -189,10 +181,8 @@ int main(int argc, char* argv[]) {
                         gas_toggle_visibility();
                     }
                     else if (event.key.keysym.sym == SDLK_r) {
-                        // Repopulate reef
                         populate_reef_randomly();
                     }
-                    // Species selection
                     else if (event.key.keysym.sym >= SDLK_1 && event.key.keysym.sym <= SDLK_8) {
                         int species_index = event.key.keysym.sym - SDLK_1;
                         if (species_index < plants_get_type_count()) {
@@ -224,15 +214,17 @@ int main(int argc, char* argv[]) {
             }
         }
         
-        // Update camera with sprint
         camera_update_with_sprint(keys, sprint_active);
         physics_update();
         rendering_render();
         
-        SDL_Delay(16);
+        // Frame rate limiting
+        Uint32 frame_time = SDL_GetTicks() - frame_start_time;
+        if (frame_time < FRAME_DELAY) {
+            SDL_Delay(FRAME_DELAY - frame_time);
+        }
     }
     
-    // Cleanup systems
     gas_cleanup();
     nutrition_cleanup();
     simulation_cleanup();

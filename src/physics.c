@@ -5,6 +5,7 @@
 #include "simulation.h"
 #include "grid.h"
 #include "plants.h"
+#include "fish.h"
 
 static void apply_repulsion_forces(void) {
     float optimal_sq = OPTIMAL_DISTANCE * OPTIMAL_DISTANCE;
@@ -38,12 +39,24 @@ static void apply_repulsion_forces(void) {
                             float fx = -dx * force_magnitude;
                             float fy = -dy * force_magnitude;
                             
-                            // Apply mobility factor
-                            PlantType* pt_i = plants_get_type(nodes[i].plant_type);
-                            PlantType* pt_j = plants_get_type(nodes[j].plant_type);
+                            // Apply mobility factor based on node type
+                            float mobility_i = 1.0f;
+                            float mobility_j = 1.0f;
                             
-                            float mobility_i = pt_i ? pt_i->mobility_factor : 1.0f;
-                            float mobility_j = pt_j ? pt_j->mobility_factor : 1.0f;
+                            // Check if nodes are plants or fish
+                            if (nodes[i].plant_type >= 0) {
+                                // Plant node
+                                PlantType* pt_i = plants_get_type(nodes[i].plant_type);
+                                if (pt_i) mobility_i = pt_i->mobility_factor;
+                            }
+                            // Fish nodes use default mobility (1.0f)
+                            
+                            if (nodes[j].plant_type >= 0) {
+                                // Plant node
+                                PlantType* pt_j = plants_get_type(nodes[j].plant_type);
+                                if (pt_j) mobility_j = pt_j->mobility_factor;
+                            }
+                            // Fish nodes use default mobility (1.0f)
                             
                             nodes[i].vx += fx * mobility_i;
                             nodes[i].vy += fy * mobility_i;
@@ -75,11 +88,19 @@ static void apply_repulsion_forces(void) {
                             float distance = sqrt(distance_sq);
                             float base_force = REPULSION_FORCE * (OPTIMAL_DISTANCE - distance) / distance;
                             
-                            PlantType* pt_i = plants_get_type(nodes[i].plant_type);
-                            PlantType* pt_j = plants_get_type(nodes[j].plant_type);
+                            float mobility_i = 1.0f;
+                            float mobility_j = 1.0f;
                             
-                            float mobility_i = pt_i ? pt_i->mobility_factor : 1.0f;
-                            float mobility_j = pt_j ? pt_j->mobility_factor : 1.0f;
+                            // Check if nodes are plants or fish
+                            if (nodes[i].plant_type >= 0) {
+                                PlantType* pt_i = plants_get_type(nodes[i].plant_type);
+                                if (pt_i) mobility_i = pt_i->mobility_factor;
+                            }
+                            
+                            if (nodes[j].plant_type >= 0) {
+                                PlantType* pt_j = plants_get_type(nodes[j].plant_type);
+                                if (pt_j) mobility_j = pt_j->mobility_factor;
+                            }
                             
                             // Static plants create stronger repulsion
                             float repulsion_strength_i = 2.0f - mobility_i;
@@ -117,6 +138,9 @@ static void apply_chain_forces(void) {
         if (n1 < 0 || n1 >= node_count || n2 < 0 || n2 >= node_count) continue;
         if (!nodes[n1].active || !nodes[n2].active) continue;
         
+        // Skip chains involving fish nodes (fish don't have chains)
+        if (nodes[n1].plant_type == -1 || nodes[n2].plant_type == -1) continue;
+        
         float dx = nodes[n2].x - nodes[n1].x;
         float dy = nodes[n2].y - nodes[n1].y;
         float distance = sqrt(dx * dx + dy * dy);
@@ -126,7 +150,7 @@ static void apply_chain_forces(void) {
             float fx = dx * force_magnitude;
             float fy = dy * force_magnitude;
             
-            // Apply mobility factor for chain forces
+            // Apply mobility factor for chain forces (only for plants)
             PlantType* pt_n1 = plants_get_type(nodes[n1].plant_type);
             PlantType* pt_n2 = plants_get_type(nodes[n2].plant_type);
             

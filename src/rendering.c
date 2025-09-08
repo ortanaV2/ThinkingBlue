@@ -6,10 +6,15 @@
 #include "simulation.h"
 #include "camera.h"
 #include "plants.h"
+#include "fish.h"
 #include "nutrition.h"
 #include "gas.h"
 
 static SDL_Renderer* g_renderer = NULL;
+
+static void draw_thick_line(SDL_Renderer* renderer, int x1, int y1, int x2, int y2, int thickness);
+static void draw_curved_line(SDL_Renderer* renderer, int x1, int y1, int x2, int y2, float curve_strength, float curve_offset, int thickness);
+static void draw_fish_tail(SDL_Renderer* renderer, int screen_x, int screen_y, float vx, float vy, int fish_radius, int r, int g, int b);
 
 static void calculate_aged_color(int base_r, int base_g, int base_b, int age, int age_mature, int* aged_r, int* aged_g, int* aged_b) {
     if (age_mature <= 0) age_mature = 1800; // Fallback value
@@ -57,6 +62,84 @@ static void draw_thick_line(SDL_Renderer* renderer, int x1, int y1, int x2, int 
     for (int i = -thickness/2; i <= thickness/2; i++) {
         SDL_RenderDrawLine(renderer, x1 + i, y1, x2 + i, y2);
         SDL_RenderDrawLine(renderer, x1, y1 + i, x2, y2 + i);
+    }
+}
+
+static void draw_fish_tail(SDL_Renderer* renderer, int screen_x, int screen_y, float vx, float vy, int fish_radius, int r, int g, int b) {
+    // Calculate tail direction (same as movement direction - 180° rotated)
+    float speed = sqrt(vx * vx + vy * vy);
+    if (speed < 0.1f) {
+        // If not moving, point tail to the right
+        vx = 1.0f;
+        vy = 0.0f;
+        speed = 1.0f;
+    }
+    
+    // Normalize movement vector (now pointing in movement direction)
+    float dir_x = vx / speed; // Same direction as movement
+    float dir_y = vy / speed;
+    
+    // === TAIL POSITION OFFSET ===
+    // Change these values to move the tail relative to the fish node
+    float tail_offset_distance = fish_radius * 3.0f; // How far behind/in front of fish center
+    
+    // Calculate tail base position (offset from fish center)
+    int tail_base_x = screen_x - (int)(dir_x * tail_offset_distance); // Negative = behind fish
+    int tail_base_y = screen_y - (int)(dir_y * tail_offset_distance);
+    
+    // Tail size - make it much larger
+    float tail_length = fish_radius * 2.5f; // 3.5x fish radius (much bigger)
+    float tail_width = fish_radius * 3.0f;  // 2x fish radius (wider)
+    
+    // The tail base is one corner of the triangle
+    // Calculate the other two corners
+    
+    // Perpendicular vector for triangle width
+    float perp_x = -dir_y;
+    float perp_y = dir_x;
+    
+    // Two tail corners - positioned around the tail base
+    int tail_corner1_x = tail_base_x + (int)(perp_x * tail_width * 0.5f);
+    int tail_corner1_y = tail_base_y + (int)(perp_y * tail_width * 0.5f);
+    int tail_corner2_x = tail_base_x - (int)(perp_x * tail_width * 0.5f);
+    int tail_corner2_y = tail_base_y - (int)(perp_y * tail_width * 0.5f);
+    
+    // Third corner (tip of tail) - extends forward in movement direction
+    int tail_tip_x = tail_base_x + (int)(dir_x * tail_length);
+    int tail_tip_y = tail_base_y + (int)(dir_y * tail_length);
+    
+    // Make tail color slightly darker
+    int tail_r = (r * 3) / 4;
+    int tail_g = (g * 3) / 4;
+    int tail_b = (b * 3) / 4;
+    SDL_SetRenderDrawColor(renderer, tail_r, tail_g, tail_b, 255);
+    
+    // Draw triangle outline
+    // Triangle: tail_base -> corner1 -> tip -> corner2 -> tail_base
+    SDL_RenderDrawLine(renderer, tail_base_x, tail_base_y, tail_corner1_x, tail_corner1_y);
+    SDL_RenderDrawLine(renderer, tail_corner1_x, tail_corner1_y, tail_tip_x, tail_tip_y);
+    SDL_RenderDrawLine(renderer, tail_tip_x, tail_tip_y, tail_corner2_x, tail_corner2_y);
+    SDL_RenderDrawLine(renderer, tail_corner2_x, tail_corner2_y, tail_base_x, tail_base_y);
+    
+    // Fill triangle using scanline algorithm
+    if (tail_width > 2.0f) {
+        // Simple triangle filling by drawing lines from tail base to opposite edge
+        for (int i = 0; i <= (int)(tail_length); i++) {
+            float t = (float)i / tail_length;
+            
+            // Points along the opposite edge (from corner1 to corner2)
+            int edge_x1 = tail_corner1_x + (int)(t * (tail_tip_x - tail_corner1_x));
+            int edge_y1 = tail_corner1_y + (int)(t * (tail_tip_y - tail_corner1_y));
+            int edge_x2 = tail_corner2_x + (int)(t * (tail_tip_x - tail_corner2_x));
+            int edge_y2 = tail_corner2_y + (int)(t * (tail_tip_y - tail_corner2_y));
+            
+            // Draw line from tail base to opposite edge
+            SDL_RenderDrawLine(renderer, tail_base_x, tail_base_y, edge_x1, edge_y1);
+            SDL_RenderDrawLine(renderer, tail_base_x, tail_base_y, edge_x2, edge_y2);
+            
+            // Also draw the edge itself
+            SDL_RenderDrawLine(renderer, edge_x1, edge_y1, edge_x2, edge_y2);
+        }
     }
 }
 
@@ -144,7 +227,7 @@ void rendering_render(void) {
     int selected_node = simulation_get_selected_node();
     int selection_mode = simulation_get_selection_mode();
     
-    // Render chains
+    // Render chains (only for plants, fish don't have chains)
     for (int i = 0; i < chain_count; i++) {
         if (!chains[i].active) continue;
         
@@ -153,6 +236,9 @@ void rendering_render(void) {
         
         if (n1 < 0 || n1 >= node_count || n2 < 0 || n2 >= node_count) continue;
         if (!nodes[n1].active || !nodes[n2].active) continue;
+        
+        // Skip if either node is a fish node
+        if (nodes[n1].plant_type == -1 || nodes[n2].plant_type == -1) continue;
         
         // Frustum culling
         float min_x = fminf(nodes[n1].x, nodes[n2].x);
@@ -191,7 +277,11 @@ void rendering_render(void) {
                         chains[i].curve_strength, chains[i].curve_offset, thickness);
     }
     
-    // Render nodes
+    // Get fish data for rendering
+    Fish* fish_list = fish_get_all();
+    int fish_count = fish_get_count();
+    
+    // Render nodes (both plants and fish)
     for (int i = 0; i < node_count; i++) {
         if (!nodes[i].active) continue;
         
@@ -205,28 +295,96 @@ void rendering_render(void) {
         camera_world_to_screen(nodes[i].x, nodes[i].y, &screen_x, &screen_y);
         
         int scaled_radius = (int)(NODE_RADIUS * camera_get_zoom());
-        if (scaled_radius < 1) scaled_radius = 1;
         
-        // Set color based on selection state and plant type
-        if (i == selected_node && selection_mode == 1) {
-            SDL_SetRenderDrawColor(g_renderer, 255, 255, 0, 255); // Yellow for selected
+        // Check if this is a fish node
+        if (nodes[i].plant_type == -1) {
+            // This is a fish node - find the fish that owns this node
+            Fish* fish = NULL;
+            for (int f = 0; f < fish_count; f++) {
+                if (fish_list[f].active && fish_list[f].node_id == i) {
+                    fish = &fish_list[f];
+                    break;
+                }
+            }
+            
+            int fish_r = 255, fish_g = 165, fish_b = 0; // Default orange
+            
+            if (fish) {
+                FishType* fish_type = fish_get_type(fish->fish_type);
+                if (fish_type) {
+                    // Use SAME scaling as plants, just multiply base NODE_RADIUS
+                    scaled_radius = (int)((NODE_RADIUS * 1.8f) * camera_get_zoom()); // 1.8x larger than plants
+                    if (scaled_radius < 1) scaled_radius = 1; // Same minimum as plants
+                    
+                    fish_r = fish_type->node_r;
+                    fish_g = fish_type->node_g;
+                    fish_b = fish_type->node_b;
+                    SDL_SetRenderDrawColor(g_renderer, fish_r, fish_g, fish_b, 255);
+                } else {
+                    scaled_radius = (int)((NODE_RADIUS * 1.8f) * camera_get_zoom()); // Fallback size
+                    if (scaled_radius < 1) scaled_radius = 1;
+                    SDL_SetRenderDrawColor(g_renderer, fish_r, fish_g, fish_b, 255); // Orange fallback for fish
+                }
+            } else {
+                scaled_radius = (int)((NODE_RADIUS * 1.8f) * camera_get_zoom()); // Fallback size
+                if (scaled_radius < 1) scaled_radius = 1;
+                fish_r = 255; fish_g = 0; fish_b = 255; // Magenta for orphaned fish nodes
+                SDL_SetRenderDrawColor(g_renderer, fish_r, fish_g, fish_b, 255);
+            }
+            
+            // Draw fish tail FIRST (under the node)
+            if (scaled_radius > 2) {
+                draw_fish_tail(g_renderer, screen_x, screen_y, nodes[i].vx, nodes[i].vy, scaled_radius, fish_r, fish_g, fish_b);
+            }
+            
+            // Draw fish body (circle) SECOND (over the tail)
+            if (scaled_radius <= 2) {
+                SDL_RenderDrawPoint(g_renderer, screen_x, screen_y);
+                if (scaled_radius > 1) {
+                    SDL_RenderDrawPoint(g_renderer, screen_x-1, screen_y);
+                    SDL_RenderDrawPoint(g_renderer, screen_x+1, screen_y);
+                    SDL_RenderDrawPoint(g_renderer, screen_x, screen_y-1);
+                    SDL_RenderDrawPoint(g_renderer, screen_x, screen_y+1);
+                }
+            } else {
+                for (int dx = -scaled_radius; dx <= scaled_radius; dx++) {
+                    int dy_max = (int)sqrt(scaled_radius * scaled_radius - dx * dx);
+                    for (int dy = -dy_max; dy <= dy_max; dy++) {
+                        int px = screen_x + dx;
+                        int py = screen_y + dy;
+                        if (px >= 0 && px < WINDOW_WIDTH && py >= 0 && py < WINDOW_HEIGHT) {
+                            SDL_RenderDrawPoint(g_renderer, px, py);
+                        }
+                    }
+                }
+            }
+            
+            continue; // Skip normal plant rendering
         } else {
-            int plant_type = nodes[i].plant_type;
-            if (plant_type >= 0 && plant_type < plants_get_type_count()) {
-                PlantType* pt = plants_get_type(plant_type);
-                if (pt) {
-                    int aged_r, aged_g, aged_b;
-                    calculate_aged_color(pt->node_r, pt->node_g, pt->node_b, nodes[i].age, pt->age_mature, &aged_r, &aged_g, &aged_b);
-                    SDL_SetRenderDrawColor(g_renderer, aged_r, aged_g, aged_b, 255);
+            // Plant node
+            if (scaled_radius < 1) scaled_radius = 1;
+            
+            // Set color based on selection state and plant type
+            if (i == selected_node && selection_mode == 1) {
+                SDL_SetRenderDrawColor(g_renderer, 255, 255, 0, 255); // Yellow for selected
+            } else {
+                int plant_type = nodes[i].plant_type;
+                if (plant_type >= 0 && plant_type < plants_get_type_count()) {
+                    PlantType* pt = plants_get_type(plant_type);
+                    if (pt) {
+                        int aged_r, aged_g, aged_b;
+                        calculate_aged_color(pt->node_r, pt->node_g, pt->node_b, nodes[i].age, pt->age_mature, &aged_r, &aged_g, &aged_b);
+                        SDL_SetRenderDrawColor(g_renderer, aged_r, aged_g, aged_b, 255);
+                    } else {
+                        SDL_SetRenderDrawColor(g_renderer, 150, 255, 150, 255); // Fallback light green
+                    }
                 } else {
                     SDL_SetRenderDrawColor(g_renderer, 150, 255, 150, 255); // Fallback light green
                 }
-            } else {
-                SDL_SetRenderDrawColor(g_renderer, 150, 255, 150, 255); // Fallback light green
             }
         }
         
-        // Draw node as circle
+        // Draw node as circle (both plants and fish use same circle rendering)
         if (scaled_radius <= 2) {
             SDL_RenderDrawPoint(g_renderer, screen_x, screen_y);
             if (scaled_radius > 1) {

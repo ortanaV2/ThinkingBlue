@@ -14,7 +14,7 @@
 #include "nutrition.h"
 #include "gas.h"
 
-#define TARGET_FPS 60
+#define TARGET_FPS 30
 #define FRAME_DELAY (1000 / TARGET_FPS)
 
 // Global state

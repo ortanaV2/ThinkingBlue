@@ -228,19 +228,19 @@ void rendering_render(void) {
             if (fish) {
                 FishType* fish_type = fish_get_type(fish->fish_type);
                 if (fish_type) {
-                    // Use fish type radius and color - make fish larger than plants
-                    scaled_radius = (int)(fish_type->size_radius * camera_get_zoom() * 1.5f); // 1.5x larger than config
-                    if (scaled_radius < 4) scaled_radius = 4; // Minimum size for visibility
+                    // Use SAME scaling as plants, just multiply base NODE_RADIUS
+                    scaled_radius = (int)((NODE_RADIUS * 1.8f) * camera_get_zoom()); // 1.8x larger than plants
+                    if (scaled_radius < 1) scaled_radius = 1; // Same minimum as plants
                     
                     SDL_SetRenderDrawColor(g_renderer, fish_type->node_r, fish_type->node_g, fish_type->node_b, 255);
                 } else {
-                    scaled_radius = (int)(12 * camera_get_zoom()); // Fallback size
-                    if (scaled_radius < 4) scaled_radius = 4;
+                    scaled_radius = (int)((NODE_RADIUS * 1.8f) * camera_get_zoom()); // Fallback size
+                    if (scaled_radius < 1) scaled_radius = 1;
                     SDL_SetRenderDrawColor(g_renderer, 255, 165, 0, 255); // Orange fallback for fish
                 }
             } else {
-                scaled_radius = (int)(12 * camera_get_zoom()); // Fallback size
-                if (scaled_radius < 4) scaled_radius = 4;
+                scaled_radius = (int)((NODE_RADIUS * 1.8f) * camera_get_zoom()); // Fallback size
+                if (scaled_radius < 1) scaled_radius = 1;
                 SDL_SetRenderDrawColor(g_renderer, 255, 0, 255, 255); // Magenta for orphaned fish nodes
             }
         } else {

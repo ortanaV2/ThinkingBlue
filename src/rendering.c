@@ -8,7 +8,6 @@
 #include "plants.h"
 #include "nutrition.h"
 #include "gas.h"
-#include "fish.h"
 
 static SDL_Renderer* g_renderer = NULL;
 
@@ -109,38 +108,6 @@ static void draw_curved_line(SDL_Renderer* renderer, int x1, int y1, int x2, int
         
         prev_x = curr_x;
         prev_y = curr_y;
-    }
-}
-
-static void draw_fish(SDL_Renderer* renderer, int screen_x, int screen_y, int radius, int is_player) {
-    // Draw fish body as filled circle
-    for (int dx = -radius; dx <= radius; dx++) {
-        int dy_max = (int)sqrt(radius * radius - dx * dx);
-        for (int dy = -dy_max; dy <= dy_max; dy++) {
-            int px = screen_x + dx;
-            int py = screen_y + dy;
-            if (px >= 0 && px < WINDOW_WIDTH && py >= 0 && py < WINDOW_HEIGHT) {
-                SDL_RenderDrawPoint(renderer, px, py);
-            }
-        }
-    }
-    
-    // Draw player indicator (small circle outline)
-    if (is_player) {
-        SDL_SetRenderDrawColor(renderer, 255, 255, 0, 255); // Yellow outline
-        int outline_radius = radius + 3;
-        
-        // Draw circle outline
-        for (int angle = 0; angle < 360; angle += 10) {
-            float rad = angle * M_PI / 180.0f;
-            int px = screen_x + (int)(cos(rad) * outline_radius);
-            int py = screen_y + (int)(sin(rad) * outline_radius);
-            if (px >= 0 && px < WINDOW_WIDTH && py >= 0 && py < WINDOW_HEIGHT) {
-                SDL_RenderDrawPoint(renderer, px, py);
-                SDL_RenderDrawPoint(renderer, px+1, py);
-                SDL_RenderDrawPoint(renderer, px, py+1);
-            }
-        }
     }
 }
 
@@ -280,49 +247,6 @@ void rendering_render(void) {
                 }
             }
         }
-    }
-    
-    // Render fish
-    Fish* fish = fish_get_all();
-    int fish_count = fish_get_count();
-    
-    for (int i = 0; i < fish_count; i++) {
-        if (!fish[i].active) continue;
-        
-        // Frustum culling
-        float fish_render_radius = FISH_RADIUS;
-        if (fish[i].x < world_left - fish_render_radius || fish[i].x > world_right + fish_render_radius ||
-            fish[i].y < world_top - fish_render_radius || fish[i].y > world_bottom + fish_render_radius) {
-            continue;
-        }
-        
-        int screen_x, screen_y;
-        camera_world_to_screen(fish[i].x, fish[i].y, &screen_x, &screen_y);
-        
-        int scaled_radius = (int)(FISH_RADIUS * camera_get_zoom());
-        if (scaled_radius < 2) scaled_radius = 2;
-        
-        // Get fish type and set color
-        FishType* fish_type = fish_get_type(fish[i].fish_type);
-        if (fish_type) {
-            // Modify color based on hunger (more red when hungry)
-            int r = fish_type->fish_r;
-            int g = fish_type->fish_g;
-            int b = fish_type->fish_b;
-            
-            // Add red tint when hungry
-            if (fish[i].hunger > 0.5f) {
-                float hunger_factor = (fish[i].hunger - 0.5f) * 2.0f; // 0.0 to 1.0
-                r = (int)(r + (255 - r) * hunger_factor * 0.3f);
-            }
-            
-            SDL_SetRenderDrawColor(g_renderer, r, g, b, 255);
-        } else {
-            SDL_SetRenderDrawColor(g_renderer, 100, 150, 255, 255); // Fallback blue
-        }
-        
-        // Draw fish
-        draw_fish(g_renderer, screen_x, screen_y, scaled_radius, fish[i].is_player);
     }
     
     SDL_RenderPresent(g_renderer);

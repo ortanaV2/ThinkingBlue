@@ -5,16 +5,12 @@
 #include "simulation.h"
 #include "grid.h"
 #include "plants.h"
-#include "fish.h"
 
 static void apply_repulsion_forces(void) {
     float optimal_sq = OPTIMAL_DISTANCE * OPTIMAL_DISTANCE;
     Node* nodes = simulation_get_nodes();
     int node_count = simulation_get_node_count();
-    Fish* fish = fish_get_all();
-    int fish_count = fish_get_count();
     
-    // Node-Node repulsion (existing code)
     for (int gx = 0; gx < (int)ceil(WORLD_WIDTH / GRID_SIZE); gx++) {
         for (int gy = 0; gy < (int)ceil(WORLD_HEIGHT / GRID_SIZE); gy++) {
             GridCell* cells[9];
@@ -104,62 +100,6 @@ static void apply_repulsion_forces(void) {
             }
         }
     }
-    
-    // Fish-Node repulsion (brute force check all combinations)
-    for (int f = 0; f < fish_count; f++) {
-        if (!fish[f].active) continue;
-        
-        for (int n = 0; n < node_count; n++) {
-            if (!nodes[n].active) continue;
-            
-            float dx = nodes[n].x - fish[f].x;
-            float dy = nodes[n].y - fish[f].y;
-            float distance_sq = dx * dx + dy * dy;
-            
-            if (distance_sq < optimal_sq && distance_sq > 0) {
-                float distance = sqrt(distance_sq);
-                float force_magnitude = REPULSION_FORCE * (OPTIMAL_DISTANCE - distance) / distance;
-                float fx = -dx * force_magnitude;
-                float fy = -dy * force_magnitude;
-                
-                // Fish are fully mobile (mobility = 1.0)
-                fish[f].vx += fx;
-                fish[f].vy += fy;
-                
-                // Apply counter-force to node based on its mobility
-                PlantType* pt = plants_get_type(nodes[n].plant_type);
-                float node_mobility = pt ? pt->mobility_factor : 1.0f;
-                nodes[n].vx -= fx * node_mobility;
-                nodes[n].vy -= fy * node_mobility;
-            }
-        }
-    }
-    
-    // Fish-Fish repulsion
-    for (int f1 = 0; f1 < fish_count; f1++) {
-        if (!fish[f1].active) continue;
-        
-        for (int f2 = f1 + 1; f2 < fish_count; f2++) {
-            if (!fish[f2].active) continue;
-            
-            float dx = fish[f2].x - fish[f1].x;
-            float dy = fish[f2].y - fish[f1].y;
-            float distance_sq = dx * dx + dy * dy;
-            
-            if (distance_sq < optimal_sq && distance_sq > 0) {
-                float distance = sqrt(distance_sq);
-                float force_magnitude = REPULSION_FORCE * (OPTIMAL_DISTANCE - distance) / distance;
-                float fx = -dx * force_magnitude;
-                float fy = -dy * force_magnitude;
-                
-                // Both fish are fully mobile
-                fish[f1].vx += fx;
-                fish[f1].vy += fy;
-                fish[f2].vx -= fx;
-                fish[f2].vy -= fy;
-            }
-        }
-    }
 }
 
 static void apply_chain_forces(void) {
@@ -209,25 +149,19 @@ void physics_update(void) {
         grid_rebuild();
     }
     
-    // Apply plant physics forces
+    // Apply forces
     apply_repulsion_forces();
     apply_chain_forces();
     
     // Plant growth (includes gas heatmap update)
     plants_grow();
     
-    // Update fish physics (apply player forces, hunger, etc.)
-    fish_update();
-    
-    // Update plant positions with drag and world bounds
+    // Update positions with drag and world bounds
     Node* nodes = simulation_get_nodes();
     Chain* chains = simulation_get_chains();
-    Fish* fish = fish_get_all();
     int node_count = simulation_get_node_count();
     int chain_count = simulation_get_chain_count();
-    int fish_count = fish_get_count();
     
-    // Update plant nodes
     for (int i = 0; i < node_count; i++) {
         if (!nodes[i].active) continue;
         
@@ -258,45 +192,6 @@ void physics_update(void) {
         if (nodes[i].y > WORLD_BOTTOM) {
             nodes[i].y = WORLD_BOTTOM;
             nodes[i].vy = 0;
-        }
-    }
-    
-    // Update fish with same physics as nodes
-    for (int i = 0; i < fish_count; i++) {
-        if (!fish[i].active) continue;
-        
-        // Apply accumulated player forces
-        fish[i].vx += fish[i].force_x;
-        fish[i].vy += fish[i].force_y;
-        
-        // Clear force accumulation for next frame
-        fish[i].force_x = 0;
-        fish[i].force_y = 0;
-        
-        // Apply same drag as nodes
-        fish[i].vx *= WATER_DRAG;
-        fish[i].vy *= WATER_DRAG;
-        
-        // Update position
-        fish[i].x += fish[i].vx;
-        fish[i].y += fish[i].vy;
-        
-        // Same world bounds collision as nodes
-        if (fish[i].x < WORLD_LEFT) {
-            fish[i].x = WORLD_LEFT;
-            fish[i].vx = 0;
-        }
-        if (fish[i].x > WORLD_RIGHT) {
-            fish[i].x = WORLD_RIGHT;
-            fish[i].vx = 0;
-        }
-        if (fish[i].y < WORLD_TOP) {
-            fish[i].y = WORLD_TOP;
-            fish[i].vy = 0;
-        }
-        if (fish[i].y > WORLD_BOTTOM) {
-            fish[i].y = WORLD_BOTTOM;
-            fish[i].vy = 0;
         }
     }
     

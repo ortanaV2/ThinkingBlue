@@ -6,6 +6,7 @@
 #include "simulation.h"
 #include "camera.h"
 #include "plants.h"
+#include "fish.h"
 #include "nutrition.h"
 #include "gas.h"
 
@@ -144,7 +145,7 @@ void rendering_render(void) {
     int selected_node = simulation_get_selected_node();
     int selection_mode = simulation_get_selection_mode();
     
-    // Render chains
+    // Render chains (only for plants, fish don't have chains)
     for (int i = 0; i < chain_count; i++) {
         if (!chains[i].active) continue;
         
@@ -153,6 +154,9 @@ void rendering_render(void) {
         
         if (n1 < 0 || n1 >= node_count || n2 < 0 || n2 >= node_count) continue;
         if (!nodes[n1].active || !nodes[n2].active) continue;
+        
+        // Skip if either node is a fish node
+        if (nodes[n1].plant_type == -1 || nodes[n2].plant_type == -1) continue;
         
         // Frustum culling
         float min_x = fminf(nodes[n1].x, nodes[n2].x);
@@ -191,7 +195,11 @@ void rendering_render(void) {
                         chains[i].curve_strength, chains[i].curve_offset, thickness);
     }
     
-    // Render nodes
+    // Get fish data for rendering
+    Fish* fish_list = fish_get_all();
+    int fish_count = fish_get_count();
+    
+    // Render nodes (both plants and fish)
     for (int i = 0; i < node_count; i++) {
         if (!nodes[i].active) continue;
         
@@ -205,28 +213,61 @@ void rendering_render(void) {
         camera_world_to_screen(nodes[i].x, nodes[i].y, &screen_x, &screen_y);
         
         int scaled_radius = (int)(NODE_RADIUS * camera_get_zoom());
-        if (scaled_radius < 1) scaled_radius = 1;
         
-        // Set color based on selection state and plant type
-        if (i == selected_node && selection_mode == 1) {
-            SDL_SetRenderDrawColor(g_renderer, 255, 255, 0, 255); // Yellow for selected
+        // Check if this is a fish node
+        if (nodes[i].plant_type == -1) {
+            // This is a fish node - find the fish that owns this node
+            Fish* fish = NULL;
+            for (int f = 0; f < fish_count; f++) {
+                if (fish_list[f].active && fish_list[f].node_id == i) {
+                    fish = &fish_list[f];
+                    break;
+                }
+            }
+            
+            if (fish) {
+                FishType* fish_type = fish_get_type(fish->fish_type);
+                if (fish_type) {
+                    // Use fish type radius and color - make fish larger than plants
+                    scaled_radius = (int)(fish_type->size_radius * camera_get_zoom() * 1.5f); // 1.5x larger than config
+                    if (scaled_radius < 4) scaled_radius = 4; // Minimum size for visibility
+                    
+                    SDL_SetRenderDrawColor(g_renderer, fish_type->node_r, fish_type->node_g, fish_type->node_b, 255);
+                } else {
+                    scaled_radius = (int)(12 * camera_get_zoom()); // Fallback size
+                    if (scaled_radius < 4) scaled_radius = 4;
+                    SDL_SetRenderDrawColor(g_renderer, 255, 165, 0, 255); // Orange fallback for fish
+                }
+            } else {
+                scaled_radius = (int)(12 * camera_get_zoom()); // Fallback size
+                if (scaled_radius < 4) scaled_radius = 4;
+                SDL_SetRenderDrawColor(g_renderer, 255, 0, 255, 255); // Magenta for orphaned fish nodes
+            }
         } else {
-            int plant_type = nodes[i].plant_type;
-            if (plant_type >= 0 && plant_type < plants_get_type_count()) {
-                PlantType* pt = plants_get_type(plant_type);
-                if (pt) {
-                    int aged_r, aged_g, aged_b;
-                    calculate_aged_color(pt->node_r, pt->node_g, pt->node_b, nodes[i].age, pt->age_mature, &aged_r, &aged_g, &aged_b);
-                    SDL_SetRenderDrawColor(g_renderer, aged_r, aged_g, aged_b, 255);
+            // Plant node
+            if (scaled_radius < 1) scaled_radius = 1;
+            
+            // Set color based on selection state and plant type
+            if (i == selected_node && selection_mode == 1) {
+                SDL_SetRenderDrawColor(g_renderer, 255, 255, 0, 255); // Yellow for selected
+            } else {
+                int plant_type = nodes[i].plant_type;
+                if (plant_type >= 0 && plant_type < plants_get_type_count()) {
+                    PlantType* pt = plants_get_type(plant_type);
+                    if (pt) {
+                        int aged_r, aged_g, aged_b;
+                        calculate_aged_color(pt->node_r, pt->node_g, pt->node_b, nodes[i].age, pt->age_mature, &aged_r, &aged_g, &aged_b);
+                        SDL_SetRenderDrawColor(g_renderer, aged_r, aged_g, aged_b, 255);
+                    } else {
+                        SDL_SetRenderDrawColor(g_renderer, 150, 255, 150, 255); // Fallback light green
+                    }
                 } else {
                     SDL_SetRenderDrawColor(g_renderer, 150, 255, 150, 255); // Fallback light green
                 }
-            } else {
-                SDL_SetRenderDrawColor(g_renderer, 150, 255, 150, 255); // Fallback light green
             }
         }
         
-        // Draw node as circle
+        // Draw node as circle (both plants and fish use same circle rendering)
         if (scaled_radius <= 2) {
             SDL_RenderDrawPoint(g_renderer, screen_x, screen_y);
             if (scaled_radius > 1) {

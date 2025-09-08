@@ -11,6 +11,10 @@
 #define MAX_PLANT_TYPES 64
 #define MAX_NAME_LENGTH 64
 
+// Fish constants
+#define MAX_FISH 50000
+#define MAX_FISH_TYPES 32
+
 // Layer resolution (shared by nutrition and gas layers)
 #define LAYER_GRID_SIZE 30.0f
 
@@ -77,16 +81,42 @@ typedef struct {
     int active;
 } PlantType;
 
-// Node structure
+// Fish type configuration
+typedef struct {
+    char name[MAX_NAME_LENGTH];
+    float max_speed;              // Maximum movement speed
+    float acceleration;           // How quickly fish can change speed
+    float turn_rate;              // How quickly fish can change direction
+    float mass;                   // Affects physics interactions
+    float size_radius;            // Visual size (affects rendering)
+    
+    // Node colors (RGB 0-255)
+    int node_r, node_g, node_b;
+    
+    int active;
+} FishType;
+
+// Node structure (used for both plants and fish)
 typedef struct {
     float x, y;       // Position
     float vx, vy;     // Velocity
     int active;       // Active flag
-    int can_grow;     // Growth capability flag
-    int plant_type;   // Plant type index
-    int branch_count; // Current branch count
+    int can_grow;     // Growth capability flag (only for plants)
+    int plant_type;   // Plant type index (-1 for fish nodes)
+    int branch_count; // Current branch count (only for plants)
     int age;          // Age in frames
 } Node;
+
+// Fish structure (extends Node concept but separate)
+typedef struct {
+    int node_id;                  // Associated node in simulation
+    int fish_type;                // Fish type index
+    float movement_force_x;       // Current movement force
+    float movement_force_y;       // Current movement force
+    float energy;                 // Fish energy level (0.0 to 1.0)
+    int age;                      // Age in frames
+    int active;                   // Active flag
+} Fish;
 
 // Chain structure connecting two nodes
 typedef struct {

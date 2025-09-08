@@ -87,6 +87,111 @@ static PyObject* py_fish_get_velocity(PyObject* self, PyObject* args) {
     return Py_BuildValue("(ff)", node->vx, node->vy);
 }
 
+static PyObject* py_fish_get_energy(PyObject* self, PyObject* args) {
+    (void)self; // Suppress unused parameter warning
+    int fish_id;
+    
+    if (!PyArg_ParseTuple(args, "i", &fish_id)) {
+        return NULL;
+    }
+    
+    Fish* fish = fish_get_by_id(fish_id);
+    if (!fish) {
+        Py_RETURN_NONE;
+    }
+    
+    return PyFloat_FromDouble(fish->energy);
+}
+
+static PyObject* py_fish_get_stomach_contents(PyObject* self, PyObject* args) {
+    (void)self; // Suppress unused parameter warning
+    int fish_id;
+    
+    if (!PyArg_ParseTuple(args, "i", &fish_id)) {
+        return NULL;
+    }
+    
+    Fish* fish = fish_get_by_id(fish_id);
+    if (!fish) {
+        Py_RETURN_NONE;
+    }
+    
+    return PyFloat_FromDouble(fish->stomach_contents);
+}
+
+static PyObject* py_fish_eat_nearby_plants(PyObject* self, PyObject* args) {
+    (void)self; // Suppress unused parameter warning
+    int fish_id;
+    
+    if (!PyArg_ParseTuple(args, "i", &fish_id)) {
+        return NULL;
+    }
+    
+    fish_eat_nearby_plants(fish_id);
+    Py_RETURN_NONE;
+}
+
+static PyObject* py_fish_get_last_reward(PyObject* self, PyObject* args) {
+    (void)self; // Suppress unused parameter warning
+    int fish_id;
+    
+    if (!PyArg_ParseTuple(args, "i", &fish_id)) {
+        return NULL;
+    }
+    
+    float reward = fish_get_last_reward(fish_id);
+    return PyFloat_FromDouble(reward);
+}
+
+static PyObject* py_fish_get_vision_ray(PyObject* self, PyObject* args) {
+    (void)self; // Suppress unused parameter warning
+    int fish_id, ray_index;
+    
+    if (!PyArg_ParseTuple(args, "ii", &fish_id, &ray_index)) {
+        return NULL;
+    }
+    
+    float ray_value = fish_get_vision_ray(fish_id, ray_index);
+    return PyFloat_FromDouble(ray_value);
+}
+
+static PyObject* py_fish_get_hunger_level(PyObject* self, PyObject* args) {
+    (void)self; // Suppress unused parameter warning
+    int fish_id;
+    
+    if (!PyArg_ParseTuple(args, "i", &fish_id)) {
+        return NULL;
+    }
+    
+    float hunger = fish_get_hunger_level(fish_id);
+    return PyFloat_FromDouble(hunger);
+}
+
+static PyObject* py_fish_get_saturation_level(PyObject* self, PyObject* args) {
+    (void)self; // Suppress unused parameter warning
+    int fish_id;
+    
+    if (!PyArg_ParseTuple(args, "i", &fish_id)) {
+        return NULL;
+    }
+    
+    float saturation = fish_get_saturation_level(fish_id);
+    return PyFloat_FromDouble(saturation);
+}
+
+static PyObject* py_fish_apply_rl_action(PyObject* self, PyObject* args) {
+    (void)self; // Suppress unused parameter warning
+    int fish_id;
+    float turn_action, speed_action;
+    
+    if (!PyArg_ParseTuple(args, "iff", &fish_id, &turn_action, &speed_action)) {
+        return NULL;
+    }
+    
+    fish_apply_rl_action(fish_id, turn_action, speed_action);
+    Py_RETURN_NONE;
+}
+
 static PyObject* py_fish_get_type_count(PyObject* self, PyObject* args) {
     (void)self; // Suppress unused parameter warning
     (void)args; // Suppress unused parameter warning
@@ -106,6 +211,14 @@ static PyMethodDef SimulationMethods[] = {
     {"fish_get_count", py_fish_get_count, METH_NOARGS, "Get total fish count"},
     {"fish_get_position", py_fish_get_position, METH_VARARGS, "Get fish position"},
     {"fish_get_velocity", py_fish_get_velocity, METH_VARARGS, "Get fish velocity"},
+    {"fish_get_energy", py_fish_get_energy, METH_VARARGS, "Get fish energy level"},
+    {"fish_get_stomach_contents", py_fish_get_stomach_contents, METH_VARARGS, "Get fish stomach contents"},
+    {"fish_eat_nearby_plants", py_fish_eat_nearby_plants, METH_VARARGS, "Make fish eat nearby plants"},
+    {"fish_get_last_reward", py_fish_get_last_reward, METH_VARARGS, "Get fish last reward"},
+    {"fish_get_vision_ray", py_fish_get_vision_ray, METH_VARARGS, "Get fish vision ray value"},
+    {"fish_get_hunger_level", py_fish_get_hunger_level, METH_VARARGS, "Get fish hunger level"},
+    {"fish_get_saturation_level", py_fish_get_saturation_level, METH_VARARGS, "Get fish saturation level"},
+    {"fish_apply_rl_action", py_fish_apply_rl_action, METH_VARARGS, "Apply RL action to fish"},
     {"fish_get_type_count", py_fish_get_type_count, METH_NOARGS, "Get fish type count"},
     {"get_world_bounds", py_get_world_bounds, METH_NOARGS, "Get world boundaries"},
     {NULL, NULL, 0, NULL}

@@ -62,6 +62,7 @@ int plants_load_config(const char* filename) {
             current_plant->nutrition_depletion_radius = 120.0f;
             current_plant->oxygen_production_factor = 0.2f; // Default low oxygen production
             current_plant->oxygen_production_radius = 80.0f; // Default radius
+            current_plant->nutrition_value = 0.3f; // Default nutrition value for fish
             current_plant->node_r = 150;
             current_plant->node_g = 255;
             current_plant->node_b = 150;
@@ -108,6 +109,8 @@ int plants_load_config(const char* filename) {
             current_plant->oxygen_production_factor = (float)atof(value);
         } else if (strcmp(key, "oxygen_production_radius") == 0) {
             current_plant->oxygen_production_radius = (float)atof(value);
+        } else if (strcmp(key, "nutrition_value") == 0) {
+            current_plant->nutrition_value = (float)atof(value);
         } else if (strcmp(key, "node_color") == 0) {
             parse_color(value, &current_plant->node_r, &current_plant->node_g, &current_plant->node_b);
         } else if (strcmp(key, "chain_color") == 0) {
@@ -120,8 +123,9 @@ int plants_load_config(const char* filename) {
     printf("Loaded %d plant types from config\n", g_plant_type_count);
     for (int i = 0; i < g_plant_type_count; i++) {
         PlantType* pt = &g_plant_types[i];
-        printf("  %s: O2_factor=%.2f, O2_radius=%.1f, mobility=%.2f\n",
-               pt->name, pt->oxygen_production_factor, pt->oxygen_production_radius, pt->mobility_factor);
+        printf("  %s: O2_factor=%.2f, nutrition_value=%.2f, colors=RGB(%d,%d,%d)\n",
+               pt->name, pt->oxygen_production_factor, pt->nutrition_value, 
+               pt->node_r, pt->node_g, pt->node_b);
     }
     
     return g_plant_type_count > 0;

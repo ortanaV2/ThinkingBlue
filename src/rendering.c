@@ -15,6 +15,7 @@ static SDL_Renderer* g_renderer = NULL;
 static void draw_thick_line(SDL_Renderer* renderer, int x1, int y1, int x2, int y2, int thickness);
 static void draw_curved_line(SDL_Renderer* renderer, int x1, int y1, int x2, int y2, float curve_strength, float curve_offset, int thickness);
 static void draw_fish_tail(SDL_Renderer* renderer, int screen_x, int screen_y, float vx, float vy, int fish_radius, int r, int g, int b);
+static void draw_fish_vision_rays(SDL_Renderer* renderer, int fish_id);
 
 static void calculate_aged_color(int base_r, int base_g, int base_b, int age, int age_mature, int* aged_r, int* aged_g, int* aged_b) {
     if (age_mature <= 0) age_mature = 1800; // Fallback value
@@ -139,6 +140,59 @@ static void draw_fish_tail(SDL_Renderer* renderer, int screen_x, int screen_y, f
             
             // Also draw the edge itself
             SDL_RenderDrawLine(renderer, edge_x1, edge_y1, edge_x2, edge_y2);
+        }
+    }
+}
+
+static void draw_fish_vision_rays(SDL_Renderer* renderer, int fish_id) {
+    if (!fish_is_ray_rendering_enabled()) return;
+    
+    Fish* fish = fish_get_by_id(fish_id);
+    if (!fish) return;
+    
+    Node* nodes = simulation_get_nodes();
+    Node* fish_node = &nodes[fish->node_id];
+    FishType* fish_type = fish_get_type(fish->fish_type);
+    if (!fish_type) return;
+    
+    // Calculate fish heading
+    float heading = 0.0f;
+    if (fabs(fish_node->vx) > 0.01f || fabs(fish_node->vy) > 0.01f) {
+        heading = atan2(fish_node->vy, fish_node->vx);
+    }
+    
+    // Draw each vision ray
+    float half_fov = fish_type->fov_angle * 0.5f;
+    for (int i = 0; i < 8; i++) {
+        float ray_angle = heading - half_fov + (fish_type->fov_angle * i / 7.0f);
+        float ray_distance = fish_get_vision_ray(fish_id, i) * fish_type->fov_range;
+        
+        // Calculate ray end point
+        float end_x = fish_node->x + cos(ray_angle) * ray_distance;
+        float end_y = fish_node->y + sin(ray_angle) * ray_distance;
+        
+        // Convert to screen coordinates
+        int fish_screen_x, fish_screen_y;
+        int end_screen_x, end_screen_y;
+        camera_world_to_screen(fish_node->x, fish_node->y, &fish_screen_x, &fish_screen_y);
+        camera_world_to_screen(end_x, end_y, &end_screen_x, &end_screen_y);
+        
+        // Color based on ray hit distance (red = close obstacle, green = clear)
+        float normalized_distance = fish_get_vision_ray(fish_id, i);
+        int ray_r = (int)((1.0f - normalized_distance) * 255); // Red for obstacles
+        int ray_g = (int)(normalized_distance * 255);          // Green for clear
+        int ray_b = 50;                                        // Low blue
+        
+        SDL_SetRenderDrawColor(renderer, ray_r, ray_g, ray_b, 150); // Semi-transparent
+        SDL_RenderDrawLine(renderer, fish_screen_x, fish_screen_y, end_screen_x, end_screen_y);
+        
+        // Draw small circle at ray end
+        for (int dx = -2; dx <= 2; dx++) {
+            for (int dy = -2; dy <= 2; dy++) {
+                if (dx*dx + dy*dy <= 4) {
+                    SDL_RenderDrawPoint(renderer, end_screen_x + dx, end_screen_y + dy);
+                }
+            }
         }
     }
 }
@@ -280,6 +334,15 @@ void rendering_render(void) {
     // Get fish data for rendering
     Fish* fish_list = fish_get_all();
     int fish_count = fish_get_count();
+    
+    // Render fish vision rays FIRST (behind fish)
+    if (fish_is_ray_rendering_enabled()) {
+        for (int i = 0; i < fish_count; i++) {
+            if (fish_list[i].active) {
+                draw_fish_vision_rays(g_renderer, i);
+            }
+        }
+    }
     
     // Render nodes (both plants and fish)
     for (int i = 0; i < node_count; i++) {

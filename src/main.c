@@ -117,6 +117,7 @@ static void print_debug_info(void) {
     printf("Total fish: %d\n", fish_get_count());
     printf("Total nodes: %d\n", simulation_get_node_count());
     printf("Spawn mode: %s\n", g_spawn_mode == 0 ? "PLANT" : "FISH");
+    printf("Ray rendering: %s\n", fish_is_ray_rendering_enabled() ? "ON" : "OFF");
     
     if (g_spawn_mode == 0 && plants_get_type_count() > 0) {
         PlantType* pt = plants_get_type(g_current_plant_type);
@@ -133,8 +134,9 @@ static void print_debug_info(void) {
         if (fish_list[i].active) {
             Node* node = &nodes[fish_list[i].node_id];
             FishType* ft = fish_get_type(fish_list[i].fish_type);
-            printf("Fish %d (%s): pos(%.1f,%.1f) node=%d\n", 
-                   i, ft->name, node->x, node->y, fish_list[i].node_id);
+            printf("Fish %d (%s): pos(%.1f,%.1f) node=%d energy=%.2f reward=%.3f\n", 
+                   i, ft->name, node->x, node->y, fish_list[i].node_id,
+                   fish_list[i].energy, fish_list[i].last_reward);
         }
     }
     printf("==================\n\n");
@@ -144,7 +146,7 @@ int main(int argc, char* argv[]) {
     (void)argc;
     (void)argv;
     
-    printf("Starting Great Barrier Reef Ecosystem...\n");
+    printf("Starting Great Barrier Reef Ecosystem v2...\n");
     srand((unsigned int)time(NULL));
     
     // Initialize SDL
@@ -154,7 +156,7 @@ int main(int argc, char* argv[]) {
     }
     
     // Create window and renderer
-    SDL_Window* window = SDL_CreateWindow("Great Barrier Reef Ecosystem",
+    SDL_Window* window = SDL_CreateWindow("Great Barrier Reef Ecosystem v2",
                                          SDL_WINDOWPOS_CENTERED, SDL_WINDOWPOS_CENTERED,
                                          WINDOW_WIDTH, WINDOW_HEIGHT, SDL_WINDOW_SHOWN);
     if (!window) {
@@ -243,7 +245,7 @@ int main(int argc, char* argv[]) {
     printf("  TAB: Toggle plant/fish mode\n");
     printf("  N: Toggle nutrition layer\n");
     printf("  G: Toggle gas layer\n");
-    printf("  R: Repopulate reef\n");
+    printf("  R: Toggle fish vision rays\n");
     printf("  P: Print debug info\n");
     printf("  ESC: Exit\n\n");
     
@@ -304,7 +306,7 @@ int main(int argc, char* argv[]) {
                             break;
                             
                         case SDLK_r:
-                            populate_reef_randomly();
+                            fish_toggle_ray_rendering();
                             break;
                             
                         case SDLK_p:

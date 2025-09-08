@@ -72,6 +72,9 @@ typedef struct {
     float oxygen_production_factor;      // Oxygen production intensity (0.0 to 1.0+)
     float oxygen_production_radius;      // Radius of oxygen production effect
     
+    // Eating properties
+    float nutrition_value;               // How much nutrition this plant provides when eaten
+    
     // Node colors (RGB 0-255)
     int node_r, node_g, node_b;
     
@@ -89,6 +92,15 @@ typedef struct {
     float turn_rate;              // How quickly fish can change direction
     float mass;                   // Affects physics interactions
     float size_radius;            // Visual size (affects rendering)
+    
+    // Eating parameters
+    float eating_range;           // Distance within which fish can eat plants
+    float eating_rate;            // How often fish tries to eat (per frame)
+    float digestion_rate;         // How quickly fish processes food into energy
+    
+    // RL Vision parameters
+    float fov_range;              // How far the fish can see
+    float fov_angle;              // Field of view angle in radians (total angle)
     
     // Node colors (RGB 0-255)
     int node_r, node_g, node_b;
@@ -114,8 +126,21 @@ typedef struct {
     float movement_force_x;       // Current movement force
     float movement_force_y;       // Current movement force
     float energy;                 // Fish energy level (0.0 to 1.0)
+    float stomach_contents;       // Current food in stomach (0.0 to 1.0)
+    int last_eating_frame;        // Frame when fish last ate
     int age;                      // Age in frames
     int active;                   // Active flag
+    
+    // RL state and rewards
+    float vision_rays[8];         // 8 vision rays showing distance to nearest obstacle
+    float hunger_level;           // Computed hunger (0.0 = full, 1.0 = starving)
+    float saturation_level;       // Computed saturation (0.0 = empty stomach, 1.0 = full)
+    float total_reward;           // Accumulated reward for this fish
+    float last_reward;            // Reward from last action
+    
+    // RL action space
+    float desired_turn;           // Desired turning direction (-1.0 to 1.0)
+    float desired_speed;          // Desired speed (0.0 to 1.0)
 } Fish;
 
 // Chain structure connecting two nodes

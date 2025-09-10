@@ -594,24 +594,28 @@ void fish_defecate(int fish_id) {
     printf("FISH DEFECATE: Fish %d stomach cleared, global defecated: %.4f\n", 
            fish_id, g_total_nutrition_defecated);
     
-    // Optional seed planting
-    if ((float)rand() / RAND_MAX < 0.08f) {
+    // 30% chance to spawn a random seed at defecation location
+    if ((float)rand() / RAND_MAX < 0.3f) {
         int plant_type_count = plants_get_type_count();
         if (plant_type_count > 0) {
             int random_plant_type = rand() % plant_type_count;
             
-            float seed_angle = ((float)rand() / RAND_MAX) * 2.0f * M_PI;
-            float seed_distance = 50.0f + ((float)rand() / RAND_MAX) * 40.0f;
+            // Spawn seed directly at defecation location (with small random offset)
+            float seed_offset_x = ((float)rand() / RAND_MAX - 0.5f) * 20.0f; // ±10 units
+            float seed_offset_y = ((float)rand() / RAND_MAX - 0.5f) * 20.0f; // ±10 units
             
-            float seed_x = fish_node->x + cos(seed_angle) * seed_distance;
-            float seed_y = fish_node->y + sin(seed_angle) * seed_distance;
+            float seed_x = fish_node->x + seed_offset_x;
+            float seed_y = fish_node->y + seed_offset_y;
             
+            // Clamp to world bounds
             if (seed_x >= WORLD_LEFT && seed_x <= WORLD_RIGHT &&
                 seed_y >= WORLD_TOP && seed_y <= WORLD_BOTTOM) {
                 
                 int new_node = simulation_add_node(seed_x, seed_y, random_plant_type);
                 if (new_node >= 0) {
-                    printf("FISH SEED: Fish %d planted seed\n", fish_id);
+                    PlantType* pt = plants_get_type(random_plant_type);
+                    printf("FISH SEED: Fish %d planted %s seed at defecation spot (%.1f, %.1f)\n", 
+                           fish_id, pt->name, seed_x, seed_y);
                 }
             }
         }
@@ -695,12 +699,21 @@ void fish_update(void) {
             fish->last_reward += 0.005f * current_speed;
         }
         
-        // Digestion - convert stomach contents to energy
+        // Digestion - convert stomach contents to energy (realistic system)
         if (fish->stomach_contents > 0.0f) {
             float digestion_amount = fish_type->digestion_rate;
             
+            // Can't digest more than what's in stomach
+            if (digestion_amount > fish->stomach_contents) {
+                digestion_amount = fish->stomach_contents;
+            }
+            
+            // Convert stomach contents to energy
+            fish->stomach_contents -= digestion_amount;
             fish->energy += digestion_amount;
+            
             if (fish->energy > 1.0f) fish->energy = 1.0f;
+            if (fish->stomach_contents < 0.0f) fish->stomach_contents = 0.0f;
         }
         
         // Update RL state

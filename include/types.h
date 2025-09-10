@@ -61,16 +61,16 @@ typedef struct {
     int growth_attempts;
     int max_branches;
     float branch_distance;
-    float mobility_factor;    // How moveable nodes are (0.0 = static, 1.0 = fully mobile)
-    int age_mature;           // Age at which plant stops growing/branching (in frames)
+    float mobility_factor;
+    int age_mature;
     
     // Nutrition depletion settings
-    float nutrition_depletion_strength;  // Base depletion amount per growth
-    float nutrition_depletion_radius;    // Radius of depletion effect
+    float nutrition_depletion_strength;
+    float nutrition_depletion_radius;
     
     // Oxygen production settings
-    float oxygen_production_factor;      // Oxygen production intensity (0.0 to 1.0+)
-    float oxygen_production_radius;      // Radius of oxygen production effect
+    float oxygen_production_factor;
+    float oxygen_production_radius;
     
     // Node colors (RGB 0-255)
     int node_r, node_g, node_b;
@@ -81,14 +81,27 @@ typedef struct {
     int active;
 } PlantType;
 
-// Fish type configuration
+// Fish type configuration  
 typedef struct {
     char name[MAX_NAME_LENGTH];
-    float max_speed;              // Maximum movement speed
-    float acceleration;           // How quickly fish can change speed
-    float turn_rate;              // How quickly fish can change direction
-    float mass;                   // Affects physics interactions
-    float size_radius;            // Visual size (affects rendering)
+    float max_speed;
+    float acceleration;
+    float turn_rate;
+    float mass;
+    float size_radius;
+    
+    // Eating parameters
+    float eating_range;
+    float eating_rate;
+    float digestion_rate;
+    
+    // Defecation parameters for nutrition cycle
+    float defecation_rate;        // Probability per frame of defecation
+    float defecation_radius;      // Radius for nutrition distribution
+    
+    // RL Vision parameters
+    float fov_range;
+    float fov_angle;
     
     // Node colors (RGB 0-255)
     int node_r, node_g, node_b;
@@ -98,40 +111,58 @@ typedef struct {
 
 // Node structure (used for both plants and fish)
 typedef struct {
-    float x, y;       // Position
-    float vx, vy;     // Velocity
-    int active;       // Active flag
-    int can_grow;     // Growth capability flag (only for plants)
+    float x, y;
+    float vx, vy;
+    int active;
+    int can_grow;
     int plant_type;   // Plant type index (-1 for fish nodes)
-    int branch_count; // Current branch count (only for plants)
-    int age;          // Age in frames
+    int branch_count;
+    int age;
+    
+    // Nutrition tracking for plants
+    float nutrition_cost; // How much nutrition this plant node cost to create
 } Node;
 
-// Fish structure (extends Node concept but separate)
+// Fish structure
 typedef struct {
-    int node_id;                  // Associated node in simulation
-    int fish_type;                // Fish type index
-    float movement_force_x;       // Current movement force
-    float movement_force_y;       // Current movement force
-    float energy;                 // Fish energy level (0.0 to 1.0)
-    int age;                      // Age in frames
-    int active;                   // Active flag
+    int node_id;
+    int fish_type;
+    float movement_force_x;
+    float movement_force_y;
+    float energy;
+    float stomach_contents;
+    float consumed_nutrition;     // Total nutrition consumed by this fish
+    int last_eating_frame;
+    int last_defecation_frame;    // Track when fish last defecated (prevent spam)
+    int age;
+    int active;
+    
+    // RL state and rewards
+    float vision_rays[8];
+    float hunger_level;
+    float saturation_level;
+    float total_reward;
+    float last_reward;
+    
+    // RL action space
+    float desired_turn;
+    float desired_speed;
 } Fish;
 
 // Chain structure connecting two nodes
 typedef struct {
     int node1, node2;
     int active;
-    int plant_type;   // Plant type for rendering
-    int age;          // Age in frames
-    float curve_strength; // Curve strength (-1.0 to 1.0)
-    float curve_offset;   // Perpendicular offset for curve direction
+    int plant_type;
+    int age;
+    float curve_strength;
+    float curve_offset;
 } Chain;
 
 // Camera for viewport control
 typedef struct {
-    float x, y;       // World position
-    float zoom;       // Zoom level
+    float x, y;
+    float zoom;
 } Camera;
 
 // Spatial grid cell for optimization

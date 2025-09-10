@@ -15,7 +15,7 @@ static int g_plant_type_count = 0;
 
 static void parse_color(const char* color_str, int* r, int* g, int* b) {
     const char* hex = color_str;
-    if (hex[0] == '#') hex++; // Skip '#' if present
+    if (hex[0] == '#') hex++; 
     
     unsigned int color = (unsigned int)strtoul(hex, NULL, 16);
     *r = (color >> 16) & 0xFF;
@@ -35,33 +35,29 @@ int plants_load_config(const char* filename) {
     g_plant_type_count = 0;
     
     while (fgets(line, sizeof(line), file) && g_plant_type_count < MAX_PLANT_TYPES) {
-        // Remove newline
         line[strcspn(line, "\n")] = 0;
         
-        // Skip empty lines and comments
         if (line[0] == '\0' || line[0] == '#') continue;
         
-        // Check for plant type declaration [PlantName]
         if (line[0] == '[' && line[strlen(line)-1] == ']') {
             current_plant = &g_plant_types[g_plant_type_count];
             memset(current_plant, 0, sizeof(PlantType));
             
-            // Extract plant name
             strncpy(current_plant->name, line + 1, strlen(line) - 2);
             current_plant->name[strlen(line) - 2] = '\0';
             current_plant->active = 1;
             
-            // Set default values
+            // Default values
             current_plant->growth_probability = 0.02f;
             current_plant->growth_attempts = 5;
             current_plant->max_branches = 3;
             current_plant->branch_distance = OPTIMAL_DISTANCE;
             current_plant->mobility_factor = 1.0f;
-            current_plant->age_mature = 1800; // Default 30 seconds at 60fps
+            current_plant->age_mature = 1800;
             current_plant->nutrition_depletion_strength = 0.08f;
             current_plant->nutrition_depletion_radius = 120.0f;
-            current_plant->oxygen_production_factor = 0.2f; // Default low oxygen production
-            current_plant->oxygen_production_radius = 80.0f; // Default radius
+            current_plant->oxygen_production_factor = 0.2f;
+            current_plant->oxygen_production_radius = 80.0f;
             current_plant->node_r = 150;
             current_plant->node_g = 255;
             current_plant->node_b = 150;
@@ -75,7 +71,6 @@ int plants_load_config(const char* filename) {
         
         if (!current_plant) continue;
         
-        // Parse key=value pairs
         char* equals = strchr(line, '=');
         if (!equals) continue;
         
@@ -83,11 +78,9 @@ int plants_load_config(const char* filename) {
         char* key = line;
         char* value = equals + 1;
         
-        // Trim whitespace
         while (*key == ' ' || *key == '\t') key++;
         while (*value == ' ' || *value == '\t') value++;
         
-        // Parse configuration values
         if (strcmp(key, "growth_probability") == 0) {
             current_plant->growth_probability = (float)atof(value);
         } else if (strcmp(key, "growth_attempts") == 0) {
@@ -120,8 +113,8 @@ int plants_load_config(const char* filename) {
     printf("Loaded %d plant types from config\n", g_plant_type_count);
     for (int i = 0; i < g_plant_type_count; i++) {
         PlantType* pt = &g_plant_types[i];
-        printf("  %s: O2_factor=%.2f, O2_radius=%.1f, mobility=%.2f\n",
-               pt->name, pt->oxygen_production_factor, pt->oxygen_production_radius, pt->mobility_factor);
+        printf("  %s: strength=%.3f, radius=%.1f\n",
+               pt->name, pt->nutrition_depletion_strength, pt->nutrition_depletion_radius);
     }
     
     return g_plant_type_count > 0;
@@ -158,23 +151,22 @@ static int is_position_free(float x, float y, float min_distance) {
 }
 
 static float calculate_nutrition_growth_modifier(float nutrition_value) {
-    // Extreme nutrition effects for dramatic gameplay
     if (nutrition_value < 0.2f) {
-        return 0.05f; // Almost no growth in very poor soil
+        return 0.05f;
     } else if (nutrition_value < 0.3f) {
-        return 0.05f + (nutrition_value - 0.2f) / 0.1f * 0.05f; // 0.05 to 0.1
+        return 0.05f + (nutrition_value - 0.2f) / 0.1f * 0.05f;
     } else if (nutrition_value < 0.4f) {
-        return 0.1f + (nutrition_value - 0.3f) / 0.1f * 0.15f; // 0.1 to 0.25
+        return 0.1f + (nutrition_value - 0.3f) / 0.1f * 0.15f;
     } else if (nutrition_value < 0.5f) {
-        return 0.25f + (nutrition_value - 0.4f) / 0.1f * 0.25f; // 0.25 to 0.5
+        return 0.25f + (nutrition_value - 0.4f) / 0.1f * 0.25f;
     } else if (nutrition_value < 0.6f) {
-        return 0.5f + (nutrition_value - 0.5f) / 0.1f * 0.5f; // 0.5 to 1.0
+        return 0.5f + (nutrition_value - 0.5f) / 0.1f * 0.5f;
     } else if (nutrition_value < 0.7f) {
-        return 1.0f + (nutrition_value - 0.6f) / 0.1f * 0.8f; // 1.0 to 1.8
+        return 1.0f + (nutrition_value - 0.6f) / 0.1f * 0.8f;
     } else if (nutrition_value < 0.8f) {
-        return 1.8f + (nutrition_value - 0.7f) / 0.1f * 0.7f; // 1.8 to 2.5
+        return 1.8f + (nutrition_value - 0.7f) / 0.1f * 0.7f;
     } else {
-        return 2.5f + (nutrition_value - 0.8f) / 0.2f * 1.0f; // 2.5 to 3.5
+        return 2.5f + (nutrition_value - 0.8f) / 0.2f * 1.0f;
     }
 }
 
@@ -182,17 +174,14 @@ void plants_grow(void) {
     Node* nodes = simulation_get_nodes();
     int current_node_count = simulation_get_node_count();
     
-    // Call nutrition regeneration and gas heatmap update every frame
     nutrition_regenerate();
-    gas_update_heatmap(); // This handles decay and recalculation
+    gas_update_heatmap();
     
-    // Dynamic growth limit
     int growth_limit = (current_node_count / 100) + 3;
     if (growth_limit > 50) growth_limit = 50;
     
     int grown = 0;
     
-    // Growth logic
     for (int i = 0; i < current_node_count && grown < growth_limit; i++) {
         if (!nodes[i].active || !nodes[i].can_grow) continue;
         
@@ -201,24 +190,20 @@ void plants_grow(void) {
         
         PlantType* pt = &g_plant_types[plant_type];
         
-        // Check branch limit and age limit
         if (nodes[i].branch_count >= pt->max_branches) continue;
         if (nodes[i].age > pt->age_mature) continue;
         
-        // Get nutrition value at this node's position
         float nutrition_value = nutrition_get_value_at(nodes[i].x, nodes[i].y);
         float nutrition_modifier = calculate_nutrition_growth_modifier(nutrition_value);
         
-        // Apply nutrition modifier to growth probability
         float modified_growth_prob = pt->growth_probability * nutrition_modifier;
         
         if ((float)rand() / RAND_MAX < modified_growth_prob) {
-            // Modify growth attempts based on nutrition
             float attempt_modifier = nutrition_modifier;
             if (nutrition_value < 0.3f) {
-                attempt_modifier *= 0.3f; // Very few attempts in poor soil
+                attempt_modifier *= 0.3f;
             } else if (nutrition_value > 0.7f) {
-                attempt_modifier *= 1.8f; // Many more attempts in rich soil
+                attempt_modifier *= 1.8f;
             }
             
             int modified_attempts = (int)(pt->growth_attempts * attempt_modifier);
@@ -230,7 +215,6 @@ void plants_grow(void) {
                 float new_x = nodes[i].x + cos(angle) * pt->branch_distance;
                 float new_y = nodes[i].y + sin(angle) * pt->branch_distance;
                 
-                // Check world bounds
                 if (new_x < WORLD_LEFT || new_x > WORLD_RIGHT ||
                     new_y < WORLD_TOP || new_y > WORLD_BOTTOM) {
                     continue;
@@ -243,15 +227,14 @@ void plants_grow(void) {
                         nodes[i].branch_count++;
                         grown++;
                         
-                        // Use configurable nutrition depletion from plant type
+                        // Calculate and apply nutrition depletion for new plant
                         float depletion_strength = pt->nutrition_depletion_strength;
                         float depletion_radius = pt->nutrition_depletion_radius;
                         
-                        // Apply size factor based on plant characteristics
                         float size_factor = (pt->max_branches / 3.0f) * (pt->branch_distance / OPTIMAL_DISTANCE);
                         float actual_depletion = depletion_strength * size_factor;
                         
-                        // Apply nutrition depletion
+                        // Apply nutrition depletion to environment
                         nutrition_deplete_at_position(new_x, new_y, actual_depletion, depletion_radius);
                         
                         break;
@@ -271,4 +254,17 @@ PlantType* plants_get_type(int index) {
         return NULL;
     }
     return &g_plant_types[index];
+}
+
+// REMOVED: Old nutrition cost tracking functions (no longer needed)
+float plants_get_nutrition_cost_for_node(int node_id) {
+    // This function is kept for compatibility but returns 0
+    // The new system calculates nutrition directly in fish.c
+    return 0.0f;
+}
+
+float plants_get_total_nutrition_cost(void) {
+    // This function is kept for compatibility but returns 0
+    // The new system doesn't track total plant costs
+    return 0.0f;
 }

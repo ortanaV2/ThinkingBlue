@@ -7,6 +7,7 @@
 #include "simulation.h"
 #include "grid.h"
 #include "camera.h"
+#include "plants.h"
 
 static Node* g_nodes = NULL;
 static Chain* g_chains = NULL;
@@ -78,6 +79,10 @@ int simulation_add_node(float x, float y, int plant_type) {
     node->plant_type = plant_type;
     node->branch_count = 0;
     node->age = 0;
+    
+    // REMOVED: nutrition_cost field is no longer used
+    // The new system calculates nutrition values directly when fish eat
+    node->nutrition_cost = 0.0f;
     
     return g_node_count++;
 }

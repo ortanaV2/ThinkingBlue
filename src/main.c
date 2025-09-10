@@ -40,7 +40,7 @@ static void populate_reef_randomly(void) {
     
     // Spawn fish if available
     if (total_fish_species > 0) {
-        int fish_count = 20; // Spawn 20 fish
+        int fish_count = 20;
         printf("Spawning %d fish...\n", fish_count);
         
         for (int i = 0; i < fish_count; i++) {
@@ -119,6 +119,41 @@ static void print_debug_info(void) {
     printf("Spawn mode: %s\n", g_spawn_mode == 0 ? "PLANT" : "FISH");
     printf("Ray rendering: %s\n", fish_is_ray_rendering_enabled() ? "ON" : "OFF");
     
+    // Enhanced nutrition cycle balance with plant costs
+    printf("\n=== NUTRITION CYCLE BALANCE ===\n");
+    
+    // Plant side (nutrition costs)
+    float total_plant_cost = plants_get_total_nutrition_cost();
+    printf("Plants total nutrition cost: %.4f\n", total_plant_cost);
+    
+    // Fish side (consumption and defecation)
+    float fish_consumed = fish_get_total_nutrition_consumed();
+    float fish_defecated = fish_get_total_nutrition_defecated();
+    printf("Fish consumed: %.4f\n", fish_consumed);
+    printf("Fish defecated: %.4f\n", fish_defecated);
+    printf("Fish balance: %.4f\n", fish_consumed - fish_defecated);
+    
+    // Environment side (depletion and addition)
+    float env_added = nutrition_get_total_added();
+    float env_depleted = nutrition_get_total_depleted();
+    printf("Environment depleted: %.4f\n", env_depleted);
+    printf("Environment added: %.4f\n", env_added);
+    printf("Environment balance: %.4f\n", env_added - env_depleted);
+    
+    // Total system balance
+    float total_system_balance = (env_added - env_depleted) + (fish_consumed - fish_defecated);
+    printf("Total system balance: %.4f\n", total_system_balance);
+    
+    // Expected balance (should be close to zero for perfect cycle)
+    float expected_balance = total_plant_cost - env_depleted + env_added - fish_defecated;
+    printf("Expected perfect balance: %.4f\n", expected_balance);
+    
+    // Cycle efficiency
+    if (fish_consumed > 0.0f) {
+        float cycle_efficiency = (fish_defecated / fish_consumed) * 100.0f;
+        printf("Fish cycle efficiency: %.1f%%\n", cycle_efficiency);
+    }
+    
     if (g_spawn_mode == 0 && plants_get_type_count() > 0) {
         PlantType* pt = plants_get_type(g_current_plant_type);
         printf("Current plant: %s\n", pt->name);
@@ -127,16 +162,17 @@ static void print_debug_info(void) {
         printf("Current fish: %s\n", ft->name);
     }
     
-    // Show fish details
+    // Show fish details with nutrition tracking
     Fish* fish_list = fish_get_all();
     Node* nodes = simulation_get_nodes();
+    printf("\n=== FISH DETAILS ===\n");
     for (int i = 0; i < fish_get_count(); i++) {
         if (fish_list[i].active) {
             Node* node = &nodes[fish_list[i].node_id];
             FishType* ft = fish_get_type(fish_list[i].fish_type);
-            printf("Fish %d (%s): pos(%.1f,%.1f) node=%d energy=%.2f reward=%.3f\n", 
-                   i, ft->name, node->x, node->y, fish_list[i].node_id,
-                   fish_list[i].energy, fish_list[i].last_reward);
+            printf("Fish %d (%s): pos(%.1f,%.1f) energy=%.2f consumed=%.4f stomach=%.3f\n", 
+                   i, ft->name, node->x, node->y,
+                   fish_list[i].energy, fish_list[i].consumed_nutrition, fish_list[i].stomach_contents);
         }
     }
     printf("==================\n\n");
@@ -146,7 +182,7 @@ int main(int argc, char* argv[]) {
     (void)argc;
     (void)argv;
     
-    printf("Starting Great Barrier Reef Ecosystem v2...\n");
+    printf("Starting Great Barrier Reef Ecosystem v2 with Nutrition Cycle...\n");
     srand((unsigned int)time(NULL));
     
     // Initialize SDL
@@ -156,7 +192,7 @@ int main(int argc, char* argv[]) {
     }
     
     // Create window and renderer
-    SDL_Window* window = SDL_CreateWindow("Great Barrier Reef Ecosystem v2",
+    SDL_Window* window = SDL_CreateWindow("Great Barrier Reef Ecosystem v2 - Nutrition Cycle",
                                          SDL_WINDOWPOS_CENTERED, SDL_WINDOWPOS_CENTERED,
                                          WINDOW_WIDTH, WINDOW_HEIGHT, SDL_WINDOW_SHOWN);
     if (!window) {
@@ -229,7 +265,7 @@ int main(int argc, char* argv[]) {
     populate_reef_randomly();
     
     // Print status
-    printf("\nSystem ready!\n");
+    printf("\nSystem ready with nutrition cycle tracking!\n");
     printf("Plant types loaded: %d\n", plants_get_type_count());
     printf("Fish types loaded: %d\n", fish_get_type_count());
     
@@ -246,7 +282,7 @@ int main(int argc, char* argv[]) {
     printf("  N: Toggle nutrition layer\n");
     printf("  G: Toggle gas layer\n");
     printf("  R: Toggle fish vision rays\n");
-    printf("  P: Print debug info\n");
+    printf("  P: Print debug info (includes nutrition balance)\n");
     printf("  ESC: Exit\n\n");
     
     // Set initial mode
@@ -374,6 +410,19 @@ int main(int argc, char* argv[]) {
     
 cleanup:
     printf("Shutting down...\n");
+    
+    // Final nutrition balance report
+    printf("\n=== FINAL NUTRITION CYCLE REPORT ===\n");
+    printf("Fish consumed: %.2f\n", fish_get_total_nutrition_consumed());
+    printf("Fish defecated: %.2f\n", fish_get_total_nutrition_defecated());
+    printf("Fish balance: %.2f\n", fish_get_nutrition_balance());
+    printf("Environment added: %.2f\n", nutrition_get_total_added());
+    printf("Environment depleted: %.2f\n", nutrition_get_total_depleted());
+    printf("Environment balance: %.2f\n", nutrition_get_balance());
+    printf("Total system balance: %.2f\n", 
+           fish_get_nutrition_balance() + nutrition_get_balance());
+    printf("====================================\n");
+    
     python_api_cleanup();
     fish_cleanup();
     gas_cleanup();

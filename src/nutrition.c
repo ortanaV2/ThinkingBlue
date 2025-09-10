@@ -19,6 +19,10 @@ static int g_grid_height = 0;
 static int g_visible = 0;
 static SDL_Renderer* g_renderer = NULL;
 
+// Nutrition balance tracking
+static float g_total_nutrition_added = 0.0f;
+static float g_total_nutrition_depleted = 0.0f;
+
 // Perlin noise permutation table
 static int p[512];
 static int permutation[256] = {
@@ -99,14 +103,12 @@ static float octave_perlin(float x, float y, int octaves, float persistence, flo
 }
 
 static void generate_perlin_terrain(void) {
-    // Better randomization using multiple sources
     unsigned int seed = (unsigned int)time(NULL);
     seed ^= (unsigned int)clock();
     seed ^= (unsigned int)getpid();
     seed += (unsigned int)((uintptr_t)&seed);
     srand(seed);
     
-    // Randomize perlin permutation table
     for (int i = 0; i < 256; i++) {
         int j = rand() % 256;
         int temp = permutation[i];
@@ -116,7 +118,6 @@ static void generate_perlin_terrain(void) {
     
     init_perlin();
     
-    // Add random offsets to perlin sampling
     float offset_x = ((float)rand() / RAND_MAX) * 1000.0f;
     float offset_y = ((float)rand() / RAND_MAX) * 1000.0f;
     
@@ -207,12 +208,13 @@ int nutrition_init(void) {
     generate_perlin_terrain();
     apply_smoothing();
     
-    // Store original values for regeneration
     for (int i = 0; i < g_grid_width * g_grid_height; i++) {
         g_original_nutrition[i] = g_nutrition_grid[i];
     }
     
     g_visible = 0;
+    g_total_nutrition_added = 0.0f;
+    g_total_nutrition_depleted = 0.0f;
     
     printf("Nutrition initialized: %dx%d grid (%.1f unit cells)\n", 
            g_grid_width, g_grid_height, LAYER_GRID_SIZE);
@@ -228,6 +230,10 @@ void nutrition_cleanup(void) {
         free(g_original_nutrition);
         g_original_nutrition = NULL;
     }
+    
+    printf("Nutrition cycle final stats - Added: %.2f, Depleted: %.2f, Balance: %.2f\n",
+           g_total_nutrition_added, g_total_nutrition_depleted, 
+           g_total_nutrition_added - g_total_nutrition_depleted);
 }
 
 void nutrition_set_renderer(SDL_Renderer* renderer) {
@@ -267,6 +273,8 @@ void nutrition_deplete_at_position(float world_x, float world_y, float depletion
     
     int grid_radius = (int)ceil(radius / LAYER_GRID_SIZE);
     
+    float total_depleted = 0.0f;
+    
     for (int dy = -grid_radius; dy <= grid_radius; dy++) {
         for (int dx = -grid_radius; dx <= grid_radius; dx++) {
             int grid_x = center_x + dx;
@@ -285,14 +293,68 @@ void nutrition_deplete_at_position(float world_x, float world_y, float depletion
                 float actual_depletion = depletion_amount * falloff;
                 
                 int index = grid_y * g_grid_width + grid_x;
+                float old_value = g_nutrition_grid[index];
                 g_nutrition_grid[index] -= actual_depletion;
                 
                 if (g_nutrition_grid[index] < 0.0f) {
                     g_nutrition_grid[index] = 0.0f;
                 }
+                
+                total_depleted += (old_value - g_nutrition_grid[index]);
             }
         }
     }
+    
+    g_total_nutrition_depleted += total_depleted;
+}
+
+void nutrition_add_at_position(float world_x, float world_y, float addition_amount, float radius) {
+    if (!g_nutrition_grid) return;
+    
+    int center_x = (int)floor((world_x - WORLD_LEFT) / LAYER_GRID_SIZE);
+    int center_y = (int)floor((world_y - WORLD_TOP) / LAYER_GRID_SIZE);
+    
+    // Use the provided radius parameter to match plant depletion patterns
+    int grid_radius = (int)ceil(radius / LAYER_GRID_SIZE);
+    if (grid_radius < 2) grid_radius = 2; // Minimum for visibility
+    
+    float total_added = 0.0f;
+    
+    // Use IDENTICAL falloff pattern as depletion for perfect 1:1 balance
+    for (int dy = -grid_radius; dy <= grid_radius; dy++) {
+        for (int dx = -grid_radius; dx <= grid_radius; dx++) {
+            int grid_x = center_x + dx;
+            int grid_y = center_y + dy;
+            
+            if (grid_x < 0 || grid_x >= g_grid_width || grid_y < 0 || grid_y >= g_grid_height) {
+                continue;
+            }
+            
+            float distance = sqrt(dx * dx + dy * dy) * LAYER_GRID_SIZE;
+            
+            if (distance <= radius) {
+                // EXACT SAME falloff pattern as depletion
+                float falloff = 1.0f - (distance / radius);
+                falloff = falloff * falloff; // Quadratic falloff
+                
+                float cell_nutrition = addition_amount * falloff;
+                
+                int index = grid_y * g_grid_width + grid_x;
+                float old_value = g_nutrition_grid[index];
+                
+                g_nutrition_grid[index] += cell_nutrition;
+                
+                if (g_nutrition_grid[index] > 3.0f) {
+                    g_nutrition_grid[index] = 3.0f;
+                }
+                
+                float actually_added = g_nutrition_grid[index] - old_value;
+                total_added += actually_added;
+            }
+        }
+    }
+    
+    g_total_nutrition_added += total_added;
 }
 
 void nutrition_regenerate(void) {
@@ -314,47 +376,54 @@ void nutrition_regenerate(void) {
     }
 }
 
-// High nutrition = red, low nutrition = blue
 static void value_to_nutrition_color(float value, int* r, int* g, int* b) {
     if (value < 0.0f) value = 0.0f;
-    if (value > 1.0f) value = 1.0f;
+    if (value > 2.0f) value = 2.0f;
     
-    // Reversed mapping: 0.0 = blue, 1.0 = red
-    float h = (1.0f - value) * 5.0f;
-    int i = (int)floor(h);
-    float f = h - i;
-    
-    switch (i) {
-        case 0: // Red to Yellow
-            *r = 255;
-            *g = (int)(255 * f);
-            *b = 0;
-            break;
-        case 1: // Yellow to Green
-            *r = (int)(255 * (1.0f - f));
-            *g = 255;
-            *b = 0;
-            break;
-        case 2: // Green to Cyan
-            *r = 0;
-            *g = 255;
-            *b = (int)(255 * f);
-            break;
-        case 3: // Cyan to Blue
-            *r = 0;
-            *g = (int)(255 * (1.0f - f));
-            *b = 255;
-            break;
-        case 4: // Blue to Magenta
-            *r = (int)(255 * f);
-            *g = 0;
-            *b = 255;
-            break;
-        default: // Magenta
-            *r = 255;
-            *g = 0;
-            *b = 255;
-            break;
+    if (value > 1.0f) {
+        // Values above 1.0 - bright colors for added nutrition
+        float excess = value - 1.0f;
+        *r = 255;
+        *g = 255 - (int)(excess * 127);
+        *b = 0;
+    } else {
+        // Normal range 0.0 to 1.0
+        float h = (1.0f - value) * 5.0f;
+        int i = (int)floor(h);
+        float f = h - i;
+        
+        switch (i) {
+            case 0:
+                *r = 255;
+                *g = (int)(255 * f);
+                *b = 0;
+                break;
+            case 1:
+                *r = (int)(255 * (1.0f - f));
+                *g = 255;
+                *b = 0;
+                break;
+            case 2:
+                *r = 0;
+                *g = 255;
+                *b = (int)(255 * f);
+                break;
+            case 3:
+                *r = 0;
+                *g = (int)(255 * (1.0f - f));
+                *b = 255;
+                break;
+            case 4:
+                *r = (int)(255 * f);
+                *g = 0;
+                *b = 255;
+                break;
+            default:
+                *r = 255;
+                *g = 0;
+                *b = 255;
+                break;
+        }
     }
 }
 
@@ -381,7 +450,8 @@ void nutrition_render(void) {
             int r, g, b;
             value_to_nutrition_color(nutrition_value, &r, &g, &b);
             
-            SDL_SetRenderDrawColor(g_renderer, r, g, b, 140);
+            int alpha = 180;
+            SDL_SetRenderDrawColor(g_renderer, r, g, b, alpha);
             
             float world_x = WORLD_LEFT + gx * LAYER_GRID_SIZE;
             float world_y = WORLD_TOP + gy * LAYER_GRID_SIZE;
@@ -404,4 +474,16 @@ void nutrition_render(void) {
             }
         }
     }
+}
+
+float nutrition_get_total_added(void) {
+    return g_total_nutrition_added;
+}
+
+float nutrition_get_total_depleted(void) {
+    return g_total_nutrition_depleted;
+}
+
+float nutrition_get_balance(void) {
+    return g_total_nutrition_added - g_total_nutrition_depleted;
 }

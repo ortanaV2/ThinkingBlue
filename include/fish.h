@@ -15,9 +15,10 @@ void fish_remove(int fish_id);
 void fish_set_movement_force(int fish_id, float force_x, float force_y);
 void fish_clear_movement_force(int fish_id);
 
-// Fish eating functionality
+// Fish eating and defecation functionality
 void fish_eat_nearby_plants(int fish_id);
 int fish_can_eat_plant(int fish_id, int node_id);
+void fish_defecate(int fish_id);
 
 // RL Vision system
 void fish_update_vision(int fish_id);
@@ -51,5 +52,10 @@ FishType* fish_get_type(int index);
 // Ray rendering toggle
 void fish_toggle_ray_rendering(void);
 int fish_is_ray_rendering_enabled(void);
+
+// Nutrition cycle tracking
+float fish_get_total_nutrition_consumed(void);
+float fish_get_total_nutrition_defecated(void);
+float fish_get_nutrition_balance(void);
 
 #endif // FISH_H

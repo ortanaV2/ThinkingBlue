@@ -80,25 +80,9 @@ int simulation_add_node(float x, float y, int plant_type) {
     node->branch_count = 0;
     node->age = 0;
     
-    // CRITICAL FIX: Assign nutrition_cost for seeds and manually created plants
-    if (plant_type >= 0) {
-        // This is a plant node - assign appropriate nutrition cost
-        PlantType* pt = plants_get_type(plant_type);
-        if (pt) {
-            // Calculate nutrition cost using same formula as plants_grow()
-            float depletion_strength = pt->nutrition_depletion_strength;
-            float size_factor = (pt->max_branches / 3.0f) * (pt->branch_distance / OPTIMAL_DISTANCE);
-            float nutrition_cost = depletion_strength * size_factor;
-            
-            node->nutrition_cost = nutrition_cost;
-        } else {
-            // Fallback for invalid plant type
-            node->nutrition_cost = 0.05f;
-        }
-    } else {
-        // Fish node - no nutrition cost
-        node->nutrition_cost = 0.0f;
-    }
+    // REMOVED: nutrition_cost field is no longer used
+    // The new system calculates nutrition values directly when fish eat
+    node->nutrition_cost = 0.0f;
     
     return g_node_count++;
 }

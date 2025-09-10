@@ -16,7 +16,7 @@ static int g_fish_count = 0;
 static int g_fish_type_count = 0;
 static int g_ray_rendering_enabled = 0;
 
-// Nutrition tracking for perfect 1:1 balance
+// Clean nutrition tracking
 static float g_total_nutrition_consumed = 0.0f;
 static float g_total_nutrition_defecated = 0.0f;
 
@@ -44,7 +44,7 @@ int fish_init(void) {
     g_total_nutrition_consumed = 0.0f;
     g_total_nutrition_defecated = 0.0f;
     
-    printf("Fish system initialized with nutrition tracking\n");
+    printf("Fish system initialized with clean nutrition tracking\n");
     return 1;
 }
 
@@ -56,7 +56,7 @@ void fish_cleanup(void) {
     g_fish_count = 0;
     g_fish_type_count = 0;
     
-    printf("Nutrition cycle stats - Consumed: %.2f, Defecated: %.2f, Balance: %.2f\n",
+    printf("Final nutrition stats - Consumed: %.2f, Defecated: %.2f, Balance: %.2f\n",
            g_total_nutrition_consumed, g_total_nutrition_defecated, 
            g_total_nutrition_consumed - g_total_nutrition_defecated);
 }
@@ -116,7 +116,7 @@ int fish_load_config(const char* filename) {
                 current_fish->eating_range = 80.0f;
                 current_fish->eating_rate = 0.01f;
                 current_fish->digestion_rate = 0.001f;
-                current_fish->defecation_rate = 0.0008f; // Slightly slower than digestion
+                current_fish->defecation_rate = 0.006f;
                 current_fish->defecation_radius = 60.0f;
                 current_fish->fov_range = 150.0f;
                 current_fish->fov_angle = 1.57f;
@@ -183,13 +183,7 @@ int fish_load_config(const char* filename) {
     
     fclose(file);
     
-    printf("Loaded %d fish types:\n", g_fish_type_count);
-    for (int i = 0; i < g_fish_type_count; i++) {
-        FishType* ft = &g_fish_types[i];
-        printf("  [%d] %s: Defecation_rate=%.4f, Defecation_radius=%.1f\n", 
-               i, ft->name, ft->defecation_rate, ft->defecation_radius);
-    }
-    
+    printf("Loaded %d fish types\n", g_fish_type_count);
     return g_fish_type_count > 0;
 }
 
@@ -219,7 +213,7 @@ int fish_add(float x, float y, int fish_type) {
     fish->stomach_contents = 0.0f;
     fish->consumed_nutrition = 0.0f;
     fish->last_eating_frame = 0;
-    fish->last_defecation_frame = 0; // Track last defecation
+    fish->last_defecation_frame = 0;
     fish->age = 0;
     fish->active = 1;
     
@@ -237,7 +231,7 @@ int fish_add(float x, float y, int fish_type) {
     g_fish_count++;
     
     FishType* ft = &g_fish_types[fish_type];
-    printf("Created fish %d (type: %s) at (%.1f, %.1f)\n", 
+    printf("Created fish %d (%s) at (%.1f, %.1f)\n", 
            fish_id, ft->name, x, y);
     
     return fish_id;
@@ -438,13 +432,6 @@ void fish_apply_rl_action(int fish_id, float turn_action, float speed_action) {
     float force_strength = 2.0f;
     fish->movement_force_x = (desired_vx - fish_node->vx) * force_strength;
     fish->movement_force_y = (desired_vy - fish_node->vy) * force_strength;
-    
-    if (fish_id == 0 && simulation_get_frame_counter() % 60 == 0) {
-        printf("Fish %d: turn=%.2f, speed=%.2f, heading=%.2f, forces=(%.2f,%.2f), vel=(%.2f,%.2f)\n",
-               fish_id, turn_action, speed_action, new_heading, 
-               fish->movement_force_x, fish->movement_force_y,
-               fish_node->vx, fish_node->vy);
-    }
 }
 
 float fish_get_reward(int fish_id) {
@@ -466,8 +453,6 @@ int fish_can_eat_plant(int fish_id, int node_id) {
     Fish* fish = &g_fish[fish_id];
     FishType* fish_type = &g_fish_types[fish->fish_type];
     
-    if (fish->stomach_contents >= 1.0f) return 0;
-    
     Node* fish_node = &nodes[fish->node_id];
     Node* plant_node = &nodes[node_id];
     
@@ -478,6 +463,34 @@ int fish_can_eat_plant(int fish_id, int node_id) {
     return distance <= fish_type->eating_range;
 }
 
+// NEW: Calculate plant nutrition value properly
+float calculate_plant_nutrition_value(int node_id) {
+    Node* nodes = simulation_get_nodes();
+    if (node_id < 0 || node_id >= simulation_get_node_count()) return 0.0f;
+    if (!nodes[node_id].active || nodes[node_id].plant_type == -1) return 0.0f;
+    
+    int plant_type = nodes[node_id].plant_type;
+    PlantType* pt = plants_get_type(plant_type);
+    if (!pt) return 0.0f;
+    
+    // Calculate total nutrition: strength * range * gradient_factor
+    float strength = pt->nutrition_depletion_strength;
+    float range = pt->nutrition_depletion_radius;
+    
+    // Gradient factor based on plant size/complexity
+    float gradient_factor = (pt->max_branches / 8.0f) * (pt->branch_distance / OPTIMAL_DISTANCE);
+    if (gradient_factor < 0.5f) gradient_factor = 0.5f;
+    if (gradient_factor > 2.0f) gradient_factor = 2.0f;
+    
+    float total_nutrition = strength * (range / 100.0f) * gradient_factor;
+    
+    printf("PLANT NUTRITION: %s node %d = %.4f (strength=%.3f, range=%.1f, gradient=%.2f)\n",
+           pt->name, node_id, total_nutrition, strength, range, gradient_factor);
+    
+    return total_nutrition;
+}
+
+// NEW: Clean eating system
 void fish_eat_nearby_plants(int fish_id) {
     if (fish_id < 0 || fish_id >= g_fish_count) return;
     if (!g_fish[fish_id].active) return;
@@ -486,17 +499,12 @@ void fish_eat_nearby_plants(int fish_id) {
     FishType* fish_type = &g_fish_types[fish->fish_type];
     Node* nodes = simulation_get_nodes();
     
-    if (fish->stomach_contents >= 1.0f) return;
-    
     int current_frame = simulation_get_frame_counter();
     float eating_chance = fish_type->eating_rate;
     
-    int attempted_to_eat = 0;
-    if ((float)rand() / RAND_MAX <= eating_chance) {
-        attempted_to_eat = 1;
+    if ((float)rand() / RAND_MAX > eating_chance) {
+        return;
     }
-    
-    if (!attempted_to_eat) return;
     
     Node* fish_node = &nodes[fish->node_id];
     float fish_x = fish_node->x;
@@ -506,7 +514,6 @@ void fish_eat_nearby_plants(int fish_id) {
     int cell_count = grid_get_cells_at_position(fish_x, fish_y, cells, 9);
     
     float eating_range_sq = fish_type->eating_range * fish_type->eating_range;
-    int found_food = 0;
     
     for (int c = 0; c < cell_count; c++) {
         GridCell* cell = cells[c];
@@ -523,96 +530,40 @@ void fish_eat_nearby_plants(int fish_id) {
             float distance_sq = dx * dx + dy * dy;
             
             if (distance_sq <= eating_range_sq) {
-                // Get the nutrition this plant cost to create
-                float plant_nutrition_cost = plants_get_nutrition_cost_for_node(node_id);
+                float plant_nutrition = calculate_plant_nutrition_value(node_id);
                 
-                printf("FISH EAT: Fish %d eating node %d with nutrition_cost=%.4f\n", 
-                       fish_id, node_id, plant_nutrition_cost);
+                printf("FISH EAT: Fish %d eating node %d (nutrition: %.4f)\n", 
+                       fish_id, node_id, plant_nutrition);
                 
-                // ENHANCED FALLBACK: Calculate proper nutrition cost if missing
-                if (plant_nutrition_cost <= 0.0f) {
-                    printf("WARNING: Plant node %d has zero nutrition cost! Calculating fallback...\n", node_id);
-                    
-                    int plant_type = nodes[node_id].plant_type;
-                    if (plant_type >= 0 && plant_type < plants_get_type_count()) {
-                        PlantType* pt = plants_get_type(plant_type);
-                        if (pt) {
-                            // Use same calculation as in plants_grow() and simulation_add_node()
-                            float depletion_strength = pt->nutrition_depletion_strength;
-                            float size_factor = (pt->max_branches / 3.0f) * (pt->branch_distance / OPTIMAL_DISTANCE);
-                            plant_nutrition_cost = depletion_strength * size_factor;
-                            
-                            // Store the calculated cost in the node for future use
-                            nodes[node_id].nutrition_cost = plant_nutrition_cost;
-                            
-                            printf("FALLBACK: Calculated nutrition_cost=%.4f for plant type %s\n", 
-                                   plant_nutrition_cost, pt->name);
-                        } else {
-                            plant_nutrition_cost = 0.08f; // Default fallback
-                            nodes[node_id].nutrition_cost = plant_nutrition_cost;
-                            printf("FALLBACK: Using default nutrition_cost=%.4f\n", plant_nutrition_cost);
-                        }
-                    } else {
-                        plant_nutrition_cost = 0.08f; // Default fallback
-                        nodes[node_id].nutrition_cost = plant_nutrition_cost;
-                        printf("FALLBACK: Using default nutrition_cost=%.4f for invalid plant type\n", plant_nutrition_cost);
-                    }
-                }
-                
-                float reward = plant_nutrition_cost * 10.0f;
-                fish->last_reward += reward;
-                fish->total_reward += reward;
-                
+                // Add to stomach
                 float old_stomach = fish->stomach_contents;
-                float old_consumed = fish->consumed_nutrition;
+                fish->stomach_contents += plant_nutrition;
+                g_total_nutrition_consumed += plant_nutrition;
                 
-                fish->stomach_contents += plant_nutrition_cost;
-                fish->consumed_nutrition += plant_nutrition_cost; // Track total consumed
-                
-                if (fish->stomach_contents > 1.0f) {
-                    // Overflow - fish can't eat more
-                    float overflow = fish->stomach_contents - 1.0f;
-                    fish->stomach_contents = 1.0f;
-                    fish->consumed_nutrition -= overflow; // Subtract overflow
-                }
-                
-                float actually_consumed = fish->consumed_nutrition - old_consumed;
-                g_total_nutrition_consumed += actually_consumed;
-                
-                float saturation_gain = fish->stomach_contents - old_stomach;
-                fish->last_reward += saturation_gain * 5.0f;
+                // Rewards
+                float nutrition_reward = plant_nutrition * 10.0f;
+                fish->last_reward += nutrition_reward;
+                fish->total_reward += nutrition_reward;
                 
                 fish->last_eating_frame = current_frame;
-                found_food = 1;
                 
-                printf("FISH EAT: Fish %d consumed %.4f nutrition (total: %.4f, global: %.4f)\n", 
-                       fish_id, actually_consumed, fish->consumed_nutrition, g_total_nutrition_consumed);
+                printf("FISH EAT: Fish %d stomach: %.4f -> %.4f (consumed globally: %.4f)\n", 
+                       fish_id, old_stomach, fish->stomach_contents, g_total_nutrition_consumed);
                 
+                // Remove eaten plant
                 nodes[node_id].active = 0;
                 nodes[node_id].can_grow = 0;
                 
-                return;
+                return; // Only eat one plant per frame
             }
         }
     }
     
-    if (!found_food) {
-        fish->last_reward -= 0.03f;
-        
-        int plants_in_vision = 0;
-        for (int i = 0; i < 8; i++) {
-            if (fish->vision_rays[i] < 0.9f) {
-                plants_in_vision = 1;
-                break;
-            }
-        }
-        
-        if (!plants_in_vision) {
-            fish->last_reward -= 0.02f;
-        }
-    }
+    // Penalty for not finding food
+    fish->last_reward -= 0.02f;
 }
 
+// NEW: Simple defecation system - only when stomach >= 70%
 void fish_defecate(int fish_id) {
     if (fish_id < 0 || fish_id >= g_fish_count) return;
     if (!g_fish[fish_id].active) return;
@@ -622,65 +573,45 @@ void fish_defecate(int fish_id) {
     Node* nodes = simulation_get_nodes();
     Node* fish_node = &nodes[fish->node_id];
     
-    if (fish->consumed_nutrition <= 0.0f) return;
-    
-    int current_frame = simulation_get_frame_counter();
-    
-    // Rate-limited defecation - use probability per frame
-    float defecation_chance = fish_type->defecation_rate;
-    if ((float)rand() / RAND_MAX > defecation_chance) {
-        return; // No defecation this frame
-    }
-    
-    // Minimum time between defecations (prevent spam)
-    int min_frames_between = 60; // 1 second at 60 FPS
-    if (current_frame - fish->last_defecation_frame < min_frames_between) {
+    // Only defecate when stomach is 70% full or more
+    if (fish->stomach_contents < 0.7f) {
         return;
     }
     
-    // Defecate a larger portion of consumed nutrition for faster cycling
-    float defecation_amount = fish->consumed_nutrition * 0.25f; // 25% per defecation (faster)
-    if (defecation_amount < 0.02f) {
-        defecation_amount = 0.02f; // Higher minimum amount
-    }
-    if (defecation_amount > fish->consumed_nutrition) {
-        defecation_amount = fish->consumed_nutrition;
-    }
+    float defecation_amount = fish->stomach_contents;
     
-    printf("FISH DEFECATE: Fish %d defecating %.4f nutrition (from %.4f consumed)\n", 
-           fish_id, defecation_amount, fish->consumed_nutrition);
+    printf("FISH DEFECATE: Fish %d defecating %.4f at position (%.1f, %.1f)\n", 
+           fish_id, defecation_amount, fish_node->x, fish_node->y);
     
-    // Return nutrition to environment in exact 1:1 ratio
+    // Add ALL stomach contents to environment at current fish position
     nutrition_add_at_position(fish_node->x, fish_node->y, 
                               defecation_amount, fish_type->defecation_radius);
     
-    fish->consumed_nutrition -= defecation_amount;
+    // Clear stomach
+    fish->stomach_contents = 0.0f;
     g_total_nutrition_defecated += defecation_amount;
-    fish->last_defecation_frame = current_frame;
     
-    printf("FISH DEFECATE: Fish %d remaining consumed: %.4f, global defecated: %.4f\n", 
-           fish_id, fish->consumed_nutrition, g_total_nutrition_defecated);
+    printf("FISH DEFECATE: Fish %d stomach cleared, global defecated: %.4f\n", 
+           fish_id, g_total_nutrition_defecated);
     
-    // 30% chance to plant a seed
-    if ((float)rand() / RAND_MAX < 0.3f) {
+    // Optional seed planting
+    if ((float)rand() / RAND_MAX < 0.08f) {
         int plant_type_count = plants_get_type_count();
         if (plant_type_count > 0) {
             int random_plant_type = rand() % plant_type_count;
             
-            // Try to plant near fish but not too close
             float seed_angle = ((float)rand() / RAND_MAX) * 2.0f * M_PI;
-            float seed_distance = 20.0f + ((float)rand() / RAND_MAX) * 30.0f; // 20-50 units away
+            float seed_distance = 50.0f + ((float)rand() / RAND_MAX) * 40.0f;
             
             float seed_x = fish_node->x + cos(seed_angle) * seed_distance;
             float seed_y = fish_node->y + sin(seed_angle) * seed_distance;
             
-            // Check world bounds
             if (seed_x >= WORLD_LEFT && seed_x <= WORLD_RIGHT &&
                 seed_y >= WORLD_TOP && seed_y <= WORLD_BOTTOM) {
                 
                 int new_node = simulation_add_node(seed_x, seed_y, random_plant_type);
                 if (new_node >= 0) {
-                    printf("FISH SEED: Fish %d planted seed at (%.1f, %.1f)\n", fish_id, seed_x, seed_y);
+                    printf("FISH SEED: Fish %d planted seed\n", fish_id);
                 }
             }
         }
@@ -732,6 +663,7 @@ Fish* fish_get_all(void) {
 void fish_update(void) {
     Node* nodes = simulation_get_nodes();
     int node_count = simulation_get_node_count();
+    int current_frame = simulation_get_frame_counter();
     
     for (int i = 0; i < g_fish_count; i++) {
         if (!g_fish[i].active) continue;
@@ -750,11 +682,13 @@ void fish_update(void) {
         
         FishType* fish_type = &g_fish_types[fish->fish_type];
         
+        // Reset frame rewards
         fish->last_reward = 0.0f;
         
         Node* node = &nodes[node_id];
         float current_speed = sqrt(node->vx * node->vx + node->vy * node->vy);
         
+        // Movement rewards/penalties
         if (current_speed < 0.1f) {
             fish->last_reward -= 0.02f;
         } else if (current_speed > 0.5f) {
@@ -764,25 +698,26 @@ void fish_update(void) {
         // Digestion - convert stomach contents to energy
         if (fish->stomach_contents > 0.0f) {
             float digestion_amount = fish_type->digestion_rate;
-            float energy_gained = digestion_amount;
             
-            fish->stomach_contents -= digestion_amount;
-            fish->energy += energy_gained;
-            
-            if (fish->stomach_contents < 0.0f) fish->stomach_contents = 0.0f;
+            fish->energy += digestion_amount;
             if (fish->energy > 1.0f) fish->energy = 1.0f;
         }
         
-        // Defecation process - now rate-limited and controlled
-        fish_defecate(i);
-        
+        // Update RL state
         fish_update_rl_state(i);
+        
+        // Try to eat
         fish_eat_nearby_plants(i);
         
+        // Try to defecate (only when stomach >= 70%)
+        fish_defecate(i);
+        
+        // Apply movement forces
         float force_factor = 2.0f;
         nodes[node_id].vx += fish->movement_force_x * force_factor;
         nodes[node_id].vy += fish->movement_force_y * force_factor;
         
+        // Movement assistance
         if (fish->desired_speed > 0.1f) {
             float current_speed = sqrt(nodes[node_id].vx * nodes[node_id].vx + nodes[node_id].vy * nodes[node_id].vy);
             if (current_speed < 0.5f) {
@@ -792,19 +727,44 @@ void fish_update(void) {
             }
         }
         
+        // Boundary penalties
         float boundary_distance = 1000.0f;
-        
         if (node->x < WORLD_LEFT + boundary_distance || node->x > WORLD_RIGHT - boundary_distance ||
             node->y < WORLD_TOP + boundary_distance || node->y > WORLD_BOTTOM - boundary_distance) {
             fish->last_reward -= 0.05f;
         }
         
+        // Age and energy decay
         fish->age++;
-        
         fish->energy -= 0.0001f;
         if (fish->energy < 0.0f) fish->energy = 0.0f;
         
+        // Base survival reward
         fish->last_reward += 0.001f;
+    }
+    
+    // Debug output every 10 seconds
+    static int last_debug_frame = 0;
+    if (current_frame - last_debug_frame >= 600) {
+        last_debug_frame = current_frame;
+        
+        float balance = g_total_nutrition_consumed - g_total_nutrition_defecated;
+        float total_stomach = 0.0f;
+        
+        for (int i = 0; i < g_fish_count; i++) {
+            if (g_fish[i].active) {
+                total_stomach += g_fish[i].stomach_contents;
+            }
+        }
+        
+        printf("\n=== CLEAN NUTRITION SYSTEM (Frame %d) ===\n", current_frame);
+        printf("Total consumed: %.4f\n", g_total_nutrition_consumed);
+        printf("Total defecated: %.4f\n", g_total_nutrition_defecated);
+        printf("In fish stomachs: %.4f\n", total_stomach);
+        printf("Expected balance: %.4f\n", balance - total_stomach);
+        printf("System efficiency: %.1f%%\n", 
+               g_total_nutrition_consumed > 0 ? (g_total_nutrition_defecated / g_total_nutrition_consumed) * 100.0f : 0.0f);
+        printf("========================================\n\n");
     }
 }
 
@@ -819,7 +779,7 @@ FishType* fish_get_type(int index) {
     return &g_fish_types[index];
 }
 
-// Nutrition tracking functions
+// Clean nutrition tracking functions
 float fish_get_total_nutrition_consumed(void) {
     return g_total_nutrition_consumed;
 }

@@ -13,9 +13,6 @@
 static PlantType g_plant_types[MAX_PLANT_TYPES];
 static int g_plant_type_count = 0;
 
-// Track total nutrition costs for debugging
-static float g_total_plant_nutrition_cost = 0.0f;
-
 static void parse_color(const char* color_str, int* r, int* g, int* b) {
     const char* hex = color_str;
     if (hex[0] == '#') hex++; 
@@ -36,7 +33,6 @@ int plants_load_config(const char* filename) {
     char line[256];
     PlantType* current_plant = NULL;
     g_plant_type_count = 0;
-    g_total_plant_nutrition_cost = 0.0f;
     
     while (fgets(line, sizeof(line), file) && g_plant_type_count < MAX_PLANT_TYPES) {
         line[strcspn(line, "\n")] = 0;
@@ -117,9 +113,8 @@ int plants_load_config(const char* filename) {
     printf("Loaded %d plant types from config\n", g_plant_type_count);
     for (int i = 0; i < g_plant_type_count; i++) {
         PlantType* pt = &g_plant_types[i];
-        printf("  %s: O2_factor=%.2f, nutrition_cost=%.2f, colors=RGB(%d,%d,%d)\n",
-               pt->name, pt->oxygen_production_factor, pt->nutrition_depletion_strength, 
-               pt->node_r, pt->node_g, pt->node_b);
+        printf("  %s: strength=%.3f, radius=%.1f\n",
+               pt->name, pt->nutrition_depletion_strength, pt->nutrition_depletion_radius);
     }
     
     return g_plant_type_count > 0;
@@ -232,16 +227,12 @@ void plants_grow(void) {
                         nodes[i].branch_count++;
                         grown++;
                         
-                        // Calculate nutrition cost for this new node
+                        // Calculate and apply nutrition depletion for new plant
                         float depletion_strength = pt->nutrition_depletion_strength;
                         float depletion_radius = pt->nutrition_depletion_radius;
                         
                         float size_factor = (pt->max_branches / 3.0f) * (pt->branch_distance / OPTIMAL_DISTANCE);
                         float actual_depletion = depletion_strength * size_factor;
-                        
-                        // CRITICAL: Store the EXACT nutrition cost in the new node
-                        nodes[new_node].nutrition_cost = actual_depletion;
-                        g_total_plant_nutrition_cost += actual_depletion;
                         
                         // Apply nutrition depletion to environment
                         nutrition_deplete_at_position(new_x, new_y, actual_depletion, depletion_radius);
@@ -265,25 +256,15 @@ PlantType* plants_get_type(int index) {
     return &g_plant_types[index];
 }
 
+// REMOVED: Old nutrition cost tracking functions (no longer needed)
 float plants_get_nutrition_cost_for_node(int node_id) {
-    Node* nodes = simulation_get_nodes();
-    if (node_id < 0 || node_id >= simulation_get_node_count()) {
-        printf("ERROR: plants_get_nutrition_cost_for_node - invalid node_id %d\n", node_id);
-        return 0.0f;
-    }
-    
-    if (!nodes[node_id].active || nodes[node_id].plant_type == -1) {
-        printf("ERROR: plants_get_nutrition_cost_for_node - node %d is not a plant\n", node_id);
-        return 0.0f;
-    }
-    
-    float cost = nodes[node_id].nutrition_cost;
-    printf("PLANT: Node %d nutrition_cost=%.4f\n", node_id, cost);
-    
-    return cost;
+    // This function is kept for compatibility but returns 0
+    // The new system calculates nutrition directly in fish.c
+    return 0.0f;
 }
 
-// Debug function to get total plant nutrition cost
 float plants_get_total_nutrition_cost(void) {
-    return g_total_plant_nutrition_cost;
+    // This function is kept for compatibility but returns 0
+    // The new system doesn't track total plant costs
+    return 0.0f;
 }

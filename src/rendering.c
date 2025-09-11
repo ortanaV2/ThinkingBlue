@@ -33,11 +33,11 @@ static void calculate_aged_color(int base_r, int base_g, int base_b, int age, in
     int brown_b = 33;
     
     // Reduced brown influence - more darkening than browning
-    float brown_influence = age_factor * 0.35f; // Max 35% brown influence (halved)
+    float brown_influence = age_factor * 0.20f; // Max 35% brown influence (halved)
     float original_influence = 1.0f - brown_influence;
     
     // Stronger darkening effect for aging
-    float darkness_factor = 1.0f - (age_factor * 0.15f);
+    float darkness_factor = 1.0f - (age_factor * 0.08f);
     
     *aged_r = (int)((base_r * original_influence + brown_r * brown_influence) * darkness_factor);
     *aged_g = (int)((base_g * original_influence + brown_g * brown_influence) * darkness_factor);
@@ -263,7 +263,7 @@ void rendering_render(void) {
     if (!g_renderer) return;
     
     // Clear background
-    SDL_SetRenderDrawColor(g_renderer, 30, 60, 120, 255);
+    SDL_SetRenderDrawColor(g_renderer, 22, 117, 158, 255);
     SDL_RenderClear(g_renderer);
     
     // Render layers in order (behind everything)

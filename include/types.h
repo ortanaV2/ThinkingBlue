@@ -15,6 +15,10 @@
 #define MAX_FISH 50000
 #define MAX_FISH_TYPES 32
 
+// Enhanced vision system (NEW)
+#define VISION_RAYS 12           // Increased from 8 to 12 for 180° coverage
+#define CHEMORECEPTOR_RAYS 12    // Same 12 rays for nutrition detection
+
 // Layer resolution (shared by nutrition and gas layers)
 #define LAYER_GRID_SIZE 30.0f
 
@@ -72,7 +76,7 @@ typedef struct {
     float oxygen_production_factor;
     float oxygen_production_radius;
     
-    // Nutrition value for fish (NEW)
+    // Nutrition value for fish
     float nutrition_value;
     
     // Node colors (RGB 0-255)
@@ -102,11 +106,12 @@ typedef struct {
     float defecation_rate;        // Probability per frame of defecation
     float defecation_radius;      // Radius for nutrition distribution
     
-    // RL Vision parameters
-    float fov_range;
-    float fov_angle;
+    // Enhanced vision parameters (UPDATED)
+    float fov_range;              // How far fish can see
+    float fov_angle;              // Field of view angle (now ~3.14 for 180°)
+    float chemoreceptor_range;    // How far fish can "smell" nutrition (NEW)
     
-    // Oxygen consumption (NEW)
+    // Oxygen consumption
     float oxygen_consumption_rate;  // How fast fish consumes oxygen
     float oxygen_refill_rate;       // How fast fish refills oxygen in rich areas
     
@@ -144,10 +149,11 @@ typedef struct {
     int age;
     int active;
     
-    // Enhanced RL state (NEW)
-    float oxygen_level;           // Current oxygen level (0.0 to 1.0)
-    float hunger_level;           // Hunger level (0.0 to 1.0)
-    float vision_rays[8];
+    // Enhanced RL state with chemoreceptors (UPDATED)
+    float oxygen_level;                    // Current oxygen level (0.0 to 1.0)
+    float hunger_level;                    // Hunger level (0.0 to 1.0)
+    float vision_rays[VISION_RAYS];        // Visual obstacle detection (12 rays)
+    float nutrition_rays[CHEMORECEPTOR_RAYS]; // Chemical nutrition detection (12 rays) - NEW
     float saturation_level;
     float total_reward;
     float last_reward;

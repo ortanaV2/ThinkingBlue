@@ -144,6 +144,7 @@ static void draw_fish_tail(SDL_Renderer* renderer, int screen_x, int screen_y, f
     }
 }
 
+// FIXED: Updated to use VISION_RAYS and correct angle calculation
 static void draw_fish_vision_rays(SDL_Renderer* renderer, int fish_id) {
     if (!fish_is_ray_rendering_enabled()) return;
     
@@ -161,10 +162,11 @@ static void draw_fish_vision_rays(SDL_Renderer* renderer, int fish_id) {
         heading = atan2(fish_node->vy, fish_node->vx);
     }
     
-    // Draw each vision ray
+    // FIXED: Use VISION_RAYS instead of hardcoded 8
     float half_fov = fish_type->fov_angle * 0.5f;
-    for (int i = 0; i < 8; i++) {
-        float ray_angle = heading - half_fov + (fish_type->fov_angle * i / 7.0f);
+    for (int i = 0; i < VISION_RAYS; i++) {  // FIX: Was "i < 8"
+        // FIXED: Use (VISION_RAYS - 1) instead of hardcoded 7.0f
+        float ray_angle = heading - half_fov + (fish_type->fov_angle * i / (VISION_RAYS - 1));  // FIX: Was "/ 7.0f"
         float ray_distance = fish_get_vision_ray(fish_id, i) * fish_type->fov_range;
         
         // Calculate ray end point

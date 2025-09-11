@@ -24,14 +24,17 @@ void fish_defecate(int fish_id);
 void fish_update_vision(int fish_id);
 void fish_cast_vision_ray(int fish_id, float angle, int ray_index);
 
-// RL State management
+// Enhanced RL State management (NEW)
 void fish_update_rl_state(int fish_id);
-void fish_calculate_hunger_saturation(int fish_id);
+void fish_update_oxygen_system(int fish_id);
+void fish_update_hunger_system(int fish_id);
+void fish_calculate_environmental_rewards(int fish_id);
 void fish_apply_rl_action(int fish_id, float turn_action, float speed_action);
 float fish_get_reward(int fish_id);
 
-// RL State accessors for Python
+// Enhanced RL State accessors for Python (NEW)
 float fish_get_vision_ray(int fish_id, int ray_index);
+float fish_get_oxygen_level(int fish_id);
 float fish_get_hunger_level(int fish_id);
 float fish_get_saturation_level(int fish_id);
 float fish_get_last_reward(int fish_id);

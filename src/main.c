@@ -40,7 +40,7 @@ static void populate_reef_randomly(void) {
     
     // Spawn fish if available
     if (total_fish_species > 0) {
-        int fish_count = 20;
+        int fish_count = 50;
         printf("Spawning %d fish...\n", fish_count);
         
         for (int i = 0; i < fish_count; i++) {

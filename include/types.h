@@ -72,6 +72,9 @@ typedef struct {
     float oxygen_production_factor;
     float oxygen_production_radius;
     
+    // Nutrition value for fish (NEW)
+    float nutrition_value;
+    
     // Node colors (RGB 0-255)
     int node_r, node_g, node_b;
     
@@ -102,6 +105,10 @@ typedef struct {
     // RL Vision parameters
     float fov_range;
     float fov_angle;
+    
+    // Oxygen consumption (NEW)
+    float oxygen_consumption_rate;  // How fast fish consumes oxygen
+    float oxygen_refill_rate;       // How fast fish refills oxygen in rich areas
     
     // Node colors (RGB 0-255)
     int node_r, node_g, node_b;
@@ -137,9 +144,10 @@ typedef struct {
     int age;
     int active;
     
-    // RL state and rewards
+    // Enhanced RL state (NEW)
+    float oxygen_level;           // Current oxygen level (0.0 to 1.0)
+    float hunger_level;           // Hunger level (0.0 to 1.0)
     float vision_rays[8];
-    float hunger_level;
     float saturation_level;
     float total_reward;
     float last_reward;

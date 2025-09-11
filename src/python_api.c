@@ -172,6 +172,31 @@ static PyObject* py_fish_get_vision_ray(PyObject* self, PyObject* args) {
     return PyFloat_FromDouble(ray_value);
 }
 
+// NEW: Chemoreceptor API function
+static PyObject* py_fish_get_nutrition_ray(PyObject* self, PyObject* args) {
+    (void)self;
+    int fish_id, ray_index;
+    
+    if (!PyArg_ParseTuple(args, "ii", &fish_id, &ray_index)) {
+        return NULL;
+    }
+    
+    float nutrition_value = fish_get_nutrition_ray(fish_id, ray_index);
+    return PyFloat_FromDouble(nutrition_value);
+}
+
+static PyObject* py_fish_get_oxygen_level(PyObject* self, PyObject* args) {
+    (void)self;
+    int fish_id;
+    
+    if (!PyArg_ParseTuple(args, "i", &fish_id)) {
+        return NULL;
+    }
+    
+    float oxygen = fish_get_oxygen_level(fish_id);
+    return PyFloat_FromDouble(oxygen);
+}
+
 static PyObject* py_fish_get_hunger_level(PyObject* self, PyObject* args) {
     (void)self;
     int fish_id;
@@ -232,6 +257,13 @@ static PyObject* py_get_nutrition_balance(PyObject* self, PyObject* args) {
     return Py_BuildValue("(ffff)", fish_consumed, fish_defecated, env_added, env_depleted);
 }
 
+// NEW: Get vision system info
+static PyObject* py_get_vision_info(PyObject* self, PyObject* args) {
+    (void)self;
+    (void)args;
+    return Py_BuildValue("(ii)", VISION_RAYS, CHEMORECEPTOR_RAYS);
+}
+
 // Method definitions for the Python module
 static PyMethodDef SimulationMethods[] = {
     {"fish_add", py_fish_add, METH_VARARGS, "Add a fish to the simulation"},
@@ -245,12 +277,15 @@ static PyMethodDef SimulationMethods[] = {
     {"fish_eat_nearby_plants", py_fish_eat_nearby_plants, METH_VARARGS, "Make fish eat nearby plants"},
     {"fish_get_last_reward", py_fish_get_last_reward, METH_VARARGS, "Get fish last reward"},
     {"fish_get_vision_ray", py_fish_get_vision_ray, METH_VARARGS, "Get fish vision ray value"},
+    {"fish_get_nutrition_ray", py_fish_get_nutrition_ray, METH_VARARGS, "Get fish nutrition detection ray value"},
+    {"fish_get_oxygen_level", py_fish_get_oxygen_level, METH_VARARGS, "Get fish oxygen level"},
     {"fish_get_hunger_level", py_fish_get_hunger_level, METH_VARARGS, "Get fish hunger level"},
     {"fish_get_saturation_level", py_fish_get_saturation_level, METH_VARARGS, "Get fish saturation level"},
     {"fish_apply_rl_action", py_fish_apply_rl_action, METH_VARARGS, "Apply RL action to fish"},
     {"fish_get_type_count", py_fish_get_type_count, METH_NOARGS, "Get fish type count"},
     {"get_world_bounds", py_get_world_bounds, METH_NOARGS, "Get world boundaries"},
     {"get_nutrition_balance", py_get_nutrition_balance, METH_NOARGS, "Get nutrition cycle balance"},
+    {"get_vision_info", py_get_vision_info, METH_NOARGS, "Get vision system info (vision_rays, nutrition_rays)"},
     {NULL, NULL, 0, NULL}
 };
 
@@ -258,7 +293,7 @@ static PyMethodDef SimulationMethods[] = {
 static struct PyModuleDef simulation_module = {
     PyModuleDef_HEAD_INIT,
     "simulation",
-    "Marine ecosystem simulation API with nutrition cycle",
+    "Enhanced marine ecosystem simulation API with 180° vision & chemoreceptors",
     -1,
     SimulationMethods,
     NULL,
@@ -284,7 +319,7 @@ int python_api_init(void) {
         return 0;
     }
     
-    printf("Python API initialized with nutrition tracking\n");
+    printf("Enhanced Python API initialized with 180° vision & chemoreceptor systems\n");
     return 1;
 }
 
@@ -329,7 +364,7 @@ int python_api_run_script(const char* script_path) {
             }
             printf("Warning: No callable 'update_fish' function found in Python script\n");
         } else {
-            printf("Python script loaded successfully with update_fish function\n");
+            printf("Enhanced Python script loaded successfully with 180° vision & chemoreceptor support\n");
         }
     }
     

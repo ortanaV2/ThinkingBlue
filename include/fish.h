@@ -20,18 +20,25 @@ void fish_eat_nearby_plants(int fish_id);
 int fish_can_eat_plant(int fish_id, int node_id);
 void fish_defecate(int fish_id);
 
-// RL Vision system
+// Enhanced vision & chemoreceptor system (UPDATED)
 void fish_update_vision(int fish_id);
 void fish_cast_vision_ray(int fish_id, float angle, int ray_index);
+void fish_cast_nutrition_ray(int fish_id, float angle, int ray_index);  // NEW
+void fish_update_chemoreceptors(int fish_id);                          // NEW
 
-// RL State management
+// Enhanced RL State management
 void fish_update_rl_state(int fish_id);
-void fish_calculate_hunger_saturation(int fish_id);
+void fish_update_oxygen_system(int fish_id);
+void fish_update_hunger_system(int fish_id);
+void fish_calculate_environmental_rewards(int fish_id);
+void fish_calculate_chemoreceptor_rewards(int fish_id);                 // NEW
 void fish_apply_rl_action(int fish_id, float turn_action, float speed_action);
 float fish_get_reward(int fish_id);
 
-// RL State accessors for Python
+// Enhanced RL State accessors for Python (UPDATED)
 float fish_get_vision_ray(int fish_id, int ray_index);
+float fish_get_nutrition_ray(int fish_id, int ray_index);               // NEW
+float fish_get_oxygen_level(int fish_id);
 float fish_get_hunger_level(int fish_id);
 float fish_get_saturation_level(int fish_id);
 float fish_get_last_reward(int fish_id);

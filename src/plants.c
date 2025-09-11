@@ -58,6 +58,7 @@ int plants_load_config(const char* filename) {
             current_plant->nutrition_depletion_radius = 120.0f;
             current_plant->oxygen_production_factor = 0.2f;
             current_plant->oxygen_production_radius = 80.0f;
+            current_plant->nutrition_value = 0.25f;  // Default nutrition value
             current_plant->node_r = 150;
             current_plant->node_g = 255;
             current_plant->node_b = 150;
@@ -101,6 +102,8 @@ int plants_load_config(const char* filename) {
             current_plant->oxygen_production_factor = (float)atof(value);
         } else if (strcmp(key, "oxygen_production_radius") == 0) {
             current_plant->oxygen_production_radius = (float)atof(value);
+        } else if (strcmp(key, "nutrition_value") == 0) {  // FIX: Fehlender Parser!
+            current_plant->nutrition_value = (float)atof(value);
         } else if (strcmp(key, "node_color") == 0) {
             parse_color(value, &current_plant->node_r, &current_plant->node_g, &current_plant->node_b);
         } else if (strcmp(key, "chain_color") == 0) {
@@ -113,8 +116,8 @@ int plants_load_config(const char* filename) {
     printf("Loaded %d plant types from config\n", g_plant_type_count);
     for (int i = 0; i < g_plant_type_count; i++) {
         PlantType* pt = &g_plant_types[i];
-        printf("  %s: strength=%.3f, radius=%.1f\n",
-               pt->name, pt->nutrition_depletion_strength, pt->nutrition_depletion_radius);
+        printf("  %s: nutrition=%.3f, strength=%.3f, radius=%.1f\n",
+               pt->name, pt->nutrition_value, pt->nutrition_depletion_strength, pt->nutrition_depletion_radius);
     }
     
     return g_plant_type_count > 0;

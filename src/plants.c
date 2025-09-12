@@ -1,3 +1,4 @@
+// Fixed plants.c - Removed obsolete nutrition_value system
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -58,7 +59,7 @@ int plants_load_config(const char* filename) {
             current_plant->nutrition_depletion_radius = 120.0f;
             current_plant->oxygen_production_factor = 0.2f;
             current_plant->oxygen_production_radius = 80.0f;
-            current_plant->nutrition_value = 0.25f;  // Default nutrition value
+            // REMOVED: nutrition_value field is no longer used
             current_plant->node_r = 150;
             current_plant->node_g = 255;
             current_plant->node_b = 150;
@@ -102,8 +103,9 @@ int plants_load_config(const char* filename) {
             current_plant->oxygen_production_factor = (float)atof(value);
         } else if (strcmp(key, "oxygen_production_radius") == 0) {
             current_plant->oxygen_production_radius = (float)atof(value);
-        } else if (strcmp(key, "nutrition_value") == 0) {  // FIX: Fehlender Parser!
-            current_plant->nutrition_value = (float)atof(value);
+        } else if (strcmp(key, "nutrition_value") == 0) {
+            // REMOVED: nutrition_value is ignored - this prevents config parser errors
+            printf("Warning: nutrition_value is obsolete and ignored for %s\n", current_plant->name);
         } else if (strcmp(key, "node_color") == 0) {
             parse_color(value, &current_plant->node_r, &current_plant->node_g, &current_plant->node_b);
         } else if (strcmp(key, "chain_color") == 0) {
@@ -113,11 +115,14 @@ int plants_load_config(const char* filename) {
     
     fclose(file);
     
-    printf("Loaded %d plant types from config\n", g_plant_type_count);
+    printf("Loaded %d plant types with unified nutrition system\n", g_plant_type_count);
     for (int i = 0; i < g_plant_type_count; i++) {
         PlantType* pt = &g_plant_types[i];
-        printf("  %s: nutrition=%.3f, strength=%.3f, radius=%.1f\n",
-               pt->name, pt->nutrition_value, pt->nutrition_depletion_strength, pt->nutrition_depletion_radius);
+        // Calculate unified nutrition cost (same formula as fish eating uses)
+        float size_factor = (pt->max_branches / 3.0f) * (pt->branch_distance / OPTIMAL_DISTANCE);
+        float unified_nutrition_cost = pt->nutrition_depletion_strength * size_factor;
+        printf("  %s: unified_nutrition=%.3f, strength=%.3f, radius=%.1f\n",
+               pt->name, unified_nutrition_cost, pt->nutrition_depletion_strength, pt->nutrition_depletion_radius);
     }
     
     return g_plant_type_count > 0;
@@ -230,7 +235,7 @@ void plants_grow(void) {
                         nodes[i].branch_count++;
                         grown++;
                         
-                        // Calculate and apply nutrition depletion for new plant
+                        // FIXED: Use unified nutrition depletion formula (same as fish eating/defecation)
                         float depletion_strength = pt->nutrition_depletion_strength;
                         float depletion_radius = pt->nutrition_depletion_radius;
                         
@@ -259,15 +264,16 @@ PlantType* plants_get_type(int index) {
     return &g_plant_types[index];
 }
 
-// REMOVED: Old nutrition cost tracking functions (no longer needed)
+// REMOVED: Old nutrition cost tracking functions are now obsolete
 float plants_get_nutrition_cost_for_node(int node_id) {
-    // This function is kept for compatibility but returns 0
-    // The new system calculates nutrition directly in fish.c
+    // FIXED: This function is kept for compatibility but now returns 0
+    // The unified system calculates nutrition directly in fish.c
+    (void)node_id; // Suppress unused parameter warning
     return 0.0f;
 }
 
 float plants_get_total_nutrition_cost(void) {
-    // This function is kept for compatibility but returns 0
-    // The new system doesn't track total plant costs
+    // FIXED: This function is kept for compatibility but now returns 0
+    // The unified system doesn't track total plant costs separately
     return 0.0f;
 }

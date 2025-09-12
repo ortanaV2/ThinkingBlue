@@ -30,8 +30,8 @@ static void populate_reef_randomly(void) {
     
     printf("Populating reef with plants and fish...\n");
     
-    // Spawn 300 plants
-    for (int i = 0; i < 300; i++) {
+    // Spawn 500 plants
+    for (int i = 0; i < 500; i++) {
         float x = WORLD_LEFT + ((float)rand() / RAND_MAX) * WORLD_WIDTH;
         float y = WORLD_TOP + ((float)rand() / RAND_MAX) * WORLD_HEIGHT;
         int species = rand() % total_plant_species;

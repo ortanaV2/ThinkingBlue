@@ -15,9 +15,9 @@
 #define MAX_FISH 50000
 #define MAX_FISH_TYPES 32
 
-// Enhanced vision system (NEW)
-#define VISION_RAYS 12           // Increased from 8 to 12 for 180° coverage
-#define CHEMORECEPTOR_RAYS 12    // Same 12 rays for nutrition detection
+// Enhanced vision system
+#define VISION_RAYS 12           // 12 rays for 180° vision coverage
+#define CHEMORECEPTOR_RAYS 12    // 12 rays for nutrition detection
 
 // Layer resolution (shared by nutrition and gas layers)
 #define LAYER_GRID_SIZE 30.0f
@@ -58,7 +58,7 @@
 #define M_PI 3.14159265358979323846
 #endif
 
-// Plant type configuration
+// FIXED: Plant type configuration with nutrition_value removed
 typedef struct {
     char name[MAX_NAME_LENGTH];
     float growth_probability;
@@ -76,8 +76,8 @@ typedef struct {
     float oxygen_production_factor;
     float oxygen_production_radius;
     
-    // Nutrition value for fish
-    float nutrition_value;
+    // REMOVED: nutrition_value field is obsolete in unified system
+    // Fish now calculate nutrition based on depletion_strength formula
     
     // Node colors (RGB 0-255)
     int node_r, node_g, node_b;
@@ -106,10 +106,10 @@ typedef struct {
     float defecation_rate;        // Probability per frame of defecation
     float defecation_radius;      // Radius for nutrition distribution
     
-    // Enhanced vision parameters (UPDATED)
+    // Enhanced vision parameters
     float fov_range;              // How far fish can see
     float fov_angle;              // Field of view angle (now ~3.14 for 180°)
-    float chemoreceptor_range;    // How far fish can "smell" nutrition (NEW)
+    float chemoreceptor_range;    // How far fish can "smell" nutrition
     
     // Oxygen consumption
     float oxygen_consumption_rate;  // How fast fish consumes oxygen
@@ -121,7 +121,7 @@ typedef struct {
     int active;
 } FishType;
 
-// Node structure (used for both plants and fish)
+// FIXED: Node structure with nutrition_cost field cleaned up
 typedef struct {
     float x, y;
     float vx, vy;
@@ -131,8 +131,9 @@ typedef struct {
     int branch_count;
     int age;
     
-    // Nutrition tracking for plants
-    float nutrition_cost; // How much nutrition this plant node cost to create
+    // REMOVED: nutrition_cost field is obsolete in unified system
+    // Nutrition is now calculated dynamically using plant type settings
+    float nutrition_cost; // Kept for compatibility, but always 0
 } Node;
 
 // Fish structure
@@ -145,15 +146,15 @@ typedef struct {
     float stomach_contents;
     float consumed_nutrition;     // Total nutrition consumed by this fish
     int last_eating_frame;
-    int last_defecation_frame;    // Track when fish last defecated (prevent spam)
+    int last_defecation_frame;    // Track when fish last defecated
     int age;
     int active;
     
-    // Enhanced RL state with chemoreceptors (UPDATED)
+    // Enhanced RL state with chemoreceptors
     float oxygen_level;                    // Current oxygen level (0.0 to 1.0)
     float hunger_level;                    // Hunger level (0.0 to 1.0)
     float vision_rays[VISION_RAYS];        // Visual obstacle detection (12 rays)
-    float nutrition_rays[CHEMORECEPTOR_RAYS]; // Chemical nutrition detection (12 rays) - NEW
+    float nutrition_rays[CHEMORECEPTOR_RAYS]; // Chemical nutrition detection (12 rays)
     float saturation_level;
     float total_reward;
     float last_reward;

@@ -106,10 +106,13 @@ The simulation incorporates realistic marine biology concepts:
 - **Metabolic Processes**: Oxygen consumption, digestion, and energy management
 
 ## Oxygen-Simulation
-<img width="994" height="773" alt="image" src="https://github.com/user-attachments/assets/5a882de7-89ba-4ebe-aebe-527cec990c0e" />g
+<img width="994" height="773" alt="image" src="https://github.com/user-attachments/assets/5a882de7-89ba-4ebe-aebe-527cec990c0e" />
+
+## Nutrient Cycle
+<img width="1196" height="795" alt="image" src="https://github.com/user-attachments/assets/89eae400-c046-4711-b701-12b7c593d660" />
+
+## Flow Vector Field
+<img width="1189" height="788" alt="image" src="https://github.com/user-attachments/assets/c4ca74d6-3859-4c36-b7e3-15df004255d3" />
 
 ## Reinforcement Learning Fish Agents
 <img width="1189" height="785" alt="image" src="https://github.com/user-attachments/assets/94385059-1019-40da-80e0-df2007b99bd2" />
-
-## Nutrient Cycle
-<img width="1183" height="789" alt="image" src="https://github.com/user-attachments/assets/8246baaf-698a-488f-97eb-7b670d5c6fa7" />

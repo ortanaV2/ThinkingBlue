@@ -13,6 +13,7 @@
 #include "rendering.h"
 #include "nutrition.h"
 #include "gas.h"
+#include "flow.h"  // Added flow layer
 
 #define TARGET_FPS 30
 #define FRAME_DELAY (1000 / TARGET_FPS)
@@ -118,6 +119,7 @@ static void print_debug_info(void) {
     printf("Total nodes: %d\n", simulation_get_node_count());
     printf("Spawn mode: %s\n", g_spawn_mode == 0 ? "PLANT" : "FISH");
     printf("Ray rendering: %s\n", fish_is_ray_rendering_enabled() ? "ON" : "OFF");
+    printf("Flow field: %s\n", flow_is_visible() ? "ON" : "OFF");  // Added flow status
     
     // Enhanced nutrition cycle balance with plant costs
     printf("\n=== NUTRITION CYCLE BALANCE ===\n");
@@ -182,7 +184,7 @@ int main(int argc, char* argv[]) {
     (void)argc;
     (void)argv;
     
-    printf("Starting Great Barrier Reef Ecosystem v2 with Nutrition Cycle...\n");
+    printf("Starting Great Barrier Reef Ecosystem v2 with Nutrition Cycle and Flow Field...\n");
     srand((unsigned int)time(NULL));
     
     // Initialize SDL
@@ -192,7 +194,7 @@ int main(int argc, char* argv[]) {
     }
     
     // Create window and renderer
-    SDL_Window* window = SDL_CreateWindow("Great Barrier Reef Ecosystem v2 - Nutrition Cycle",
+    SDL_Window* window = SDL_CreateWindow("Great Barrier Reef Ecosystem v2 - Flow Field",
                                          SDL_WINDOWPOS_CENTERED, SDL_WINDOWPOS_CENTERED,
                                          WINDOW_WIDTH, WINDOW_HEIGHT, SDL_WINDOW_SHOWN);
     if (!window) {
@@ -232,6 +234,10 @@ int main(int argc, char* argv[]) {
         printf("Gas init failed\n");
         goto cleanup;
     }
+    if (!flow_init()) {  // Added flow initialization
+        printf("Flow init failed\n");
+        goto cleanup;
+    }
     if (!fish_init()) {
         printf("Fish init failed\n");
         goto cleanup;
@@ -260,12 +266,13 @@ int main(int argc, char* argv[]) {
     // Set renderer for layers
     nutrition_set_renderer(renderer);
     gas_set_renderer(renderer);
+    flow_set_renderer(renderer);  // Added flow renderer
     
     // Initial setup
     populate_reef_randomly();
     
     // Print status
-    printf("\nSystem ready with nutrition cycle tracking!\n");
+    printf("\nSystem ready with nutrition cycle and flow field!\n");
     printf("Plant types loaded: %d\n", plants_get_type_count());
     printf("Fish types loaded: %d\n", fish_get_type_count());
     
@@ -281,6 +288,7 @@ int main(int argc, char* argv[]) {
     printf("  TAB: Toggle plant/fish mode\n");
     printf("  N: Toggle nutrition layer\n");
     printf("  G: Toggle gas layer\n");
+    printf("  F: Toggle flow field\n");  // Added flow toggle
     printf("  R: Toggle fish vision rays\n");
     printf("  P: Print debug info (includes nutrition balance)\n");
     printf("  ESC: Exit\n\n");
@@ -339,6 +347,10 @@ int main(int argc, char* argv[]) {
                             
                         case SDLK_g:
                             gas_toggle_visibility();
+                            break;
+                            
+                        case SDLK_f:  // Added flow field toggle
+                            flow_toggle_visibility();
                             break;
                             
                         case SDLK_r:
@@ -425,6 +437,7 @@ cleanup:
     
     python_api_cleanup();
     fish_cleanup();
+    flow_cleanup();  // Added flow cleanup
     gas_cleanup();
     nutrition_cleanup();
     simulation_cleanup();

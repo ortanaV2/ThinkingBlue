@@ -1,3 +1,4 @@
+// Updated python_api.c for simplified directional movement
 #include <Python.h>
 #include <stdio.h>
 
@@ -10,7 +11,7 @@
 static PyObject* g_python_module = NULL;
 static PyObject* g_update_function = NULL;
 
-// Python C API functions that will be available to Python scripts
+// Python C API functions
 
 static PyObject* py_fish_add(PyObject* self, PyObject* args) {
     (void)self;
@@ -172,7 +173,6 @@ static PyObject* py_fish_get_vision_ray(PyObject* self, PyObject* args) {
     return PyFloat_FromDouble(ray_value);
 }
 
-// NEW: Chemoreceptor API function
 static PyObject* py_fish_get_nutrition_ray(PyObject* self, PyObject* args) {
     (void)self;
     int fish_id, ray_index;
@@ -221,16 +221,17 @@ static PyObject* py_fish_get_saturation_level(PyObject* self, PyObject* args) {
     return PyFloat_FromDouble(saturation);
 }
 
+// NEW: Updated for directional movement (direction_x, direction_y)
 static PyObject* py_fish_apply_rl_action(PyObject* self, PyObject* args) {
     (void)self;
     int fish_id;
-    float turn_action, speed_action;
+    float direction_x, direction_y;
     
-    if (!PyArg_ParseTuple(args, "iff", &fish_id, &turn_action, &speed_action)) {
+    if (!PyArg_ParseTuple(args, "iff", &fish_id, &direction_x, &direction_y)) {
         return NULL;
     }
     
-    fish_apply_rl_action(fish_id, turn_action, speed_action);
+    fish_apply_rl_action(fish_id, direction_x, direction_y);
     Py_RETURN_NONE;
 }
 
@@ -257,7 +258,6 @@ static PyObject* py_get_nutrition_balance(PyObject* self, PyObject* args) {
     return Py_BuildValue("(ffff)", fish_consumed, fish_defecated, env_added, env_depleted);
 }
 
-// NEW: Get vision system info
 static PyObject* py_get_vision_info(PyObject* self, PyObject* args) {
     (void)self;
     (void)args;
@@ -281,7 +281,7 @@ static PyMethodDef SimulationMethods[] = {
     {"fish_get_oxygen_level", py_fish_get_oxygen_level, METH_VARARGS, "Get fish oxygen level"},
     {"fish_get_hunger_level", py_fish_get_hunger_level, METH_VARARGS, "Get fish hunger level"},
     {"fish_get_saturation_level", py_fish_get_saturation_level, METH_VARARGS, "Get fish saturation level"},
-    {"fish_apply_rl_action", py_fish_apply_rl_action, METH_VARARGS, "Apply RL action to fish"},
+    {"fish_apply_rl_action", py_fish_apply_rl_action, METH_VARARGS, "Apply directional RL action to fish"},
     {"fish_get_type_count", py_fish_get_type_count, METH_NOARGS, "Get fish type count"},
     {"get_world_bounds", py_get_world_bounds, METH_NOARGS, "Get world boundaries"},
     {"get_nutrition_balance", py_get_nutrition_balance, METH_NOARGS, "Get nutrition cycle balance"},
@@ -293,7 +293,7 @@ static PyMethodDef SimulationMethods[] = {
 static struct PyModuleDef simulation_module = {
     PyModuleDef_HEAD_INIT,
     "simulation",
-    "Enhanced marine ecosystem simulation API with 180° vision & chemoreceptors",
+    "Marine ecosystem simulation API with simplified directional movement",
     -1,
     SimulationMethods,
     NULL,
@@ -319,7 +319,7 @@ int python_api_init(void) {
         return 0;
     }
     
-    printf("Enhanced Python API initialized with 180° vision & chemoreceptor systems\n");
+    printf("Python API initialized with simplified directional movement\n");
     return 1;
 }
 
@@ -364,7 +364,7 @@ int python_api_run_script(const char* script_path) {
             }
             printf("Warning: No callable 'update_fish' function found in Python script\n");
         } else {
-            printf("Enhanced Python script loaded successfully with 180° vision & chemoreceptor support\n");
+            printf("Python script loaded successfully with directional movement support\n");
         }
     }
     

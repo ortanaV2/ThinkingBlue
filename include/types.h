@@ -58,7 +58,7 @@
 #define M_PI 3.14159265358979323846
 #endif
 
-// FIXED: Plant type configuration with nutrition_value removed
+// Plant type configuration
 typedef struct {
     char name[MAX_NAME_LENGTH];
     float growth_probability;
@@ -76,9 +76,6 @@ typedef struct {
     float oxygen_production_factor;
     float oxygen_production_radius;
     
-    // REMOVED: nutrition_value field is obsolete in unified system
-    // Fish now calculate nutrition based on depletion_strength formula
-    
     // Node colors (RGB 0-255)
     int node_r, node_g, node_b;
     
@@ -88,7 +85,7 @@ typedef struct {
     int active;
 } PlantType;
 
-// Fish type configuration  
+// Fish type configuration with flow sensitivity
 typedef struct {
     char name[MAX_NAME_LENGTH];
     float max_speed;
@@ -115,13 +112,16 @@ typedef struct {
     float oxygen_consumption_rate;  // How fast fish consumes oxygen
     float oxygen_refill_rate;       // How fast fish refills oxygen in rich areas
     
+    // Flow field interaction
+    float flow_sensitivity;         // How much fish are affected by flow (0.0-1.0)
+    
     // Node colors (RGB 0-255)
     int node_r, node_g, node_b;
     
     int active;
 } FishType;
 
-// FIXED: Node structure with nutrition_cost field cleaned up
+// Node structure
 typedef struct {
     float x, y;
     float vx, vy;
@@ -131,9 +131,8 @@ typedef struct {
     int branch_count;
     int age;
     
-    // REMOVED: nutrition_cost field is obsolete in unified system
-    // Nutrition is now calculated dynamically using plant type settings
-    float nutrition_cost; // Kept for compatibility, but always 0
+    // Kept for compatibility, but always 0
+    float nutrition_cost;
 } Node;
 
 // Fish structure

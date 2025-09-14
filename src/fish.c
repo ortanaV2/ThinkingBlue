@@ -1,4 +1,4 @@
-// Enhanced fish.c with unified nutrition system (no more nutrition_value)
+// Enhanced fish.c with flow field influence and unified nutrition system
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -11,6 +11,7 @@
 #include "plants.h"
 #include "nutrition.h"
 #include "gas.h"
+#include "flow.h"  // Added flow field support
 
 static Fish* g_fish = NULL;
 static FishType g_fish_types[MAX_FISH_TYPES];
@@ -62,7 +63,7 @@ int fish_init(void) {
     g_total_nutrition_consumed = 0.0f;
     g_total_nutrition_defecated = 0.0f;
     
-    printf("Fish system initialized with unified nutrition system (%d vision rays & %d chemoreceptors)\n", 
+    printf("Fish system initialized with flow influence (%d vision rays & %d chemoreceptors)\n", 
            VISION_RAYS, CHEMORECEPTOR_RAYS);
     return 1;
 }
@@ -96,7 +97,7 @@ int fish_load_config(const char* filename) {
         return 0;
     }
     
-    printf("Loading enhanced fish config with unified nutrition system from '%s'...\n", filename);
+    printf("Loading enhanced fish config with flow influence from '%s'...\n", filename);
     
     char line[256];
     FishType* current_fish = NULL;
@@ -142,6 +143,7 @@ int fish_load_config(const char* filename) {
                 current_fish->chemoreceptor_range = 150.0f;
                 current_fish->oxygen_consumption_rate = 0.0004f;
                 current_fish->oxygen_refill_rate = 0.003f;
+                current_fish->flow_sensitivity = 0.5f;  // NEW: flow influence factor
                 current_fish->node_r = 255;
                 current_fish->node_g = 165;
                 current_fish->node_b = 0;
@@ -204,6 +206,8 @@ int fish_load_config(const char* filename) {
             current_fish->oxygen_consumption_rate = (float)atof(value);
         } else if (strcmp(key, "oxygen_refill_rate") == 0) {
             current_fish->oxygen_refill_rate = (float)atof(value);
+        } else if (strcmp(key, "flow_sensitivity") == 0) {  // NEW: flow sensitivity parameter
+            current_fish->flow_sensitivity = (float)atof(value);
         } else if (strcmp(key, "node_color") == 0) {
             parse_color(value, &current_fish->node_r, &current_fish->node_g, &current_fish->node_b);
         }
@@ -211,7 +215,7 @@ int fish_load_config(const char* filename) {
     
     fclose(file);
     
-    printf("Loaded %d fish types with unified nutrition system\n", g_fish_type_count);
+    printf("Loaded %d fish types with flow influence support\n", g_fish_type_count);
     return g_fish_type_count > 0;
 }
 
@@ -264,8 +268,8 @@ int fish_add(float x, float y, int fish_type) {
     g_fish_count++;
     
     FishType* ft = &g_fish_types[fish_type];
-    printf("Created fish %d (%s) at (%.1f, %.1f) with unified nutrition system\n", 
-           fish_id, ft->name, x, y);
+    printf("Created fish %d (%s) at (%.1f, %.1f) with flow sensitivity %.2f\n", 
+           fish_id, ft->name, x, y, ft->flow_sensitivity);
     
     return fish_id;
 }
@@ -677,7 +681,7 @@ int fish_can_eat_plant(int fish_id, int node_id) {
     return distance <= fish_type->eating_range;
 }
 
-// FIXED: Enhanced eating system with unified nutrition calculation
+// Enhanced eating system with unified nutrition calculation
 void fish_eat_nearby_plants(int fish_id) {
     if (fish_id < 0 || fish_id >= g_fish_count) return;
     if (!g_fish[fish_id].active) return;
@@ -721,7 +725,7 @@ void fish_eat_nearby_plants(int fish_id) {
                 PlantType* pt = plants_get_type(plant_type);
                 if (!pt) continue;
                 
-                // FIXED: Use unified nutrition calculation (same as plant growth depletion)
+                // Use unified nutrition calculation
                 float plant_nutrition = calculate_plant_nutrition_cost(plant_type);
                 
                 printf("FISH EAT: Fish %d eating %s (unified nutrition: %.3f)\n", 
@@ -774,7 +778,7 @@ void fish_eat_nearby_plants(int fish_id) {
     }
 }
 
-// FIXED: Unified defecation system using same formula as plant growth
+// Unified defecation system
 void fish_defecate(int fish_id) {
     if (fish_id < 0 || fish_id >= g_fish_count) return;
     if (!g_fish[fish_id].active) return;
@@ -794,8 +798,7 @@ void fish_defecate(int fish_id) {
     printf("FISH DEFECATE: Fish %d defecating %.4f at position (%.1f, %.1f)\n", 
            fish_id, defecation_amount, fish_node->x, fish_node->y);
     
-    // FIXED: Use same formula as plants use for depletion (strength & radius)
-    // This ensures perfect nutrition balance in the ecosystem
+    // Use same formula as plants use for depletion
     nutrition_add_at_position(fish_node->x, fish_node->y, 
                               defecation_amount, fish_type->defecation_radius);
     
@@ -952,10 +955,18 @@ void fish_update(void) {
         // Try to defecate
         fish_defecate(i);
         
-        // Apply movement forces
+        // Apply movement forces AND flow influence
         float force_factor = 2.0f;
         nodes[node_id].vx += fish->movement_force_x * force_factor;
         nodes[node_id].vy += fish->movement_force_y * force_factor;
+        
+        // NEW: Apply flow field influence
+        float flow_x, flow_y;
+        flow_get_vector_at(node->x, node->y, &flow_x, &flow_y);
+        
+        float flow_influence = fish_type->flow_sensitivity;
+        nodes[node_id].vx += flow_x * flow_influence;
+        nodes[node_id].vy += flow_y * flow_influence;
         
         // Movement assistance
         if (fish->desired_speed > 0.1f) {
@@ -1018,7 +1029,7 @@ void fish_update(void) {
             avg_nutrition_detected /= active_fish;
         }
         
-        printf("\n=== UNIFIED NUTRITION SYSTEM (Frame %d) ===\n", current_frame);
+        printf("\n=== FISH WITH FLOW INFLUENCE (Frame %d) ===\n", current_frame);
         printf("Active fish: %d\n", active_fish);
         printf("Average oxygen level: %.2f\n", avg_oxygen);
         printf("Average hunger level: %.2f\n", avg_hunger);
@@ -1029,7 +1040,8 @@ void fish_update(void) {
         printf("Fish cycle balance: %.4f (should approach 0)\n", balance);
         printf("System efficiency: %.1f%%\n", 
                g_total_nutrition_consumed > 0 ? (g_total_nutrition_defecated / g_total_nutrition_consumed) * 100.0f : 0.0f);
-        printf("==========================================\n\n");
+        printf("Fish are influenced by flow field currents\n");
+        printf("===============================================\n\n");
     }
 }
 

@@ -85,12 +85,12 @@ typedef struct {
     int active;
 } PlantType;
 
-// Fish type configuration with flow sensitivity
+// SIMPLIFIED: Fish type configuration with constant speed movement
 typedef struct {
     char name[MAX_NAME_LENGTH];
-    float max_speed;
-    float acceleration;
-    float turn_rate;
+    float max_speed;             // Always move at this speed when active
+    float acceleration;          // How quickly to reach max speed
+    float turn_rate;             // Not used in new system
     float mass;
     float size_radius;
     
@@ -100,20 +100,20 @@ typedef struct {
     float digestion_rate;
     
     // Defecation parameters for nutrition cycle
-    float defecation_rate;        // Probability per frame of defecation
-    float defecation_radius;      // Radius for nutrition distribution
+    float defecation_rate;
+    float defecation_radius;
     
     // Enhanced vision parameters
-    float fov_range;              // How far fish can see
-    float fov_angle;              // Field of view angle (now ~3.14 for 180°)
-    float chemoreceptor_range;    // How far fish can "smell" nutrition
+    float fov_range;
+    float fov_angle;
+    float chemoreceptor_range;
     
     // Oxygen consumption
-    float oxygen_consumption_rate;  // How fast fish consumes oxygen
-    float oxygen_refill_rate;       // How fast fish refills oxygen in rich areas
+    float oxygen_consumption_rate;
+    float oxygen_refill_rate;
     
     // Flow field interaction
-    float flow_sensitivity;         // How much fish are affected by flow (0.0-1.0)
+    float flow_sensitivity;
     
     // Node colors (RGB 0-255)
     int node_r, node_g, node_b;
@@ -135,32 +135,33 @@ typedef struct {
     float nutrition_cost;
 } Node;
 
-// Fish structure
+// SIMPLIFIED: Fish structure with direct movement control
 typedef struct {
     int node_id;
     int fish_type;
-    float movement_force_x;
-    float movement_force_y;
+    
+    // SIMPLIFIED: Direct movement direction from NN
+    float desired_direction_x;    // NN output: -1 to 1
+    float desired_direction_y;    // NN output: -1 to 1
+    float movement_force_x;       // Calculated force
+    float movement_force_y;       // Calculated force
+    
     float energy;
     float stomach_contents;
-    float consumed_nutrition;     // Total nutrition consumed by this fish
+    float consumed_nutrition;
     int last_eating_frame;
-    int last_defecation_frame;    // Track when fish last defecated
+    int last_defecation_frame;
     int age;
     int active;
     
     // Enhanced RL state with chemoreceptors
-    float oxygen_level;                    // Current oxygen level (0.0 to 1.0)
-    float hunger_level;                    // Hunger level (0.0 to 1.0)
-    float vision_rays[VISION_RAYS];        // Visual obstacle detection (12 rays)
-    float nutrition_rays[CHEMORECEPTOR_RAYS]; // Chemical nutrition detection (12 rays)
+    float oxygen_level;
+    float hunger_level;
+    float vision_rays[VISION_RAYS];
+    float nutrition_rays[CHEMORECEPTOR_RAYS];
     float saturation_level;
     float total_reward;
     float last_reward;
-    
-    // RL action space
-    float desired_turn;
-    float desired_speed;
 } Fish;
 
 // Chain structure connecting two nodes

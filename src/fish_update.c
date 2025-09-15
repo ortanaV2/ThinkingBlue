@@ -45,22 +45,30 @@ void fish_update(void) {
         
         // Apply fish movement force directly (PRIMARY movement)
         if (fabs(fish->movement_force_x) > 0.01f || fabs(fish->movement_force_y) > 0.01f) {
-            // Strong direct movement - fish controls its own movement
+            // Fish-controlled movement
             node->vx = fish->movement_force_x * target_speed;
             node->vy = fish->movement_force_y * target_speed;
             
             // Movement reward for active movement
             fish->last_reward += 0.005f;
         } else {
-            // No fish input - apply default movement to prevent stationary fish
-            float random_angle = ((float)rand() / RAND_MAX) * 2.0f * M_PI;
-            float default_speed = target_speed * 0.3f; // 30% speed for default movement
+            // FIXED: Much calmer default movement
+            // Gradually slow down instead of random movement
+            node->vx *= 0.95f;  // Gradual deceleration
+            node->vy *= 0.95f;
             
-            node->vx = cos(random_angle) * default_speed;
-            node->vy = sin(random_angle) * default_speed;
+            // Very gentle random nudge only if nearly stationary
+            float current_speed = sqrt(node->vx * node->vx + node->vy * node->vy);
+            if (current_speed < 0.5f) {
+                float gentle_angle = ((float)rand() / RAND_MAX) * 2.0f * M_PI;
+                float gentle_speed = target_speed * 0.1f; // Very gentle 10% speed
+                
+                node->vx += cos(gentle_angle) * gentle_speed;
+                node->vy += sin(gentle_angle) * gentle_speed;
+            }
             
             // Small penalty for not having direction
-            fish->last_reward -= 0.01f;
+            fish->last_reward -= 0.005f;  // Reduced penalty
         }
         
         // MINIMAL flow influence (secondary, subtle effect)

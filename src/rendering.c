@@ -1,4 +1,4 @@
-// Fixed rendering.c with proper plant type indexing to prevent color issues
+// Fixed rendering.c with proper plant type indexing and flow layer integration
 #include <SDL2/SDL.h>
 #include <math.h>
 
@@ -10,6 +10,7 @@
 #include "fish.h"
 #include "nutrition.h"
 #include "gas.h"
+#include "flow.h"  // Added flow layer
 
 static SDL_Renderer* g_renderer = NULL;
 
@@ -244,6 +245,7 @@ int rendering_init(SDL_Renderer* renderer) {
     g_renderer = renderer;
     nutrition_set_renderer(renderer);
     gas_set_renderer(renderer);
+    flow_set_renderer(renderer);  // Added flow renderer
     return 1;
 }
 
@@ -258,9 +260,10 @@ void rendering_render(void) {
     SDL_SetRenderDrawColor(g_renderer, 22, 117, 158, 255);
     SDL_RenderClear(g_renderer);
     
-    // Render layers in order
+    // Render layers in order (flow field first, then others)
     nutrition_render();
     gas_render();
+    flow_render();  // Added flow field rendering
     
     // Calculate viewport bounds for culling
     float world_left, world_top, world_right, world_bottom;

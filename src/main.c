@@ -13,6 +13,7 @@
 #include "rendering.h"
 #include "nutrition.h"
 #include "gas.h"
+#include "flow.h"
 
 #define TARGET_FPS 30
 #define FRAME_DELAY (1000 / TARGET_FPS)
@@ -41,7 +42,7 @@ static void populate_reef_randomly(void) {
     // Spawn fish if available
     if (total_fish_species > 0) {
         int fish_count = 50;
-        printf("Spawning %d fish...\n", fish_count);
+        printf("Spawning %d fish with flow sensitivity...\n", fish_count);
         
         for (int i = 0; i < fish_count; i++) {
             float x = WORLD_LEFT + ((float)rand() / RAND_MAX) * WORLD_WIDTH;
@@ -51,7 +52,8 @@ static void populate_reef_randomly(void) {
             int fish_id = fish_add(x, y, fish_type);
             if (fish_id >= 0) {
                 FishType* ft = fish_get_type(fish_type);
-                printf("Spawned %s at (%.0f, %.0f)\n", ft->name, x, y);
+                printf("Spawned %s at (%.0f, %.0f) - flow sensitivity: %.1f\n", 
+                       ft->name, x, y, ft->flow_sensitivity);
             }
         }
     }
@@ -79,7 +81,8 @@ static void handle_mouse_click(int screen_x, int screen_y, int button) {
                 int new_fish = fish_add(world_x, world_y, g_current_fish_type);
                 if (new_fish >= 0) {
                     FishType* ft = fish_get_type(g_current_fish_type);
-                    printf("Created fish %s at (%.1f, %.1f)\n", ft->name, world_x, world_y);
+                    printf("Created fish %s at (%.1f, %.1f) - flow sensitivity: %.1f\n", 
+                           ft->name, world_x, world_y, ft->flow_sensitivity);
                 }
             } else {
                 printf("No fish types available!\n");
@@ -118,6 +121,7 @@ static void print_debug_info(void) {
     printf("Total nodes: %d\n", simulation_get_node_count());
     printf("Spawn mode: %s\n", g_spawn_mode == 0 ? "PLANT" : "FISH");
     printf("Ray rendering: %s\n", fish_is_ray_rendering_enabled() ? "ON" : "OFF");
+    printf("Flow field: %s\n", flow_is_visible() ? "ON" : "OFF");
     
     // Enhanced nutrition cycle balance with plant costs
     printf("\n=== NUTRITION CYCLE BALANCE ===\n");
@@ -159,30 +163,37 @@ static void print_debug_info(void) {
         printf("Current plant: %s\n", pt->name);
     } else if (g_spawn_mode == 1 && fish_get_type_count() > 0) {
         FishType* ft = fish_get_type(g_current_fish_type);
-        printf("Current fish: %s\n", ft->name);
+        printf("Current fish: %s (flow sensitivity: %.1f)\n", ft->name, ft->flow_sensitivity);
     }
     
-    // Show fish details with nutrition tracking
+    // Show fish details with flow sensitivity
     Fish* fish_list = fish_get_all();
     Node* nodes = simulation_get_nodes();
-    printf("\n=== FISH DETAILS ===\n");
+    printf("\n=== FISH DETAILS (WITH FLOW INFLUENCE) ===\n");
     for (int i = 0; i < fish_get_count(); i++) {
         if (fish_list[i].active) {
             Node* node = &nodes[fish_list[i].node_id];
             FishType* ft = fish_get_type(fish_list[i].fish_type);
-            printf("Fish %d (%s): pos(%.1f,%.1f) energy=%.2f consumed=%.4f stomach=%.3f\n", 
+            
+            // Get flow at fish position
+            float flow_x, flow_y;
+            flow_get_vector_at(node->x, node->y, &flow_x, &flow_y);
+            float flow_magnitude = sqrt(flow_x * flow_x + flow_y * flow_y);
+            
+            printf("Fish %d (%s): pos(%.1f,%.1f) energy=%.2f consumed=%.4f stomach=%.3f flow_sens=%.1f current_flow=%.2f\n", 
                    i, ft->name, node->x, node->y,
-                   fish_list[i].energy, fish_list[i].consumed_nutrition, fish_list[i].stomach_contents);
+                   fish_list[i].energy, fish_list[i].consumed_nutrition, fish_list[i].stomach_contents,
+                   ft->flow_sensitivity, flow_magnitude);
         }
     }
-    printf("==================\n\n");
+    printf("==========================================\n\n");
 }
 
 int main(int argc, char* argv[]) {
     (void)argc;
     (void)argv;
     
-    printf("Starting Great Barrier Reef Ecosystem v2 with Nutrition Cycle...\n");
+    printf("Starting Great Barrier Reef Ecosystem v3 with Flow Field Fish Influence...\n");
     srand((unsigned int)time(NULL));
     
     // Initialize SDL
@@ -192,7 +203,7 @@ int main(int argc, char* argv[]) {
     }
     
     // Create window and renderer
-    SDL_Window* window = SDL_CreateWindow("Great Barrier Reef Ecosystem v2 - Nutrition Cycle",
+    SDL_Window* window = SDL_CreateWindow("Great Barrier Reef Ecosystem v3 - Fish Flow Influence",
                                          SDL_WINDOWPOS_CENTERED, SDL_WINDOWPOS_CENTERED,
                                          WINDOW_WIDTH, WINDOW_HEIGHT, SDL_WINDOW_SHOWN);
     if (!window) {
@@ -232,6 +243,10 @@ int main(int argc, char* argv[]) {
         printf("Gas init failed\n");
         goto cleanup;
     }
+    if (!flow_init()) {
+        printf("Flow init failed\n");
+        goto cleanup;
+    }
     if (!fish_init()) {
         printf("Fish init failed\n");
         goto cleanup;
@@ -260,14 +275,22 @@ int main(int argc, char* argv[]) {
     // Set renderer for layers
     nutrition_set_renderer(renderer);
     gas_set_renderer(renderer);
+    flow_set_renderer(renderer);
     
     // Initial setup
     populate_reef_randomly();
     
     // Print status
-    printf("\nSystem ready with nutrition cycle tracking!\n");
+    printf("\nSystem ready with fish flow influence!\n");
     printf("Plant types loaded: %d\n", plants_get_type_count());
     printf("Fish types loaded: %d\n", fish_get_type_count());
+    
+    // Show flow sensitivity ranges
+    printf("\nFlow sensitivity ranges:\n");
+    for (int i = 0; i < fish_get_type_count(); i++) {
+        FishType* ft = fish_get_type(i);
+        printf("  %s: %.1f\n", ft->name, ft->flow_sensitivity);
+    }
     
     // Print controls
     printf("\nControls:\n");
@@ -281,8 +304,9 @@ int main(int argc, char* argv[]) {
     printf("  TAB: Toggle plant/fish mode\n");
     printf("  N: Toggle nutrition layer\n");
     printf("  G: Toggle gas layer\n");
+    printf("  F: Toggle flow field\n");
     printf("  R: Toggle fish vision rays\n");
-    printf("  P: Print debug info (includes nutrition balance)\n");
+    printf("  P: Print debug info (includes flow influence)\n");
     printf("  ESC: Exit\n\n");
     
     // Set initial mode
@@ -327,7 +351,8 @@ int main(int argc, char* argv[]) {
                             if (g_spawn_mode == 0 && plants_get_type_count() > 0) {
                                 printf("Mode: PLANT (%s)\n", plants_get_type(g_current_plant_type)->name);
                             } else if (g_spawn_mode == 1 && fish_get_type_count() > 0) {
-                                printf("Mode: FISH (%s)\n", fish_get_type(g_current_fish_type)->name);
+                                FishType* ft = fish_get_type(g_current_fish_type);
+                                printf("Mode: FISH (%s, flow sens: %.1f)\n", ft->name, ft->flow_sensitivity);
                             } else {
                                 printf("Mode: %s (no types available)\n", g_spawn_mode == 0 ? "PLANT" : "FISH");
                             }
@@ -339,6 +364,10 @@ int main(int argc, char* argv[]) {
                             
                         case SDLK_g:
                             gas_toggle_visibility();
+                            break;
+                            
+                        case SDLK_f:
+                            flow_toggle_visibility();
                             break;
                             
                         case SDLK_r:
@@ -366,7 +395,8 @@ int main(int argc, char* argv[]) {
                             if (fish_index < fish_get_type_count()) {
                                 g_current_fish_type = fish_index;
                                 g_spawn_mode = 1;
-                                printf("Selected fish: %s\n", fish_get_type(fish_index)->name);
+                                FishType* ft = fish_get_type(fish_index);
+                                printf("Selected fish: %s (flow sensitivity: %.1f)\n", ft->name, ft->flow_sensitivity);
                             } else {
                                 printf("Fish type F%d not available (%d types loaded)\n", 
                                        fish_index + 1, fish_get_type_count());
@@ -421,10 +451,12 @@ cleanup:
     printf("Environment balance: %.2f\n", nutrition_get_balance());
     printf("Total system balance: %.2f\n", 
            fish_get_nutrition_balance() + nutrition_get_balance());
+    printf("Fish were influenced by flow field currents\n");
     printf("====================================\n");
     
     python_api_cleanup();
     fish_cleanup();
+    flow_cleanup();
     gas_cleanup();
     nutrition_cleanup();
     simulation_cleanup();

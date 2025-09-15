@@ -35,14 +35,17 @@
 // Camera parameters
 #define CAMERA_SPEED 5.0f
 #define ZOOM_SPEED 0.1f
-#define MIN_ZOOM 0.01f
-#define MAX_ZOOM 5.0f
+// Zoom limits removed - unlimited zoom range
 
-// World configuration
-#define WORLD_WIDTH 15000.0f
-#define WORLD_HEIGHT 15000.0f
+// World configuration - CONFIGURABLE VALUES
+#define WORLD_WIDTH 8000.0f
+#define WORLD_HEIGHT 6000.0f
 #define WORLD_CENTER_X 0.0f
 #define WORLD_CENTER_Y 0.0f
+
+// Population configuration
+#define INITIAL_PLANT_COUNT 10
+#define INITIAL_FISH_COUNT 5
 
 // Derived world bounds
 #define WORLD_LEFT (WORLD_CENTER_X - WORLD_WIDTH / 2.0f)

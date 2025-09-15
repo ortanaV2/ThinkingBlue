@@ -4,9 +4,9 @@
 static Camera g_camera = {0};
 
 int camera_init(void) {
-    // Initialize camera at center
-    g_camera.x = WINDOW_WIDTH / 2.0f;
-    g_camera.y = WINDOW_HEIGHT / 2.0f;
+    // Initialize camera at world center
+    g_camera.x = WORLD_CENTER_X;
+    g_camera.y = WORLD_CENTER_Y;
     g_camera.zoom = 1.0f;
     return 1;
 }
@@ -39,10 +39,11 @@ void camera_zoom(float zoom_delta, int mouse_x, int mouse_y) {
     float world_x_before, world_y_before;
     camera_screen_to_world(mouse_x, mouse_y, &world_x_before, &world_y_before);
     
-    // Apply zoom with limits
+    // Apply zoom with NO limits - unlimited zoom
     g_camera.zoom *= (1.0f + zoom_delta);
-    if (g_camera.zoom < MIN_ZOOM) g_camera.zoom = MIN_ZOOM;
-    if (g_camera.zoom > MAX_ZOOM) g_camera.zoom = MAX_ZOOM;
+    
+    // Prevent zoom from going to zero or negative (would break rendering)
+    if (g_camera.zoom <= 0.0001f) g_camera.zoom = 0.0001f;
     
     // Adjust camera to keep world position under mouse cursor
     float world_x_after, world_y_after;

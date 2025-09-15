@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Fixed Fish Controller - Calmer movement with better learning progression
+Fish Controller with configurable population
 """
 
 import simulation
@@ -32,17 +32,17 @@ class CalmFishBrain:
         self.bias2 = np.zeros(8)
         self.bias3 = np.zeros(self.action_size)
         
-        # FIXED: Much calmer learning parameters
-        self.learning_rate = 0.01  # Slower, more stable learning
-        self.exploration_rate = 0.3  # Start with much less exploration
-        self.exploration_decay = 0.999  # Slower decay
-        self.min_exploration = 0.05  # Lower minimum
+        # Calm learning parameters
+        self.learning_rate = 0.01
+        self.exploration_rate = 0.3
+        self.exploration_decay = 0.999
+        self.min_exploration = 0.05
         
         # Movement persistence for calmer behavior
         self.current_direction_x = 0.0
         self.current_direction_y = 0.0
         self.direction_change_cooldown = 0
-        self.preferred_direction_duration = 30  # Hold direction for ~0.5 seconds
+        self.preferred_direction_duration = 30
         
         # Enhanced experience tracking
         self.last_state = None
@@ -98,7 +98,7 @@ class CalmFishBrain:
         return state
     
     def choose_action(self, state):
-        """FIXED: Much calmer action selection with learning progression"""
+        """Calm action selection with learning progression"""
         # Reduce direction change frequency for calmer movement
         if self.direction_change_cooldown > 0:
             self.direction_change_cooldown -= 1
@@ -113,7 +113,7 @@ class CalmFishBrain:
         
         # Lower exploration rate for calmer behavior
         if random.random() < self.exploration_rate:
-            # FIXED: Calmer exploration with guided behavior
+            # Calmer exploration with guided behavior
             oxygen_level = state[self.vision_rays + self.nutrition_rays]
             hunger_level = state[self.vision_rays + self.nutrition_rays + 1]
             
@@ -139,7 +139,6 @@ class CalmFishBrain:
                 direction_y = np.clip(direction_y, -0.8, 0.8)
             else:
                 # Normal exploration: MUCH calmer
-                # 70% chance for gentle cardinal direction, 30% for slight diagonal
                 if random.random() < 0.7:
                     directions = [
                         (0, -0.5),    # gentle up
@@ -156,17 +155,17 @@ class CalmFishBrain:
             action = np.array([direction_x, direction_y])
             
             # Set cooldown for calmer behavior
-            self.direction_change_cooldown = random.randint(20, 40)  # 0.33-0.67 seconds
+            self.direction_change_cooldown = random.randint(20, 40)
             
         else:
-            # Exploit: use network (this should increase over time as exploration decreases)
+            # Exploit: use network
             action, _, _ = self.forward(state)
             
             # Ensure reasonable movement strength
             magnitude = np.sqrt(action[0]**2 + action[1]**2)
             if magnitude < 0.2:
                 if magnitude > 0.01:
-                    action = action / magnitude * 0.3  # Gentle minimum movement
+                    action = action / magnitude * 0.3
                 else:
                     # Very gentle random direction if action is near zero
                     angle = random.random() * 2 * math.pi
@@ -192,7 +191,7 @@ class CalmFishBrain:
         # Calculate target based on reward feedback
         target = action.copy()
         
-        # FIXED: More stable reward-based learning
+        # More stable reward-based learning
         reward_magnitude = abs(reward)
         
         if reward > 0.5:  # Good reward (eating)
@@ -236,7 +235,7 @@ class CalmFishBrain:
         # Backpropagation with stability improvements
         error = target - current_action
         
-        # Scale learning rate based on progress (start slower, get faster)
+        # Scale learning rate based on progress
         adaptive_lr = self.learning_rate * (0.5 + 0.5 * min(1.0, self.learning_progress))
         
         # Output layer gradients
@@ -279,7 +278,7 @@ class CalmFishBrain:
         position = simulation.fish_get_position(self.fish_id)
         if position:
             self.movement_history.append(position)
-            if len(self.movement_history) > 120:  # Keep 2 seconds of history
+            if len(self.movement_history) > 120:
                 self.movement_history.pop(0)
         
         # Choose and apply action
@@ -319,7 +318,7 @@ class CalmFishBrain:
 fish_brains = {}
 
 def initialize_fish():
-    """Create calmer fish population"""
+    """Create fish population based on configurable count"""
     global fish_ids, fish_brains
     
     world_left, world_top, world_right, world_bottom = simulation.get_world_bounds()
@@ -331,18 +330,17 @@ def initialize_fish():
     
     vision_rays, nutrition_rays = simulation.get_vision_info()
     print(f"Calm Fish Controller: {vision_rays} vision rays, {nutrition_rays} nutrition rays")
+    print(f"World size: {world_right-world_left:.0f}x{world_bottom-world_top:.0f}")
     
-    # Spawn fewer fish for better observation of learning
-    for i in range(12):  # Reduced from 15
-        x = random.uniform(world_left + 500, world_right - 500)
-        y = random.uniform(world_top + 500, world_bottom - 500)
-        fish_type = random.randint(0, fish_type_count - 1)
-        
-        fish_id = simulation.fish_add(x, y, fish_type)
-        if fish_id >= 0:
-            fish_ids.append(fish_id)
-            fish_brains[fish_id] = CalmFishBrain(fish_id)
-            print(f"Created calm learning fish {fish_id} at ({x:.1f}, {y:.1f})")
+    # Note: Fish are already spawned by main.c based on INITIAL_FISH_COUNT
+    # This just creates the brains for existing fish
+    existing_fish_count = simulation.fish_get_count()
+    print(f"Creating brains for {existing_fish_count} existing fish")
+    
+    for i in range(existing_fish_count):
+        fish_brains[i] = CalmFishBrain(i)
+        fish_ids.append(i)
+        print(f"Created brain for fish {i}")
 
 def print_learning_progress():
     """Print learning progress and behavior analysis"""

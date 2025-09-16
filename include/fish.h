@@ -4,7 +4,7 @@
 #include "types.h"
 
 // ============================================================================
-// FISH_CORE.C - Core system management (static, rarely changes)
+// FISH_CORE.C - Core system management
 // ============================================================================
 
 // System initialization and cleanup
@@ -27,7 +27,7 @@ int fish_get_count(void);
 Fish* fish_get_by_id(int fish_id);
 Fish* fish_get_all(void);
 
-// Ray rendering toggle
+// Ray rendering toggle (legacy)
 void fish_toggle_ray_rendering(void);
 int fish_is_ray_rendering_enabled(void);
 
@@ -43,55 +43,56 @@ void fish_internal_add_consumed_nutrition(float amount);
 void fish_internal_add_defecated_nutrition(float amount);
 
 // ============================================================================
-// FISH_VISION.C - Vision and sensing systems (modular, can be modified)
+// FISH_VISION.C - RL vision and input system
 // ============================================================================
 
-// Vision system
+// RL input system
+void fish_update_rl_inputs(int fish_id);
+float fish_get_distance_to_nearest_plant(int fish_id);
+
+// Legacy vision functions (compatibility)
 void fish_update_vision(int fish_id);
 void fish_cast_vision_ray(int fish_id, float angle, int ray_index);
-
-// Chemoreceptor system  
 void fish_cast_nutrition_ray(int fish_id, float angle, int ray_index);
 void fish_update_chemoreceptors(int fish_id);
-
-// Vision state accessors
 float fish_get_vision_ray(int fish_id, int ray_index);
 float fish_get_nutrition_ray(int fish_id, int ray_index);
 
 // ============================================================================
-// FISH_BEHAVIOR.C - Behavior and actions (modular, frequently modified)
+// FISH_BEHAVIOR.C - RL behavior system
 // ============================================================================
 
-// Movement control
+// RL control system
+void fish_apply_rl_outputs(int fish_id);
+void fish_calculate_rl_rewards(int fish_id);
+
+// Eating system
+int fish_attempt_eating(int fish_id);
+void fish_defecate(int fish_id);
+
+// RL state accessors for Python API
+float fish_get_rl_input(int fish_id, int input_index);
+void fish_set_rl_output(int fish_id, int output_index, float value);
+float fish_get_last_reward(int fish_id);
+
+// Legacy behavior functions (compatibility)
 void fish_set_movement_force(int fish_id, float force_x, float force_y);
 void fish_clear_movement_force(int fish_id);
-
-// RL action system
 void fish_apply_rl_action(int fish_id, float direction_x, float direction_y);
-
-// Physiological systems
 void fish_update_oxygen_system(int fish_id);
 void fish_update_hunger_system(int fish_id);
 void fish_update_rl_state(int fish_id);
-
-// Reward calculation
 void fish_calculate_environmental_rewards(int fish_id);
 void fish_calculate_chemoreceptor_rewards(int fish_id);
 float fish_get_reward(int fish_id);
-float fish_get_last_reward(int fish_id);
-
-// Eating and defecation
 void fish_eat_nearby_plants(int fish_id);
 int fish_can_eat_plant(int fish_id, int node_id);
-void fish_defecate(int fish_id);
-
-// RL state accessors
 float fish_get_oxygen_level(int fish_id);
 float fish_get_hunger_level(int fish_id);
 float fish_get_saturation_level(int fish_id);
 
 // ============================================================================
-// FISH_UPDATE.C - Main update loop (modular, physics and integration)
+// FISH_UPDATE.C - Main update loop
 // ============================================================================
 
 // Main update function (called each frame)

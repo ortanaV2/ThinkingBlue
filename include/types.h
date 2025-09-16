@@ -15,9 +15,9 @@
 #define MAX_FISH 50000
 #define MAX_FISH_TYPES 32
 
-// Enhanced vision system
-#define VISION_RAYS 12           // 12 rays for 180° vision coverage
-#define CHEMORECEPTOR_RAYS 12    // 12 rays for nutrition detection
+// NEW: Simplified RL system
+#define RL_INPUT_SIZE 4     // plant_vector_x, plant_vector_y, oxygen_level, plant_distance
+#define RL_OUTPUT_SIZE 3    // turn_direction, movement_strength, eat_command
 
 // Layer resolution (shared by nutrition and gas layers)
 #define LAYER_GRID_SIZE 30.0f
@@ -35,7 +35,6 @@
 // Camera parameters
 #define CAMERA_SPEED 5.0f
 #define ZOOM_SPEED 0.1f
-// Zoom limits removed - unlimited zoom range
 
 // World configuration - CONFIGURABLE VALUES
 #define WORLD_WIDTH 8000.0f
@@ -44,8 +43,8 @@
 #define WORLD_CENTER_Y 0.0f
 
 // Population configuration
-#define INITIAL_PLANT_COUNT 200
-#define INITIAL_FISH_COUNT 10
+#define INITIAL_PLANT_COUNT 10
+#define INITIAL_FISH_COUNT 5
 
 // Derived world bounds
 #define WORLD_LEFT (WORLD_CENTER_X - WORLD_WIDTH / 2.0f)
@@ -88,35 +87,26 @@ typedef struct {
     int active;
 } PlantType;
 
-// Fish type configuration with flow sensitivity
+// NEW: Simplified fish type configuration for RL control
 typedef struct {
     char name[MAX_NAME_LENGTH];
     float max_speed;
-    float acceleration;
-    float turn_rate;
+    float max_force;                    // NEW: Maximum force that can be applied per frame
     float mass;
     float size_radius;
     
     // Eating parameters
     float eating_range;
-    float eating_rate;
-    float digestion_rate;
     
-    // Defecation parameters for nutrition cycle
-    float defecation_rate;        // Probability per frame of defecation
-    float defecation_radius;      // Radius for nutrition distribution
-    
-    // Enhanced vision parameters
-    float fov_range;              // How far fish can see
-    float fov_angle;              // Field of view angle (now ~3.14 for 180°)
-    float chemoreceptor_range;    // How far fish can "smell" nutrition
-    
-    // Oxygen consumption
-    float oxygen_consumption_rate;  // How fast fish consumes oxygen
-    float oxygen_refill_rate;       // How fast fish refills oxygen in rich areas
+    // RL-specific parameters
+    float fov_angle;                    // Field of view for plant detection (degrees)
+    float max_turn_angle;               // Maximum turn angle per frame (degrees)
+    float oxygen_reward_factor;         // Multiplier for oxygen rewards
+    float proximity_reward_factor;      // Multiplier for plant proximity rewards
+    float eat_punishment;               // Punishment for failed eating attempts
     
     // Flow field interaction
-    float flow_sensitivity;         // How much fish are affected by flow (0.0-1.0)
+    float flow_sensitivity;
     
     // Node colors (RGB 0-255)
     int node_r, node_g, node_b;
@@ -134,36 +124,34 @@ typedef struct {
     int branch_count;
     int age;
     
-    // Kept for compatibility, but always 0
+    // Kept for compatibility
     float nutrition_cost;
 } Node;
 
-// Fish structure
+// NEW: Simplified fish structure for RL control
 typedef struct {
     int node_id;
     int fish_type;
-    float movement_force_x;
-    float movement_force_y;
+    
+    // NEW: RL state and control
+    float heading;                      // Current facing direction in radians
+    float rl_inputs[RL_INPUT_SIZE];     // RL network inputs
+    float rl_outputs[RL_OUTPUT_SIZE];   // RL network outputs
+    
+    // Fish state
     float energy;
     float stomach_contents;
-    float consumed_nutrition;     // Total nutrition consumed by this fish
+    float consumed_nutrition;
     int last_eating_frame;
-    int last_defecation_frame;    // Track when fish last defecated
     int age;
     int active;
     
-    // Enhanced RL state with chemoreceptors
-    float oxygen_level;                    // Current oxygen level (0.0 to 1.0)
-    float hunger_level;                    // Hunger level (0.0 to 1.0)
-    float vision_rays[VISION_RAYS];        // Visual obstacle detection (12 rays)
-    float nutrition_rays[CHEMORECEPTOR_RAYS]; // Chemical nutrition detection (12 rays)
-    float saturation_level;
+    // RL tracking
     float total_reward;
     float last_reward;
     
-    // RL action space
-    float desired_turn;
-    float desired_speed;
+    // Internal state
+    int eating_mode;                    // 1 if currently trying to eat, 0 if moving
 } Fish;
 
 // Chain structure connecting two nodes

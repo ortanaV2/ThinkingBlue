@@ -1,4 +1,4 @@
-// fish_core.c - Core fish system initialization and management
+// fish_core.c - Core fish system for RL control
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -7,7 +7,6 @@
 #include "types.h"
 #include "fish.h"
 #include "simulation.h"
-#include "plants.h"
 
 // Global fish state
 static Fish* g_fish = NULL;
@@ -45,7 +44,7 @@ int fish_init(void) {
     g_total_nutrition_consumed = 0.0f;
     g_total_nutrition_defecated = 0.0f;
     
-    printf("Fish system initialized with simplified directional movement\n");
+    printf("Fish system initialized with RL control\n");
     return 1;
 }
 
@@ -77,7 +76,7 @@ int fish_load_config(const char* filename) {
         return 0;
     }
     
-    printf("Loading fish config with simplified movement from '%s'\n", filename);
+    printf("Loading RL fish config from '%s'\n", filename);
     
     char line[256];
     FishType* current_fish = NULL;
@@ -105,22 +104,17 @@ int fish_load_config(const char* filename) {
                 current_fish->name[name_len] = '\0';
                 current_fish->active = 1;
                 
-                // Default values
-                current_fish->max_speed = 8.0f;
-                current_fish->acceleration = 1.0f;
-                current_fish->turn_rate = 0.5f;
+                // Default values for RL system
+                current_fish->max_speed = 30.0f;
+                current_fish->max_force = 8.0f;
                 current_fish->mass = 1.0f;
                 current_fish->size_radius = 8.0f;
                 current_fish->eating_range = 80.0f;
-                current_fish->eating_rate = 0.01f;
-                current_fish->digestion_rate = 0.001f;
-                current_fish->defecation_rate = 0.006f;
-                current_fish->defecation_radius = 60.0f;
-                current_fish->fov_range = 200.0f;
-                current_fish->fov_angle = 3.14159f;
-                current_fish->chemoreceptor_range = 150.0f;
-                current_fish->oxygen_consumption_rate = 0.0004f;
-                current_fish->oxygen_refill_rate = 0.003f;
+                current_fish->fov_angle = 200.0f;
+                current_fish->max_turn_angle = 45.0f;
+                current_fish->oxygen_reward_factor = 0.01f;
+                current_fish->proximity_reward_factor = 0.005f;
+                current_fish->eat_punishment = -0.02f;
                 current_fish->flow_sensitivity = 0.3f;
                 current_fish->node_r = 255;
                 current_fish->node_g = 165;
@@ -155,37 +149,27 @@ int fish_load_config(const char* filename) {
             value_end--;
         }
         
-        // Parse configuration values
+        // Parse configuration values for RL system
         if (strcmp(key, "max_speed") == 0) {
             current_fish->max_speed = (float)atof(value);
-        } else if (strcmp(key, "acceleration") == 0) {
-            current_fish->acceleration = (float)atof(value);
-        } else if (strcmp(key, "turn_rate") == 0) {
-            current_fish->turn_rate = (float)atof(value);
+        } else if (strcmp(key, "max_force") == 0) {
+            current_fish->max_force = (float)atof(value);
         } else if (strcmp(key, "mass") == 0) {
             current_fish->mass = (float)atof(value);
         } else if (strcmp(key, "size_radius") == 0) {
             current_fish->size_radius = (float)atof(value);
         } else if (strcmp(key, "eating_range") == 0) {
             current_fish->eating_range = (float)atof(value);
-        } else if (strcmp(key, "eating_rate") == 0) {
-            current_fish->eating_rate = (float)atof(value);
-        } else if (strcmp(key, "digestion_rate") == 0) {
-            current_fish->digestion_rate = (float)atof(value);
-        } else if (strcmp(key, "defecation_rate") == 0) {
-            current_fish->defecation_rate = (float)atof(value);
-        } else if (strcmp(key, "defecation_radius") == 0) {
-            current_fish->defecation_radius = (float)atof(value);
-        } else if (strcmp(key, "fov_range") == 0) {
-            current_fish->fov_range = (float)atof(value);
         } else if (strcmp(key, "fov_angle") == 0) {
             current_fish->fov_angle = (float)atof(value);
-        } else if (strcmp(key, "chemoreceptor_range") == 0) {
-            current_fish->chemoreceptor_range = (float)atof(value);
-        } else if (strcmp(key, "oxygen_consumption_rate") == 0) {
-            current_fish->oxygen_consumption_rate = (float)atof(value);
-        } else if (strcmp(key, "oxygen_refill_rate") == 0) {
-            current_fish->oxygen_refill_rate = (float)atof(value);
+        } else if (strcmp(key, "max_turn_angle") == 0) {
+            current_fish->max_turn_angle = (float)atof(value);
+        } else if (strcmp(key, "oxygen_reward_factor") == 0) {
+            current_fish->oxygen_reward_factor = (float)atof(value);
+        } else if (strcmp(key, "proximity_reward_factor") == 0) {
+            current_fish->proximity_reward_factor = (float)atof(value);
+        } else if (strcmp(key, "eat_punishment") == 0) {
+            current_fish->eat_punishment = (float)atof(value);
         } else if (strcmp(key, "flow_sensitivity") == 0) {
             current_fish->flow_sensitivity = (float)atof(value);
         } else if (strcmp(key, "node_color") == 0) {
@@ -195,7 +179,13 @@ int fish_load_config(const char* filename) {
     
     fclose(file);
     
-    printf("Loaded %d fish types with simplified movement\n", g_fish_type_count);
+    printf("Loaded %d RL fish types\n", g_fish_type_count);
+    for (int i = 0; i < g_fish_type_count; i++) {
+        FishType* ft = &g_fish_types[i];
+        printf("  %s: FOV=%.0f°, MaxTurn=%.0f°, MaxForce=%.1f, OxyReward=%.3f\n",
+               ft->name, ft->fov_angle, ft->max_turn_angle, ft->max_force, ft->oxygen_reward_factor);
+    }
+    
     return g_fish_type_count > 0;
 }
 
@@ -219,37 +209,34 @@ int fish_add(float x, float y, int fish_type) {
     Fish* fish = &g_fish[g_fish_count];
     fish->node_id = node_id;
     fish->fish_type = fish_type;
-    fish->movement_force_x = 0.0f;
-    fish->movement_force_y = 0.0f;
+    
+    // Initialize RL system
+    fish->heading = 0.0f;  // Start facing right
+    for (int i = 0; i < RL_INPUT_SIZE; i++) {
+        fish->rl_inputs[i] = 0.0f;
+    }
+    for (int i = 0; i < RL_OUTPUT_SIZE; i++) {
+        fish->rl_outputs[i] = 0.0f;
+    }
+    
+    // Initialize state
     fish->energy = 1.0f;
     fish->stomach_contents = 0.0f;
     fish->consumed_nutrition = 0.0f;
     fish->last_eating_frame = 0;
-    fish->last_defecation_frame = 0;
     fish->age = 0;
     fish->active = 1;
+    fish->eating_mode = 0;
     
-    // Initialize RL state
-    fish->oxygen_level = 1.0f;
-    fish->hunger_level = 0.0f;
-    for (int i = 0; i < VISION_RAYS; i++) {
-        fish->vision_rays[i] = 1.0f;
-    }
-    for (int i = 0; i < CHEMORECEPTOR_RAYS; i++) {
-        fish->nutrition_rays[i] = 0.0f;
-    }
-    fish->saturation_level = 1.0f;
+    // Initialize rewards
     fish->total_reward = 0.0f;
     fish->last_reward = 0.0f;
-    
-    fish->desired_turn = 0.0f;
-    fish->desired_speed = 1.0f;
     
     int fish_id = g_fish_count;
     g_fish_count++;
     
     FishType* ft = &g_fish_types[fish_type];
-    printf("Created fish %d (%s) with simplified movement\n", fish_id, ft->name);
+    printf("Created RL fish %d (%s) with FOV=%.0f°\n", fish_id, ft->name, ft->fov_angle);
     
     return fish_id;
 }

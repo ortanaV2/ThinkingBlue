@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Fish Controller with configurable population
+Improved Fish Controller with concrete survival goals
 """
 
 import simulation
@@ -12,7 +12,7 @@ import numpy as np
 fish_ids = []
 frame_counter = 0
 
-class CalmFishBrain:
+class GoalOrientedFishBrain:
     def __init__(self, fish_id):
         self.fish_id = fish_id
         
@@ -24,33 +24,51 @@ class CalmFishBrain:
         self.state_size = vision_rays + nutrition_rays + 3  # 27 total
         self.action_size = 2  # direction_x, direction_y
         
-        # Smaller, more focused network for better learning
-        self.weights1 = np.random.randn(self.state_size, 16) * 0.3
-        self.weights2 = np.random.randn(16, 8) * 0.3
-        self.weights3 = np.random.randn(8, self.action_size) * 0.3
-        self.bias1 = np.zeros(16)
-        self.bias2 = np.zeros(8)
+        # Smaller, focused network for concrete goals
+        self.weights1 = np.random.randn(self.state_size, 20) * 0.2
+        self.weights2 = np.random.randn(20, 12) * 0.2
+        self.weights3 = np.random.randn(12, self.action_size) * 0.2
+        self.bias1 = np.zeros(20)
+        self.bias2 = np.zeros(12)
         self.bias3 = np.zeros(self.action_size)
         
-        # Calm learning parameters
-        self.learning_rate = 0.01
-        self.exploration_rate = 0.3
-        self.exploration_decay = 0.999
-        self.min_exploration = 0.05
+        # Goal-oriented learning parameters
+        self.learning_rate = 0.015
+        self.exploration_rate = 0.4
+        self.exploration_decay = 0.9995
+        self.min_exploration = 0.08
         
-        # Movement persistence for calmer behavior
-        self.current_direction_x = 0.0
-        self.current_direction_y = 0.0
-        self.direction_change_cooldown = 0
-        self.preferred_direction_duration = 30
+        # Concrete goals tracking
+        self.goal_weights = {
+            'oxygen': 0.3,      # Keep oxygen > 0.6
+            'hunger': 0.25,     # Keep hunger < 0.4
+            'nutrition': 0.25,  # Find and eat food
+            'survival': 0.2     # Stay alive and move efficiently
+        }
         
-        # Enhanced experience tracking
-        self.last_state = None
-        self.last_action = None
+        # Movement strategy state
+        self.current_strategy = "explore"  # "explore", "seek_food", "seek_oxygen"
+        self.strategy_frames = 0
+        self.last_nutrition_direction = None
+        
+        # Performance tracking for concrete goals
+        self.goal_achievements = {
+            'oxygen_good': 0,
+            'hunger_satisfied': 0,
+            'food_found': 0,
+            'successful_eating': 0,
+            'exploration_effective': 0
+        }
+        
+        # Experience memory for better learning
+        self.experience_buffer = []
+        self.max_experiences = 50
+        
+        # Learning progress indicators
         self.total_reward = 0.0
-        self.movement_history = []
         self.learning_progress = 0.0
-        
+        self.frames_alive = 0
+    
     def sigmoid(self, x):
         return 1.0 / (1.0 + np.exp(-np.clip(x, -500, 500)))
     
@@ -61,16 +79,16 @@ class CalmFishBrain:
         return np.maximum(0, x)
     
     def forward(self, state):
-        """Smaller, more focused network for stable learning"""
-        # First layer: smaller for faster learning
+        """Forward pass through neural network"""
+        # First layer
         hidden1 = np.dot(state, self.weights1) + self.bias1
         hidden1 = self.relu(hidden1)
         
-        # Second layer: focused processing
+        # Second layer
         hidden2 = np.dot(hidden1, self.weights2) + self.bias2
         hidden2 = self.tanh(hidden2)
         
-        # Output layer: smooth direction control
+        # Output layer
         output = np.dot(hidden2, self.weights3) + self.bias3
         direction_x = self.tanh(output[0])
         direction_y = self.tanh(output[1])
@@ -97,189 +115,244 @@ class CalmFishBrain:
         
         return state
     
-    def choose_action(self, state):
-        """Calm action selection with learning progression"""
-        # Reduce direction change frequency for calmer movement
-        if self.direction_change_cooldown > 0:
-            self.direction_change_cooldown -= 1
-            # Continue in current direction with small variations
-            variation_x = random.uniform(-0.1, 0.1)
-            variation_y = random.uniform(-0.1, 0.1)
-            action = np.array([
-                np.clip(self.current_direction_x + variation_x, -1.0, 1.0),
-                np.clip(self.current_direction_y + variation_y, -1.0, 1.0)
-            ])
-            return action
+    def analyze_situation(self, state):
+        """Analyze current situation and determine strategy"""
+        oxygen_level = state[self.vision_rays + self.nutrition_rays]
+        hunger_level = state[self.vision_rays + self.nutrition_rays + 1]
+        saturation_level = state[self.vision_rays + self.nutrition_rays + 2]
         
-        # Lower exploration rate for calmer behavior
-        if random.random() < self.exploration_rate:
-            # Calmer exploration with guided behavior
-            oxygen_level = state[self.vision_rays + self.nutrition_rays]
-            hunger_level = state[self.vision_rays + self.nutrition_rays + 1]
-            
-            # Calculate nutrition detection for guidance
-            nutrition_rays = state[self.vision_rays:self.vision_rays + self.nutrition_rays]
-            max_nutrition_ray = max(nutrition_rays)
-            best_nutrition_ray_idx = np.argmax(nutrition_rays)
-            
-            # Smart exploration based on needs
-            if oxygen_level < 0.3:
-                # Low oxygen: gentle movement toward better areas
-                direction_x = random.uniform(-0.6, 0.6)
-                direction_y = random.uniform(-0.6, 0.6)
-            elif hunger_level > 0.6 and max_nutrition_ray > 0.3:
-                # Hungry with food detected: move toward nutrition
-                center_ray = self.nutrition_rays // 2
-                direction_bias_x = (best_nutrition_ray_idx - center_ray) / center_ray * 0.6
-                
-                direction_x = direction_bias_x + random.uniform(-0.2, 0.2)
-                direction_y = random.uniform(-0.3, 0.3)
-                
-                direction_x = np.clip(direction_x, -0.8, 0.8)
-                direction_y = np.clip(direction_y, -0.8, 0.8)
+        # Analyze nutrition detection
+        nutrition_rays = state[self.vision_rays:self.vision_rays + self.nutrition_rays]
+        max_nutrition = max(nutrition_rays)
+        best_nutrition_idx = np.argmax(nutrition_rays)
+        
+        # Determine strategy based on concrete goals
+        if oxygen_level < 0.4:
+            return "seek_oxygen", "CRITICAL: Low oxygen"
+        elif hunger_level > 0.7:
+            if max_nutrition > 0.2:
+                return "seek_food", f"HUNGRY: Food detected (max: {max_nutrition:.2f})"
             else:
-                # Normal exploration: MUCH calmer
-                if random.random() < 0.7:
-                    directions = [
-                        (0, -0.5),    # gentle up
-                        (0, 0.5),     # gentle down  
-                        (-0.5, 0),    # gentle left
-                        (0.5, 0),     # gentle right
-                    ]
-                    direction_x, direction_y = random.choice(directions)
-                else:
-                    # Gentle diagonal movement
-                    direction_x = random.choice([-0.4, -0.2, 0.2, 0.4])
-                    direction_y = random.choice([-0.4, -0.2, 0.2, 0.4])
-            
-            action = np.array([direction_x, direction_y])
-            
-            # Set cooldown for calmer behavior
-            self.direction_change_cooldown = random.randint(20, 40)
-            
+                return "explore", "HUNGRY: Searching for food"
+        elif hunger_level > 0.4 and max_nutrition > 0.4:
+            return "seek_food", f"MODERATE HUNGER: Good food detected ({max_nutrition:.2f})"
+        elif oxygen_level < 0.6:
+            return "seek_oxygen", "Oxygen below optimal"
         else:
-            # Exploit: use network
-            action, _, _ = self.forward(state)
-            
-            # Ensure reasonable movement strength
-            magnitude = np.sqrt(action[0]**2 + action[1]**2)
-            if magnitude < 0.2:
-                if magnitude > 0.01:
-                    action = action / magnitude * 0.3
-                else:
-                    # Very gentle random direction if action is near zero
-                    angle = random.random() * 2 * math.pi
-                    action = np.array([math.cos(angle) * 0.3, math.sin(angle) * 0.3])
-            elif magnitude > 0.8:
-                # Cap maximum movement for calmer behavior
-                action = action / magnitude * 0.8
+            return "explore", "Maintaining territory"
+    
+    def choose_goal_oriented_action(self, state):
+        """Choose action based on concrete survival goals"""
+        strategy, reason = self.analyze_situation(state)
         
-        # Store current direction
-        self.current_direction_x = action[0]
-        self.current_direction_y = action[1]
+        oxygen_level = state[self.vision_rays + self.nutrition_rays]
+        hunger_level = state[self.vision_rays + self.nutrition_rays + 1]
+        nutrition_rays = state[self.vision_rays:self.vision_rays + self.nutrition_rays]
+        
+        # Strategy-based action selection
+        if strategy == "seek_oxygen":
+            # Move toward areas with better oxygen (upward bias)
+            if random.random() < 0.6:
+                action = np.array([random.uniform(-0.3, 0.3), -0.7])  # Move up
+            else:
+                action = np.array([random.uniform(-0.5, 0.5), random.uniform(-0.8, -0.2)])
+                
+        elif strategy == "seek_food":
+            # Move toward nutrition
+            max_nutrition_idx = np.argmax(nutrition_rays)
+            center_ray = self.nutrition_rays // 2
+            
+            # Calculate direction toward food
+            direction_bias = (max_nutrition_idx - center_ray) / center_ray
+            
+            if abs(direction_bias) > 0.3:  # Strong directional signal
+                action = np.array([
+                    direction_bias * 0.8 + random.uniform(-0.1, 0.1),
+                    random.uniform(-0.2, 0.2)
+                ])
+                self.last_nutrition_direction = direction_bias
+            else:
+                # Weak signal - explore around last known direction
+                if self.last_nutrition_direction is not None:
+                    action = np.array([
+                        self.last_nutrition_direction * 0.5 + random.uniform(-0.3, 0.3),
+                        random.uniform(-0.4, 0.4)
+                    ])
+                else:
+                    action = np.array([random.uniform(-0.6, 0.6), random.uniform(-0.6, 0.6)])
+                    
+        else:  # explore
+            # Intelligent exploration patterns
+            if random.random() < 0.4:
+                # Systematic grid search
+                directions = [
+                    (0.7, 0),     # right
+                    (-0.7, 0),    # left
+                    (0, 0.7),     # down
+                    (0, -0.7),    # up
+                    (0.5, 0.5),   # diagonal
+                    (-0.5, -0.5), # diagonal
+                ]
+                action = np.array(random.choice(directions))
+            else:
+                # Random exploration
+                action = np.array([random.uniform(-0.6, 0.6), random.uniform(-0.6, 0.6)])
+        
+        # Ensure reasonable magnitude
+        magnitude = np.sqrt(action[0]**2 + action[1]**2)
+        if magnitude > 0.9:
+            action = action / magnitude * 0.9
+        elif magnitude < 0.2:
+            action = action / magnitude * 0.3 if magnitude > 0.01 else np.array([0.3, 0])
+        
+        # Track strategy
+        if self.current_strategy != strategy:
+            self.current_strategy = strategy
+            self.strategy_frames = 0
+            if self.fish_id == 0:  # Debug for first fish
+                print(f"Fish {self.fish_id} strategy: {strategy} - {reason}")
+        
+        self.strategy_frames += 1
         
         return action
     
+    def choose_action(self, state):
+        """Main action selection with goal-oriented behavior"""
+        # Use goal-oriented strategy most of the time
+        if random.random() < (1.0 - self.exploration_rate):
+            action, _, _ = self.forward(state)
+            
+            # Ensure reasonable movement
+            magnitude = np.sqrt(action[0]**2 + action[1]**2)
+            if magnitude < 0.2:
+                action = self.choose_goal_oriented_action(state)
+            elif magnitude > 0.9:
+                action = action / magnitude * 0.8
+                
+        else:
+            # Exploration with goal awareness
+            action = self.choose_goal_oriented_action(state)
+        
+        return action
+    
+    def calculate_goal_rewards(self, state, action, reward):
+        """Calculate additional rewards based on goal achievement"""
+        oxygen_level = state[self.vision_rays + self.nutrition_rays]
+        hunger_level = state[self.vision_rays + self.nutrition_rays + 1]
+        saturation_level = state[self.vision_rays + self.nutrition_rays + 2]
+        
+        goal_reward = 0.0
+        
+        # Oxygen goal achievement
+        if oxygen_level > 0.6:
+            goal_reward += 0.02
+            self.goal_achievements['oxygen_good'] += 1
+        
+        # Hunger goal achievement  
+        if hunger_level < 0.4:
+            goal_reward += 0.02
+            self.goal_achievements['hunger_satisfied'] += 1
+        
+        # Food detection and eating
+        nutrition_rays = state[self.vision_rays:self.vision_rays + self.nutrition_rays]
+        max_nutrition = max(nutrition_rays)
+        
+        if max_nutrition > 0.3:
+            goal_reward += 0.01
+            self.goal_achievements['food_found'] += 1
+        
+        # Eating success (high rewards indicate eating)
+        if reward > 1.0:  # Eating gives high rewards
+            goal_reward += 0.1
+            self.goal_achievements['successful_eating'] += 1
+            if self.fish_id == 0:
+                print(f"Fish {self.fish_id} successfully ate! Reward: {reward:.2f}")
+        
+        # Movement efficiency
+        movement_magnitude = np.sqrt(action[0]**2 + action[1]**2)
+        if 0.3 <= movement_magnitude <= 0.8:
+            goal_reward += 0.005
+            self.goal_achievements['exploration_effective'] += 1
+        
+        return goal_reward
+    
     def learn(self, state, action, reward, next_state):
-        """Enhanced learning with better stability"""
-        if self.last_state is None:
+        """Enhanced learning with goal-oriented feedback"""
+        if len(self.experience_buffer) == 0:
             return
         
-        # Calculate current network output
-        current_action, h1, h2 = self.forward(state)
+        # Add goal-based rewards
+        goal_reward = self.calculate_goal_rewards(state, action, reward)
+        total_reward = reward + goal_reward
         
-        # Calculate target based on reward feedback
-        target = action.copy()
+        # Store experience
+        experience = (state.copy(), action.copy(), total_reward, next_state.copy())
+        self.experience_buffer.append(experience)
         
-        # More stable reward-based learning
-        reward_magnitude = abs(reward)
+        if len(self.experience_buffer) > self.max_experiences:
+            self.experience_buffer.pop(0)
         
-        if reward > 0.5:  # Good reward (eating)
-            # Strongly reinforce this action
-            target = action * 1.1
-            self.learning_progress += 0.02
-        elif reward > 0.05:  # Small positive reward
-            # Slightly reinforce
-            target = action * 1.02
-            self.learning_progress += 0.005
-        elif reward < -0.05:  # Penalty
-            # Analyze what went wrong, but don't overreact
-            oxygen_level = state[self.vision_rays + self.nutrition_rays]
-            hunger_level = state[self.vision_rays + self.nutrition_rays + 1]
+        # Learn from recent experiences
+        if len(self.experience_buffer) >= 5:
+            # Sample random experience for replay
+            exp_idx = random.randint(0, len(self.experience_buffer) - 1)
+            exp_state, exp_action, exp_reward, exp_next_state = self.experience_buffer[exp_idx]
             
-            if oxygen_level < 0.4:  # Low oxygen
-                # Try slightly different direction
-                target[0] = action[0] * 0.8 + random.uniform(-0.1, 0.1)
-                target[1] = action[1] * 0.8 + random.uniform(-0.1, 0.1)
-            elif hunger_level > 0.7:  # Very hungry
-                # Encourage more exploration but gently
-                target = action * 1.05
-            else:
-                # General penalty - small adjustment
-                target = action * 0.95
+            # Forward pass
+            current_action, h1, h2 = self.forward(exp_state)
+            
+            # Calculate target action based on reward
+            target = exp_action.copy()
+            
+            if exp_reward > 0.5:  # Good reward
+                target = exp_action * 1.05
+                self.learning_progress += 0.01
+            elif exp_reward > 0.1:  # Small positive
+                target = exp_action * 1.02
+                self.learning_progress += 0.005
+            elif exp_reward < -0.1:  # Penalty
+                target = exp_action * 0.95
+            
+            # Clamp target
+            target[0] = np.clip(target[0], -0.9, 0.9)
+            target[1] = np.clip(target[1], -0.9, 0.9)
+            
+            # Backpropagation
+            error = target - current_action
+            adaptive_lr = self.learning_rate * (0.5 + 0.5 * min(1.0, self.learning_progress))
+            
+            # Update weights
+            d_weights3 = np.outer(h2, error) * adaptive_lr
+            d_bias3 = error * adaptive_lr
+            
+            h2_error = np.dot(error, self.weights3.T) * (1 - h2 * h2)
+            h2_error = np.clip(h2_error, -1.0, 1.0)
+            
+            d_weights2 = np.outer(h1, h2_error) * adaptive_lr
+            d_bias2 = h2_error * adaptive_lr
+            
+            h1_error = np.dot(h2_error, self.weights2.T) * (h1 > 0).astype(float)
+            h1_error = np.clip(h1_error, -1.0, 1.0)
+            
+            d_weights1 = np.outer(exp_state, h1_error) * adaptive_lr
+            d_bias1 = h1_error * adaptive_lr
+            
+            # Apply updates
+            self.weights3 += d_weights3
+            self.bias3 += d_bias3
+            self.weights2 += d_weights2
+            self.bias2 += d_bias2
+            self.weights1 += d_weights1
+            self.bias1 += d_bias1
         
-        # Improved chemoreceptor learning
-        nutrition_rays = state[self.vision_rays:self.vision_rays + self.nutrition_rays]
-        next_nutrition_rays = next_state[self.vision_rays:self.vision_rays + self.nutrition_rays]
-        
-        nutrition_improvement = sum(next_nutrition_rays) - sum(nutrition_rays)
-        if nutrition_improvement > 0.05 and reward >= 0:
-            # Good nutrition gradient following
-            target = action * 1.02
-            self.learning_progress += 0.01
-        
-        # Clamp target to reasonable range
-        target[0] = np.clip(target[0], -0.8, 0.8)
-        target[1] = np.clip(target[1], -0.8, 0.8)
-        
-        # Backpropagation with stability improvements
-        error = target - current_action
-        
-        # Scale learning rate based on progress
-        adaptive_lr = self.learning_rate * (0.5 + 0.5 * min(1.0, self.learning_progress))
-        
-        # Output layer gradients
-        d_weights3 = np.outer(h2, error) * adaptive_lr
-        d_bias3 = error * adaptive_lr
-        
-        # Hidden layer gradients with gradient clipping
-        h2_error = np.dot(error, self.weights3.T)
-        h2_error = h2_error * (1 - h2 * h2)  # tanh derivative
-        h2_error = np.clip(h2_error, -1.0, 1.0)  # Gradient clipping
-        
-        d_weights2 = np.outer(h1, h2_error) * adaptive_lr
-        d_bias2 = h2_error * adaptive_lr
-        
-        # First hidden layer gradients
-        h1_error = np.dot(h2_error, self.weights2.T)
-        h1_error = h1_error * (h1 > 0).astype(float)  # ReLU derivative
-        h1_error = np.clip(h1_error, -1.0, 1.0)  # Gradient clipping
-        
-        d_weights1 = np.outer(state, h1_error) * adaptive_lr
-        d_bias1 = h1_error * adaptive_lr
-        
-        # Update weights with smaller steps for stability
-        self.weights3 += d_weights3
-        self.bias3 += d_bias3
-        self.weights2 += d_weights2
-        self.bias2 += d_bias2
-        self.weights1 += d_weights1
-        self.bias1 += d_bias1
-        
-        # Gradual exploration decay
+        # Decay exploration
         self.exploration_rate = max(self.min_exploration, 
                                    self.exploration_rate * self.exploration_decay)
     
     def update(self):
-        """Enhanced update with calmer behavior tracking"""
+        """Main update with goal tracking"""
         current_state = self.get_state()
-        
-        # Track movement patterns for learning assessment
-        position = simulation.fish_get_position(self.fish_id)
-        if position:
-            self.movement_history.append(position)
-            if len(self.movement_history) > 120:
-                self.movement_history.pop(0)
+        self.frames_alive += 1
         
         # Choose and apply action
         action = self.choose_action(current_state)
@@ -290,35 +363,35 @@ class CalmFishBrain:
         self.total_reward += reward
         
         # Learn from experience
-        if self.last_state is not None and self.last_action is not None:
+        if hasattr(self, 'last_state') and hasattr(self, 'last_action'):
             self.learn(self.last_state, self.last_action, reward, current_state)
         
         # Store current experience
         self.last_state = current_state.copy()
         self.last_action = action.copy()
         
-        # Debug output for first fish with learning progress
-        if self.fish_id == 0 and simulation.fish_get_count() > 0:
-            if hasattr(self, 'debug_counter'):
-                self.debug_counter += 1
-            else:
-                self.debug_counter = 0
-                
-            if self.debug_counter % 180 == 0:  # Every 3 seconds
+        # Debug output for first fish
+        if self.fish_id == 0 and hasattr(self, 'debug_counter'):
+            self.debug_counter += 1
+            
+            if self.debug_counter % 300 == 0:  # Every 5 seconds
                 oxygen = current_state[self.vision_rays + self.nutrition_rays]
                 hunger = current_state[self.vision_rays + self.nutrition_rays + 1]
+                saturation = current_state[self.vision_rays + self.nutrition_rays + 2]
                 max_nutrition = max(current_state[self.vision_rays:self.vision_rays + self.nutrition_rays])
                 
                 print(f"Fish {self.fish_id}: O2={oxygen:.2f}, Hunger={hunger:.2f}, "
-                      f"MaxNutr={max_nutrition:.3f}, Action=({action[0]:.2f},{action[1]:.2f}), "
-                      f"Reward={reward:.3f}, Explore={self.exploration_rate:.3f}, "
-                      f"Progress={self.learning_progress:.2f}")
+                      f"Stomach={saturation:.2f}, MaxNutr={max_nutrition:.3f}, "
+                      f"Strategy={self.current_strategy}, Reward={reward:.3f}, "
+                      f"Explore={self.exploration_rate:.3f}")
+        elif self.fish_id == 0:
+            self.debug_counter = 0
 
 # Global fish brains
 fish_brains = {}
 
 def initialize_fish():
-    """Create fish population based on configurable count"""
+    """Create goal-oriented fish brains"""
     global fish_ids, fish_brains
     
     world_left, world_top, world_right, world_bottom = simulation.get_world_bounds()
@@ -329,129 +402,68 @@ def initialize_fish():
         return
     
     vision_rays, nutrition_rays = simulation.get_vision_info()
-    print(f"Calm Fish Controller: {vision_rays} vision rays, {nutrition_rays} nutrition rays")
-    print(f"World size: {world_right-world_left:.0f}x{world_bottom-world_top:.0f}")
+    print(f"Goal-Oriented Fish Controller: {vision_rays} vision rays, {nutrition_rays} nutrition rays")
     
-    # Note: Fish are already spawned by main.c based on INITIAL_FISH_COUNT
-    # This just creates the brains for existing fish
     existing_fish_count = simulation.fish_get_count()
-    print(f"Creating brains for {existing_fish_count} existing fish")
+    print(f"Creating goal-oriented brains for {existing_fish_count} fish")
     
     for i in range(existing_fish_count):
-        fish_brains[i] = CalmFishBrain(i)
+        fish_brains[i] = GoalOrientedFishBrain(i)
         fish_ids.append(i)
-        print(f"Created brain for fish {i}")
+        print(f"Created goal-oriented brain for fish {i}")
 
-def print_learning_progress():
-    """Print learning progress and behavior analysis"""
-    print(f"\n=== CALM FISH LEARNING STATUS (Frame {frame_counter}) ===")
+def print_goal_progress():
+    """Print goal achievement progress"""
+    print(f"\n=== GOAL-ORIENTED FISH PROGRESS (Frame {frame_counter}) ===")
     
-    total_oxygen = 0.0
-    total_hunger = 0.0
-    total_rewards = 0.0
-    total_movement = 0.0
-    total_exploration = 0.0
-    total_progress = 0.0
-    learning_fish = []
-    calm_fish = []
+    total_frames = 0
+    total_goals = {key: 0 for key in fish_brains[0].goal_achievements.keys() if 0 in fish_brains}
     
     for fish_id in fish_ids:
         if fish_id in fish_brains:
             brain = fish_brains[fish_id]
-            energy = simulation.fish_get_energy(fish_id)
+            total_frames += brain.frames_alive
             
-            if energy is not None:
-                oxygen = simulation.fish_get_oxygen_level(fish_id)
-                hunger = simulation.fish_get_hunger_level(fish_id)
-                last_reward = simulation.fish_get_last_reward(fish_id)
-                
-                velocity = simulation.fish_get_velocity(fish_id)
-                current_speed = 0.0
-                if velocity:
-                    vx, vy = velocity
-                    current_speed = math.sqrt(vx*vx + vy*vy)
-                
-                total_oxygen += oxygen
-                total_hunger += hunger
-                total_rewards += brain.total_reward
-                total_movement += current_speed
-                total_exploration += brain.exploration_rate
-                total_progress += brain.learning_progress
-                
-                # Assess individual fish
-                if brain.learning_progress > 0.5 and brain.exploration_rate < 0.15:
-                    learning_fish.append((fish_id, brain.learning_progress, current_speed))
-                
-                if current_speed < 4.0 and brain.exploration_rate < 0.2:
-                    calm_fish.append((fish_id, current_speed, brain.exploration_rate))
-                
-                print(f"Fish {fish_id}: Energy={energy:.2f}, Speed={current_speed:.2f}, "
-                      f"O2={oxygen:.2f}, Hunger={hunger:.2f}, "
-                      f"Explore={brain.exploration_rate:.3f}, Progress={brain.learning_progress:.2f}, "
-                      f"TotalReward={brain.total_reward:.2f}")
+            for goal, count in brain.goal_achievements.items():
+                total_goals[goal] += count
+            
+            oxygen = simulation.fish_get_oxygen_level(fish_id)
+            hunger = simulation.fish_get_hunger_level(fish_id)
+            saturation = simulation.fish_get_saturation_level(fish_id)
+            
+            print(f"Fish {fish_id}: O2={oxygen:.2f}, Hunger={hunger:.2f}, "
+                  f"Stomach={saturation:.2f}, Strategy={brain.current_strategy}, "
+                  f"Progress={brain.learning_progress:.2f}, Alive={brain.frames_alive}")
     
-    # Summary statistics
-    active_count = len(fish_ids)
-    if active_count > 0:
-        avg_oxygen = total_oxygen / active_count
-        avg_hunger = total_hunger / active_count
-        avg_reward = total_rewards / active_count
-        avg_movement = total_movement / active_count
-        avg_exploration = total_exploration / active_count
-        avg_progress = total_progress / active_count
-        
-        print(f"\n=== LEARNING SUMMARY ===")
-        print(f"Active fish: {active_count}")
-        print(f"Average movement speed: {avg_movement:.2f} (target: 3-6)")
-        print(f"Average exploration rate: {avg_exploration:.3f} (should decrease over time)")
-        print(f"Average learning progress: {avg_progress:.2f} (should increase over time)")
-        print(f"Average oxygen: {avg_oxygen:.2f}")
-        print(f"Average hunger: {avg_hunger:.2f}")
-        
-        # Learning assessment
-        if avg_exploration < 0.15 and avg_progress > 0.3:
-            print("🟢 LEARNING: Fish are learning well and becoming less random")
-        elif avg_exploration > 0.25:
-            print("🟡 LEARNING: Fish still exploring, early learning phase")
-        else:
-            print("🔴 LEARNING: Fish may be stuck, check reward system")
-        
-        # Movement assessment
-        if 3.0 <= avg_movement <= 6.0:
-            print("🟢 MOVEMENT: Fish swimming at calm, natural speed")
-        elif avg_movement > 8.0:
-            print("🔴 MOVEMENT: Fish too fast/frantic")
-        else:
-            print("🟡 MOVEMENT: Fish moving slowly")
-        
-        if learning_fish:
-            print(f"🎓 Advanced learners: {learning_fish}")
-        
-        if calm_fish:
-            print(f"😌 Calm swimmers: {calm_fish}")
+    # Calculate success rates
+    if total_frames > 0:
+        print(f"\n=== GOAL ACHIEVEMENT RATES ===")
+        for goal, total_count in total_goals.items():
+            rate = (total_count / total_frames) * 100
+            print(f"{goal}: {rate:.2f}% ({total_count}/{total_frames})")
         
         print("=" * 60)
 
 def update_fish():
-    """Enhanced update with learning tracking"""
+    """Main update with goal tracking"""
     global frame_counter
     frame_counter += 1
     
     # Initialize fish on first call
     if frame_counter == 1:
         initialize_fish()
-        print("Calm Learning Fish Controller Initialized!")
-        print("Features: Reduced exploration, movement persistence, progressive learning")
-        print("Fish should become calmer and smarter over time!")
+        print("Goal-Oriented Fish Controller Initialized!")
+        print("Concrete Goals: Oxygen>0.6, Hunger<0.4, Find Food, Survive")
     
     # Update each fish brain
     for fish_id in fish_ids:
         if fish_id in fish_brains:
             fish_brains[fish_id].update()
     
-    # Print progress every 20 seconds to observe learning
-    if frame_counter % (60 * 20) == 0:
-        print_learning_progress()
+    # Print progress every 30 seconds
+    if frame_counter % (60 * 30) == 0:
+        print_goal_progress()
 
 if __name__ == "__main__":
-    print("Calm Learning Fish Controller loaded!")
+    print("Goal-Oriented Fish Controller loaded!")
+    print("Concrete survival goals: Oxygen, Hunger, Nutrition, Survival")

@@ -1,4 +1,4 @@
-// fish_update.c - Main fish update loop and physics
+// fish_update.c - Main fish update loop (NO DIGESTION)
 #include <stdio.h>
 #include <stdlib.h>
 #include <math.h>
@@ -52,8 +52,7 @@ void fish_update(void) {
             // Movement reward for active movement
             fish->last_reward += 0.005f;
         } else {
-            // FIXED: Much calmer default movement
-            // Gradually slow down instead of random movement
+            // Calm default movement
             node->vx *= 0.95f;  // Gradual deceleration
             node->vy *= 0.95f;
             
@@ -68,7 +67,7 @@ void fish_update(void) {
             }
             
             // Small penalty for not having direction
-            fish->last_reward -= 0.005f;  // Reduced penalty
+            fish->last_reward -= 0.005f;
         }
         
         // MINIMAL flow influence (secondary, subtle effect)
@@ -85,22 +84,11 @@ void fish_update(void) {
             fish->last_reward += 0.003f;
         }
         
-        // Digestion - convert stomach contents to energy
-        if (fish->stomach_contents > 0.0f) {
-            float digestion_amount = fish_type->digestion_rate;
-            
-            if (digestion_amount > fish->stomach_contents) {
-                digestion_amount = fish->stomach_contents;
-            }
-            
-            fish->stomach_contents -= digestion_amount;
-            fish->energy += digestion_amount;
-            
-            if (fish->energy > 1.0f) fish->energy = 1.0f;
-            if (fish->stomach_contents < 0.0f) fish->stomach_contents = 0.0f;
-        }
+        // REMOVED: Digestion system completely removed
+        // No more conversion of stomach contents to energy
+        // Stomach contents stay until defecation
         
-        // Enhanced RL state updates
+        // Enhanced RL state updates with concrete goals
         fish_update_rl_state(i);
         fish_calculate_environmental_rewards(i);
         fish_calculate_chemoreceptor_rewards(i);
@@ -118,12 +106,13 @@ void fish_update(void) {
             fish->last_reward -= 0.025f;
         }
         
-        // Age and energy decay
+        // Age tracking
         fish->age++;
-        fish->energy -= 0.00005f;
-        if (fish->energy < 0.0f) fish->energy = 0.0f;
         
-        // Base survival reward
+        // REMOVED: Energy decay (fish no longer lose energy over time)
+        // Energy is now only visual indicator, not a survival requirement
+        
+        // Base survival reward for concrete goals
         fish->last_reward += 0.002f;
     }
     
@@ -139,13 +128,23 @@ void fish_update(void) {
         float avg_oxygen = 0.0f;
         float avg_hunger = 0.0f;
         float avg_speed = 0.0f;
+        float avg_reward = 0.0f;
         int active_fish = 0;
+        int well_fed_fish = 0;  // hunger < 0.4
+        int healthy_fish = 0;   // oxygen > 0.6
+        int full_stomach_fish = 0; // stomach > 0.3
         
         for (int i = 0; i < fish_count; i++) {
             if (fish_array[i].active) {
                 total_stomach += fish_array[i].stomach_contents;
                 avg_oxygen += fish_array[i].oxygen_level;
                 avg_hunger += fish_array[i].hunger_level;
+                avg_reward += fish_array[i].last_reward;
+                
+                // Count fish meeting goals
+                if (fish_array[i].hunger_level < 0.4f) well_fed_fish++;
+                if (fish_array[i].oxygen_level > 0.6f) healthy_fish++;
+                if (fish_array[i].stomach_contents > 0.3f) full_stomach_fish++;
                 
                 Node* node = &nodes[fish_array[i].node_id];
                 float speed = sqrt(node->vx * node->vx + node->vy * node->vy);
@@ -159,17 +158,36 @@ void fish_update(void) {
             avg_oxygen /= active_fish;
             avg_hunger /= active_fish;
             avg_speed /= active_fish;
+            avg_reward /= active_fish;
         }
         
-        printf("\n=== FISH SIMPLIFIED MOVEMENT (Frame %d) ===\n", current_frame);
+        printf("\n=== FISH STATUS (NO DIGESTION) Frame %d ===\n", current_frame);
         printf("Active fish: %d\n", active_fish);
         printf("Average speed: %.2f\n", avg_speed);
-        printf("Average oxygen: %.2f\n", avg_oxygen);
-        printf("Average hunger: %.2f\n", avg_hunger);
+        printf("Average oxygen: %.2f (healthy: %d/%d)\n", avg_oxygen, healthy_fish, active_fish);
+        printf("Average hunger: %.2f (well-fed: %d/%d)\n", avg_hunger, well_fed_fish, active_fish);
+        printf("Fish with food in stomach: %d/%d\n", full_stomach_fish, active_fish);
+        printf("Average last reward: %.4f\n", avg_reward);
         printf("Total consumed: %.4f\n", total_consumed);
         printf("Total defecated: %.4f\n", total_defecated);
         printf("In fish stomachs: %.4f\n", total_stomach);
-        printf("Fish cycle balance: %.4f\n", balance);
+        printf("Fish cycle balance: %.4f (should be ~0)\n", balance);
+        
+        // Goal achievement summary
+        printf("\n=== GOAL ACHIEVEMENT ===\n");
+        printf("Well-fed fish (hunger < 0.4): %d/%d (%.1f%%)\n", 
+               well_fed_fish, active_fish, (float)well_fed_fish/active_fish*100);
+        printf("Healthy fish (oxygen > 0.6): %d/%d (%.1f%%)\n", 
+               healthy_fish, active_fish, (float)healthy_fish/active_fish*100);
+        printf("Fish with food reserves: %d/%d (%.1f%%)\n", 
+               full_stomach_fish, active_fish, (float)full_stomach_fish/active_fish*100);
+        
+        if (balance < 50.0f) {
+            printf("✓ Nutrition cycle: BALANCED\n");
+        } else {
+            printf("⚠ Nutrition cycle: IMBALANCED (too much consumption)\n");
+        }
+        
         printf("============================================\n\n");
     }
 }

@@ -43,7 +43,7 @@
 #define WORLD_CENTER_Y 0.0f
 
 // Population configuration
-#define INITIAL_PLANT_COUNT 10
+#define INITIAL_PLANT_COUNT 200
 #define INITIAL_FISH_COUNT 5
 
 // Derived world bounds

@@ -38,13 +38,13 @@
 
 // World configuration - CONFIGURABLE VALUES
 #define WORLD_WIDTH 8000.0f
-#define WORLD_HEIGHT 6000.0f
+#define WORLD_HEIGHT 8000.0f
 #define WORLD_CENTER_X 0.0f
 #define WORLD_CENTER_Y 0.0f
 
 // Population configuration
-#define INITIAL_PLANT_COUNT 200
-#define INITIAL_FISH_COUNT 5
+#define INITIAL_PLANT_COUNT 70
+#define INITIAL_FISH_COUNT 10
 
 // Derived world bounds
 #define WORLD_LEFT (WORLD_CENTER_X - WORLD_WIDTH / 2.0f)

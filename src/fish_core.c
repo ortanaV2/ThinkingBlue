@@ -1,4 +1,4 @@
-// fish_core.c - Core fish system for RL control
+// fish_core.c - Enhanced core fish system with aging and death
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -18,6 +18,9 @@ static int g_ray_rendering_enabled = 0;
 // Nutrition tracking
 static float g_total_nutrition_consumed = 0.0f;
 static float g_total_nutrition_defecated = 0.0f;
+
+// Death statistics
+static int g_total_deaths_from_age = 0;
 
 // Color parsing utility
 static void parse_color(const char* color_str, int* r, int* g, int* b) {
@@ -43,8 +46,9 @@ int fish_init(void) {
     g_ray_rendering_enabled = 0;
     g_total_nutrition_consumed = 0.0f;
     g_total_nutrition_defecated = 0.0f;
+    g_total_deaths_from_age = 0;
     
-    printf("Fish system initialized with RL control\n");
+    printf("Fish system initialized with aging mechanics\n");
     return 1;
 }
 
@@ -56,8 +60,8 @@ void fish_cleanup(void) {
     g_fish_count = 0;
     g_fish_type_count = 0;
     
-    printf("Fish cleanup - Consumed: %.2f, Defecated: %.2f\n",
-           g_total_nutrition_consumed, g_total_nutrition_defecated);
+    printf("Fish cleanup - Deaths from age: %d, Consumed: %.2f, Defecated: %.2f\n",
+           g_total_deaths_from_age, g_total_nutrition_consumed, g_total_nutrition_defecated);
 }
 
 void fish_toggle_ray_rendering(void) {
@@ -76,7 +80,7 @@ int fish_load_config(const char* filename) {
         return 0;
     }
     
-    printf("Loading RL fish config from '%s'\n", filename);
+    printf("Loading fish config with aging system from '%s'\n", filename);
     
     char line[256];
     FishType* current_fish = NULL;
@@ -104,18 +108,23 @@ int fish_load_config(const char* filename) {
                 current_fish->name[name_len] = '\0';
                 current_fish->active = 1;
                 
-                // Default values for RL system
-                current_fish->max_speed = 30.0f;
-                current_fish->max_force = 8.0f;
+                // Default values
+                current_fish->max_speed = 15.0f;
+                current_fish->max_force = 3.0f;
                 current_fish->mass = 1.0f;
                 current_fish->size_radius = 8.0f;
-                current_fish->eating_range = 80.0f;
+                current_fish->eating_range = 70.0f;
                 current_fish->fov_angle = 200.0f;
                 current_fish->max_turn_angle = 45.0f;
                 current_fish->oxygen_reward_factor = 0.01f;
                 current_fish->proximity_reward_factor = 0.005f;
                 current_fish->eat_punishment = -0.02f;
-                current_fish->flow_sensitivity = 0.3f;
+                current_fish->flow_sensitivity = 0.2f;
+                current_fish->danger_level = 0.1f;
+                current_fish->is_predator = 0;
+                current_fish->eating_cooldown_frames = 0;
+                current_fish->fish_detection_range = 300.0f;
+                current_fish->max_age = 18000;  // Default: 10 minutes at 30 FPS
                 current_fish->node_r = 255;
                 current_fish->node_g = 165;
                 current_fish->node_b = 0;
@@ -149,7 +158,7 @@ int fish_load_config(const char* filename) {
             value_end--;
         }
         
-        // Parse configuration values for RL system
+        // Parse configuration values
         if (strcmp(key, "max_speed") == 0) {
             current_fish->max_speed = (float)atof(value);
         } else if (strcmp(key, "max_force") == 0) {
@@ -172,6 +181,16 @@ int fish_load_config(const char* filename) {
             current_fish->eat_punishment = (float)atof(value);
         } else if (strcmp(key, "flow_sensitivity") == 0) {
             current_fish->flow_sensitivity = (float)atof(value);
+        } else if (strcmp(key, "danger_level") == 0) {
+            current_fish->danger_level = (float)atof(value);
+        } else if (strcmp(key, "is_predator") == 0) {
+            current_fish->is_predator = atoi(value);
+        } else if (strcmp(key, "eating_cooldown_frames") == 0) {
+            current_fish->eating_cooldown_frames = atoi(value);
+        } else if (strcmp(key, "fish_detection_range") == 0) {
+            current_fish->fish_detection_range = (float)atof(value);
+        } else if (strcmp(key, "max_age") == 0) {
+            current_fish->max_age = atoi(value);
         } else if (strcmp(key, "node_color") == 0) {
             parse_color(value, &current_fish->node_r, &current_fish->node_g, &current_fish->node_b);
         }
@@ -179,11 +198,14 @@ int fish_load_config(const char* filename) {
     
     fclose(file);
     
-    printf("Loaded %d RL fish types\n", g_fish_type_count);
+    printf("Loaded %d fish types with aging system\n", g_fish_type_count);
+    
     for (int i = 0; i < g_fish_type_count; i++) {
         FishType* ft = &g_fish_types[i];
-        printf("  %s: FOV=%.0f°, MaxTurn=%.0f°, MaxForce=%.1f, OxyReward=%.3f\n",
-               ft->name, ft->fov_angle, ft->max_turn_angle, ft->max_force, ft->oxygen_reward_factor);
+        float lifespan_minutes = ft->max_age / (TARGET_FPS * 60.0f);
+        printf("  %s: Max age %d frames (%.1f min), Danger %.1f, %s\n",
+               ft->name, ft->max_age, lifespan_minutes, ft->danger_level, 
+               ft->is_predator ? "PREDATOR" : "HERBIVORE");
     }
     
     return g_fish_type_count > 0;
@@ -211,7 +233,7 @@ int fish_add(float x, float y, int fish_type) {
     fish->fish_type = fish_type;
     
     // Initialize RL system
-    fish->heading = 0.0f;  // Start facing right
+    fish->heading = ((float)rand() / RAND_MAX) * 2.0f * M_PI;
     for (int i = 0; i < RL_INPUT_SIZE; i++) {
         fish->rl_inputs[i] = 0.0f;
     }
@@ -227,16 +249,22 @@ int fish_add(float x, float y, int fish_type) {
     fish->age = 0;
     fish->active = 1;
     fish->eating_mode = 0;
-    
-    // Initialize rewards
     fish->total_reward = 0.0f;
     fish->last_reward = 0.0f;
+    fish->defecation_count = 0;
+    fish->eating_cooldown = 0;
+    fish->target_fish_id = -1;
+    
+    // NEW: Initialize aging system
+    fish->birth_frame = simulation_get_frame_counter();
     
     int fish_id = g_fish_count;
     g_fish_count++;
     
     FishType* ft = &g_fish_types[fish_type];
-    printf("Created RL fish %d (%s) with FOV=%.0f°\n", fish_id, ft->name, ft->fov_angle);
+    float lifespan_minutes = ft->max_age / (TARGET_FPS * 60.0f);
+    printf("Created %s fish %d (max age: %.1f min)\n", 
+           ft->name, fish_id, lifespan_minutes);
     
     return fish_id;
 }
@@ -244,8 +272,73 @@ int fish_add(float x, float y, int fish_type) {
 void fish_remove(int fish_id) {
     if (fish_id < 0 || fish_id >= g_fish_count) return;
     
+    FishType* ft = fish_get_type(g_fish[fish_id].fish_type);
+    printf("Removed fish %d (%s)\n", fish_id, ft ? ft->name : "?");
+    
     g_fish[fish_id].active = 0;
-    printf("Removed fish %d\n", fish_id);
+}
+
+// NEW: Check if fish should die from age
+int fish_should_die_from_age(int fish_id) {
+    Fish* fish = fish_get_by_id(fish_id);
+    if (!fish) return 0;
+    
+    FishType* fish_type = fish_get_type(fish->fish_type);
+    if (!fish_type) return 0;
+    
+    int current_frame = simulation_get_frame_counter();
+    
+    // Check every 30 frames based on birth frame offset
+    if ((current_frame - fish->birth_frame) % DEATH_CHECK_INTERVAL != 0) {
+        return 0;
+    }
+    
+    int age = current_frame - fish->birth_frame;
+    
+    // Calculate death probability based on age
+    // At max_age: 50% probability
+    // Before max_age: exponential curve starting very low
+    // After max_age: rapidly increasing probability
+    
+    float age_ratio = (float)age / (float)fish_type->max_age;
+    float death_probability;
+    
+    if (age_ratio <= 0.5f) {
+        // Young fish: very low probability (0% to 2%)
+        death_probability = age_ratio * age_ratio * 0.08f;  // Quadratic growth
+    } else if (age_ratio <= 1.0f) {
+        // Middle age: probability increases to 50% at max_age
+        float x = (age_ratio - 0.5f) * 2.0f;  // Map [0.5, 1.0] to [0, 1]
+        death_probability = 0.02f + x * x * 0.48f;  // From 2% to 50%
+    } else {
+        // Old fish: rapidly increasing probability
+        float excess = age_ratio - 1.0f;
+        death_probability = 0.5f + excess * 0.8f;  // Increases quickly past max_age
+        if (death_probability > 0.95f) death_probability = 0.95f;  // Cap at 95%
+    }
+    
+    // Random roll
+    float roll = (float)rand() / RAND_MAX;
+    
+    if (roll < death_probability) {
+        g_total_deaths_from_age++;
+        
+        float age_minutes = age / (TARGET_FPS * 60.0f);
+        float max_age_minutes = fish_type->max_age / (TARGET_FPS * 60.0f);
+        
+        printf("Fish %d (%s) died from age: %.1f/%.1f min (%.0f%% probability)\n",
+               fish_id, fish_type->name, age_minutes, max_age_minutes, 
+               death_probability * 100.0f);
+        
+        return 1;
+    }
+    
+    return 0;
+}
+
+// Get death statistics
+int fish_get_total_deaths_from_age(void) {
+    return g_total_deaths_from_age;
 }
 
 // Accessor functions

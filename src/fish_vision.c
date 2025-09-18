@@ -1,4 +1,4 @@
-// fish_vision.c - RL vision system for plant detection (fixed warnings)
+// fish_vision.c - Enhanced RL vision system with predator detection
 #include <stdio.h>
 #include <stdlib.h>
 #include <math.h>
@@ -10,18 +10,19 @@
 #include "plants.h"
 #include "gas.h"
 
-// Find nearest plant within FOV from fish heading
+// Find nearest plant within FOV
 static int find_nearest_plant_in_fov(int fish_id, float* plant_vector_x, float* plant_vector_y, float* plant_distance) {
     Fish* fish = fish_get_by_id(fish_id);
     if (!fish) {
         *plant_vector_x = 0.0f;
         *plant_vector_y = 0.0f;
-        *plant_distance = 1.0f;  // Max normalized distance
+        *plant_distance = 1.0f;
         return 0;
     }
     
     FishType* fish_type = fish_get_type(fish->fish_type);
-    if (!fish_type) {
+    if (!fish_type || fish_type->is_predator) {
+        // Predators don't look for plants
         *plant_vector_x = 0.0f;
         *plant_vector_y = 0.0f;
         *plant_distance = 1.0f;
@@ -35,7 +36,6 @@ static int find_nearest_plant_in_fov(int fish_id, float* plant_vector_x, float* 
     float fish_y = fish_node->y;
     float fish_heading = fish->heading;
     
-    // Convert FOV angle to radians
     float fov_rad = (fish_type->fov_angle * M_PI) / 180.0f;
     float half_fov = fov_rad * 0.5f;
     
@@ -44,12 +44,7 @@ static int find_nearest_plant_in_fov(int fish_id, float* plant_vector_x, float* 
     float best_plant_x = 0.0f;
     float best_plant_y = 0.0f;
     
-    // Get nearby cells for optimization (removed unused variable warning)
-    GridCell* cells[9];
-    grid_get_cells_at_position(fish_x, fish_y, cells, 9);
-    
-    // Search in expanding radius for performance
-    float search_radius = 500.0f;  // Maximum search radius
+    float search_radius = 500.0f;
     int node_count = simulation_get_node_count();
     
     for (int i = 0; i < node_count; i++) {
@@ -60,10 +55,9 @@ static int find_nearest_plant_in_fov(int fish_id, float* plant_vector_x, float* 
         float dy = nodes[i].y - fish_y;
         float distance = sqrt(dx * dx + dy * dy);
         
-        // Skip if too far
         if (distance > search_radius) continue;
         
-        // Calculate angle to plant relative to fish heading
+        // Check FOV
         float angle_to_plant = atan2(dy, dx);
         float relative_angle = angle_to_plant - fish_heading;
         
@@ -71,7 +65,6 @@ static int find_nearest_plant_in_fov(int fish_id, float* plant_vector_x, float* 
         while (relative_angle > M_PI) relative_angle -= 2.0f * M_PI;
         while (relative_angle < -M_PI) relative_angle += 2.0f * M_PI;
         
-        // Check if plant is within FOV
         if (fabs(relative_angle) <= half_fov) {
             if (distance < nearest_distance) {
                 nearest_distance = distance;
@@ -83,7 +76,6 @@ static int find_nearest_plant_in_fov(int fish_id, float* plant_vector_x, float* 
     }
     
     if (found_plant) {
-        // Calculate normalized vector to nearest plant
         float dx = best_plant_x - fish_x;
         float dy = best_plant_y - fish_y;
         float distance = sqrt(dx * dx + dy * dy);
@@ -96,19 +88,125 @@ static int find_nearest_plant_in_fov(int fish_id, float* plant_vector_x, float* 
             *plant_vector_y = 0.0f;
         }
         
-        // Normalize distance (0.0 = very close, 1.0 = at search_radius)
         *plant_distance = fminf(distance / search_radius, 1.0f);
-        
         return 1;
     } else {
         *plant_vector_x = 0.0f;
         *plant_vector_y = 0.0f;
-        *plant_distance = 1.0f;  // Max distance when no plant found
+        *plant_distance = 1.0f;
         return 0;
     }
 }
 
-// Update RL inputs for fish
+// NEW: Find nearest foreign fish within FOV
+static int find_nearest_foreign_fish_in_fov(int fish_id, float* fish_vector_x, float* fish_vector_y, float* danger_level) {
+    Fish* fish = fish_get_by_id(fish_id);
+    if (!fish) {
+        *fish_vector_x = 0.0f;
+        *fish_vector_y = 0.0f;
+        *danger_level = 0.0f;
+        return 0;
+    }
+    
+    FishType* fish_type = fish_get_type(fish->fish_type);
+    if (!fish_type) {
+        *fish_vector_x = 0.0f;
+        *fish_vector_y = 0.0f;
+        *danger_level = 0.0f;
+        return 0;
+    }
+    
+    Node* nodes = simulation_get_nodes();
+    Node* fish_node = &nodes[fish->node_id];
+    Fish* all_fish = fish_get_all();
+    int fish_count = fish_get_count();
+    
+    float fish_x = fish_node->x;
+    float fish_y = fish_node->y;
+    float fish_heading = fish->heading;
+    
+    float fov_rad = (fish_type->fov_angle * M_PI) / 180.0f;
+    float half_fov = fov_rad * 0.5f;
+    
+    float nearest_distance = 99999.0f;
+    int found_fish = 0;
+    float best_fish_x = 0.0f;
+    float best_fish_y = 0.0f;
+    float best_danger_level = 0.0f;
+    
+    float detection_range = fish_type->fish_detection_range;
+    if (detection_range <= 0.0f) detection_range = 300.0f;  // Default range
+    
+    for (int i = 0; i < fish_count; i++) {
+        if (!all_fish[i].active) continue;
+        if (i == fish_id) continue;  // Skip self
+        
+        Node* other_fish_node = &nodes[all_fish[i].node_id];
+        if (!other_fish_node->active) continue;
+        
+        FishType* other_fish_type = fish_get_type(all_fish[i].fish_type);
+        if (!other_fish_type) continue;
+        
+        // Skip fish of same type
+        if (all_fish[i].fish_type == fish->fish_type) continue;
+        
+        // Calculate relative danger level
+        float relative_danger = other_fish_type->danger_level - fish_type->danger_level;
+        
+        // Skip fish with same danger level (ignore neutral fish)
+        if (fabs(relative_danger) < 0.01f) continue;
+        
+        float dx = other_fish_node->x - fish_x;
+        float dy = other_fish_node->y - fish_y;
+        float distance = sqrt(dx * dx + dy * dy);
+        
+        if (distance > detection_range) continue;
+        
+        // Check FOV
+        float angle_to_fish = atan2(dy, dx);
+        float relative_angle = angle_to_fish - fish_heading;
+        
+        // Normalize angle to [-PI, PI]
+        while (relative_angle > M_PI) relative_angle -= 2.0f * M_PI;
+        while (relative_angle < -M_PI) relative_angle += 2.0f * M_PI;
+        
+        if (fabs(relative_angle) <= half_fov) {
+            if (distance < nearest_distance) {
+                nearest_distance = distance;
+                found_fish = 1;
+                best_fish_x = other_fish_node->x;
+                best_fish_y = other_fish_node->y;
+                best_danger_level = relative_danger;  // Negative = dangerous, positive = prey
+            }
+        }
+    }
+    
+    if (found_fish) {
+        float dx = best_fish_x - fish_x;
+        float dy = best_fish_y - fish_y;
+        float distance = sqrt(dx * dx + dy * dy);
+        
+        if (distance > 0.1f) {
+            *fish_vector_x = dx / distance;
+            *fish_vector_y = dy / distance;
+        } else {
+            *fish_vector_x = 0.0f;
+            *fish_vector_y = 0.0f;
+        }
+        
+        // Normalize danger level to [-1, 1] range
+        *danger_level = fmaxf(-1.0f, fminf(1.0f, best_danger_level));
+        
+        return 1;
+    } else {
+        *fish_vector_x = 0.0f;
+        *fish_vector_y = 0.0f;
+        *danger_level = 0.0f;
+        return 0;
+    }
+}
+
+// UPDATED: Enhanced RL inputs with predator detection
 void fish_update_rl_inputs(int fish_id) {
     Fish* fish = fish_get_by_id(fish_id);
     if (!fish) return;
@@ -116,22 +214,31 @@ void fish_update_rl_inputs(int fish_id) {
     Node* nodes = simulation_get_nodes();
     Node* fish_node = &nodes[fish->node_id];
     
-    // Input 0, 1 & 3: Nearest plant vector (x, y) and distance
+    // Inputs 0, 1 & 3: Nearest plant vector (x, y) and distance
     float plant_vector_x, plant_vector_y, plant_distance;
     find_nearest_plant_in_fov(fish_id, &plant_vector_x, &plant_vector_y, &plant_distance);
     fish->rl_inputs[0] = plant_vector_x;
     fish->rl_inputs[1] = plant_vector_y;
     fish->rl_inputs[3] = plant_distance;
     
-    // Input 2: Current oxygen level at fish position
+    // Input 2: Current oxygen level
     float oxygen_level = gas_get_oxygen_at(fish_node->x, fish_node->y);
     fish->rl_inputs[2] = oxygen_level;
     
-    // Debug output occasionally for all fish (not just fish 0)
+    // NEW: Inputs 4, 5 & 6: Foreign fish vector and danger level
+    float fish_vector_x, fish_vector_y, danger_level;
+    find_nearest_foreign_fish_in_fov(fish_id, &fish_vector_x, &fish_vector_y, &danger_level);
+    fish->rl_inputs[4] = fish_vector_x;
+    fish->rl_inputs[5] = fish_vector_y;
+    fish->rl_inputs[6] = danger_level;
+    
+    // Debug output for first few fish
     static int debug_counters[MAX_FISH] = {0};
-    if (fish_id < MAX_FISH && (debug_counters[fish_id]++ % 120) == 0) {
-        printf("Fish %d RL inputs: plant_vec(%.2f,%.2f), oxygen=%.2f, plant_dist=%.2f\n",
-               fish_id, plant_vector_x, plant_vector_y, oxygen_level, plant_distance);
+    if (fish_id < 3 && (debug_counters[fish_id]++ % 120) == 0) {
+        FishType* ft = fish_get_type(fish->fish_type);
+        printf("Fish %d (%s): plant_vec(%.2f,%.2f) dist=%.2f, fish_vec(%.2f,%.2f) danger=%.2f, oxygen=%.2f\n",
+               fish_id, ft ? ft->name : "?", plant_vector_x, plant_vector_y, plant_distance,
+               fish_vector_x, fish_vector_y, danger_level, oxygen_level);
     }
 }
 
@@ -139,6 +246,9 @@ void fish_update_rl_inputs(int fish_id) {
 float fish_get_distance_to_nearest_plant(int fish_id) {
     Fish* fish = fish_get_by_id(fish_id);
     if (!fish) return 99999.0f;
+    
+    FishType* fish_type = fish_get_type(fish->fish_type);
+    if (!fish_type || fish_type->is_predator) return 99999.0f;  // Predators don't care about plants
     
     Node* nodes = simulation_get_nodes();
     Node* fish_node = &nodes[fish->node_id];
@@ -150,7 +260,7 @@ float fish_get_distance_to_nearest_plant(int fish_id) {
     int node_count = simulation_get_node_count();
     for (int i = 0; i < node_count; i++) {
         if (!nodes[i].active) continue;
-        if (nodes[i].plant_type == -1) continue;  // Skip fish nodes
+        if (nodes[i].plant_type == -1) continue;
         
         float dx = nodes[i].x - fish_x;
         float dy = nodes[i].y - fish_y;
@@ -164,40 +274,69 @@ float fish_get_distance_to_nearest_plant(int fish_id) {
     return nearest_distance;
 }
 
-// Legacy function stubs for compatibility
+// NEW: Get distance to nearest foreign fish
+float fish_get_distance_to_nearest_foreign_fish(int fish_id) {
+    Fish* fish = fish_get_by_id(fish_id);
+    if (!fish) return 99999.0f;
+    
+    Node* nodes = simulation_get_nodes();
+    Node* fish_node = &nodes[fish->node_id];
+    Fish* all_fish = fish_get_all();
+    int fish_count = fish_get_count();
+    
+    float fish_x = fish_node->x;
+    float fish_y = fish_node->y;
+    float nearest_distance = 99999.0f;
+    
+    for (int i = 0; i < fish_count; i++) {
+        if (!all_fish[i].active) continue;
+        if (i == fish_id) continue;
+        if (all_fish[i].fish_type == fish->fish_type) continue;  // Skip same species
+        
+        Node* other_fish_node = &nodes[all_fish[i].node_id];
+        if (!other_fish_node->active) continue;
+        
+        float dx = other_fish_node->x - fish_x;
+        float dy = other_fish_node->y - fish_y;
+        float distance = sqrt(dx * dx + dy * dy);
+        
+        if (distance < nearest_distance) {
+            nearest_distance = distance;
+        }
+    }
+    
+    return nearest_distance;
+}
+
+// Legacy compatibility functions
 void fish_update_vision(int fish_id) {
-    // No longer used in RL system
     (void)fish_id;
 }
 
 void fish_cast_vision_ray(int fish_id, float angle, int ray_index) {
-    // No longer used in RL system  
     (void)fish_id;
     (void)angle;
     (void)ray_index;
 }
 
 void fish_cast_nutrition_ray(int fish_id, float angle, int ray_index) {
-    // No longer used in RL system
     (void)fish_id;
     (void)angle;
     (void)ray_index;
 }
 
 void fish_update_chemoreceptors(int fish_id) {
-    // No longer used in RL system
     (void)fish_id;
 }
 
-// Legacy accessors return dummy values
 float fish_get_vision_ray(int fish_id, int ray_index) {
     (void)fish_id;
     (void)ray_index;
-    return 1.0f;  // No obstacles
+    return 1.0f;
 }
 
 float fish_get_nutrition_ray(int fish_id, int ray_index) {
     (void)fish_id;
     (void)ray_index;
-    return 0.0f;  // No nutrition detected
+    return 0.0f;
 }

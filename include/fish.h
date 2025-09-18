@@ -4,7 +4,7 @@
 #include "types.h"
 
 // ============================================================================
-// FISH_CORE.C - Core system management
+// FISH_CORE.C - Core system management with aging
 // ============================================================================
 
 // System initialization and cleanup
@@ -17,6 +17,10 @@ int fish_load_config(const char* filename);
 // Fish management
 int fish_add(float x, float y, int fish_type);
 void fish_remove(int fish_id);
+
+// NEW: Aging system
+int fish_should_die_from_age(int fish_id);
+int fish_get_total_deaths_from_age(void);
 
 // Type management
 int fish_get_type_count(void);
@@ -43,12 +47,13 @@ void fish_internal_add_consumed_nutrition(float amount);
 void fish_internal_add_defecated_nutrition(float amount);
 
 // ============================================================================
-// FISH_VISION.C - RL vision and input system
+// FISH_VISION.C - Enhanced RL vision with predator detection
 // ============================================================================
 
-// RL input system
+// RL input system with predator detection
 void fish_update_rl_inputs(int fish_id);
 float fish_get_distance_to_nearest_plant(int fish_id);
+float fish_get_distance_to_nearest_foreign_fish(int fish_id);
 
 // Legacy vision functions (compatibility)
 void fish_update_vision(int fish_id);
@@ -59,16 +64,26 @@ float fish_get_vision_ray(int fish_id, int ray_index);
 float fish_get_nutrition_ray(int fish_id, int ray_index);
 
 // ============================================================================
-// FISH_BEHAVIOR.C - RL behavior system
+// FISH_BEHAVIOR.C - Enhanced RL behavior with predator-prey system
 // ============================================================================
 
 // RL control system
 void fish_apply_rl_outputs(int fish_id);
 void fish_calculate_rl_rewards(int fish_id);
 
-// Eating system
-int fish_attempt_eating(int fish_id);
+// Enhanced eating system
+int fish_attempt_eating(int fish_id);  // Wrapper function
+int fish_attempt_eating_plant(int fish_id);  // Herbivore eating
+int fish_attempt_eating_fish(int fish_id);   // Predator eating
 void fish_defecate(int fish_id);
+
+// Reproduction system with inheritance support
+void fish_reproduce(int fish_id);
+void fish_predator_reproduce(int fish_id);
+
+// Neural network inheritance support
+int fish_get_parent_for_inheritance(void);
+int fish_is_reproduction_pending(void);
 
 // RL state accessors for Python API
 float fish_get_rl_input(int fish_id, int input_index);
@@ -92,7 +107,7 @@ float fish_get_hunger_level(int fish_id);
 float fish_get_saturation_level(int fish_id);
 
 // ============================================================================
-// FISH_UPDATE.C - Main update loop
+// FISH_UPDATE.C - Main update loop with aging
 // ============================================================================
 
 // Main update function (called each frame)

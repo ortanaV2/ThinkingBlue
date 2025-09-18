@@ -15,8 +15,8 @@
 #define MAX_FISH 50000
 #define MAX_FISH_TYPES 32
 
-// NEW: Simplified RL system
-#define RL_INPUT_SIZE 4     // plant_vector_x, plant_vector_y, oxygen_level, plant_distance
+// UPDATED: Extended RL system for predator-prey dynamics
+#define RL_INPUT_SIZE 7     // plant_vector_x, plant_vector_y, oxygen_level, plant_distance, foreign_fish_vector_x, foreign_fish_vector_y, danger_level
 #define RL_OUTPUT_SIZE 3    // turn_direction, movement_strength, eat_command
 
 // Layer resolution (shared by nutrition and gas layers)
@@ -36,7 +36,7 @@
 #define CAMERA_SPEED 5.0f
 #define ZOOM_SPEED 0.1f
 
-// World configuration - CONFIGURABLE VALUES
+// World configuration
 #define WORLD_WIDTH 8000.0f
 #define WORLD_HEIGHT 8000.0f
 #define WORLD_CENTER_X 0.0f
@@ -45,6 +45,10 @@
 // Population configuration
 #define INITIAL_PLANT_COUNT 70
 #define INITIAL_FISH_COUNT 10
+
+// NEW: Fish aging constants
+#define TARGET_FPS 30
+#define DEATH_CHECK_INTERVAL 30  // Check every 30 frames
 
 // Derived world bounds
 #define WORLD_LEFT (WORLD_CENTER_X - WORLD_WIDTH / 2.0f)
@@ -87,11 +91,11 @@ typedef struct {
     int active;
 } PlantType;
 
-// NEW: Simplified fish type configuration for RL control
+// UPDATED: Enhanced fish type with aging system
 typedef struct {
     char name[MAX_NAME_LENGTH];
     float max_speed;
-    float max_force;                    // NEW: Maximum force that can be applied per frame
+    float max_force;
     float mass;
     float size_radius;
     
@@ -99,14 +103,23 @@ typedef struct {
     float eating_range;
     
     // RL-specific parameters
-    float fov_angle;                    // Field of view for plant detection (degrees)
-    float max_turn_angle;               // Maximum turn angle per frame (degrees)
-    float oxygen_reward_factor;         // Multiplier for oxygen rewards
-    float proximity_reward_factor;      // Multiplier for plant proximity rewards
-    float eat_punishment;               // Punishment for failed eating attempts
+    float fov_angle;
+    float max_turn_angle;
+    float oxygen_reward_factor;
+    float proximity_reward_factor;
+    float eat_punishment;
     
     // Flow field interaction
     float flow_sensitivity;
+    
+    // Predator system parameters
+    float danger_level;
+    int is_predator;
+    int eating_cooldown_frames;
+    float fish_detection_range;
+    
+    // NEW: Aging system
+    int max_age;  // Age in frames when death probability is 50%
     
     // Node colors (RGB 0-255)
     int node_r, node_g, node_b;
@@ -128,22 +141,22 @@ typedef struct {
     float nutrition_cost;
 } Node;
 
-// NEW: Simplified fish structure for RL control
+// UPDATED: Enhanced fish structure with aging system
 typedef struct {
     int node_id;
     int fish_type;
     
-    // NEW: RL state and control
-    float heading;                      // Current facing direction in radians
-    float rl_inputs[RL_INPUT_SIZE];     // RL network inputs
-    float rl_outputs[RL_OUTPUT_SIZE];   // RL network outputs
+    // RL state and control
+    float heading;
+    float rl_inputs[RL_INPUT_SIZE];
+    float rl_outputs[RL_OUTPUT_SIZE];
     
     // Fish state
     float energy;
     float stomach_contents;
     float consumed_nutrition;
     int last_eating_frame;
-    int age;
+    int age;  // Age in frames
     int active;
     
     // RL tracking
@@ -151,7 +164,16 @@ typedef struct {
     float last_reward;
     
     // Internal state
-    int eating_mode;                    // 1 if currently trying to eat, 0 if moving
+    int eating_mode;
+    
+    // Predator-prey system
+    int defecation_count;
+    int eating_cooldown;
+    int target_fish_id;
+    
+    // NEW: Aging system
+    int birth_frame;  // Frame when fish was born (for death check timing)
+    
 } Fish;
 
 // Chain structure connecting two nodes

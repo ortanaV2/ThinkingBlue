@@ -4,7 +4,7 @@
 #include "types.h"
 
 // ============================================================================
-// FISH_CORE.C - Core system management
+// FISH_CORE.C - Core system management with aging
 // ============================================================================
 
 // System initialization and cleanup
@@ -17,6 +17,10 @@ int fish_load_config(const char* filename);
 // Fish management
 int fish_add(float x, float y, int fish_type);
 void fish_remove(int fish_id);
+
+// NEW: Aging system
+int fish_should_die_from_age(int fish_id);
+int fish_get_total_deaths_from_age(void);
 
 // Type management
 int fish_get_type_count(void);
@@ -77,7 +81,7 @@ void fish_defecate(int fish_id);
 void fish_reproduce(int fish_id);
 void fish_predator_reproduce(int fish_id);
 
-// NEW: Neural network inheritance support
+// Neural network inheritance support
 int fish_get_parent_for_inheritance(void);
 int fish_is_reproduction_pending(void);
 
@@ -103,7 +107,7 @@ float fish_get_hunger_level(int fish_id);
 float fish_get_saturation_level(int fish_id);
 
 // ============================================================================
-// FISH_UPDATE.C - Main update loop
+// FISH_UPDATE.C - Main update loop with aging
 // ============================================================================
 
 // Main update function (called each frame)

@@ -46,6 +46,10 @@
 #define INITIAL_PLANT_COUNT 70
 #define INITIAL_FISH_COUNT 10
 
+// NEW: Fish aging constants
+#define TARGET_FPS 30
+#define DEATH_CHECK_INTERVAL 30  // Check every 30 frames
+
 // Derived world bounds
 #define WORLD_LEFT (WORLD_CENTER_X - WORLD_WIDTH / 2.0f)
 #define WORLD_RIGHT (WORLD_CENTER_X + WORLD_WIDTH / 2.0f)
@@ -87,7 +91,7 @@ typedef struct {
     int active;
 } PlantType;
 
-// UPDATED: Enhanced fish type with predator system
+// UPDATED: Enhanced fish type with aging system
 typedef struct {
     char name[MAX_NAME_LENGTH];
     float max_speed;
@@ -108,11 +112,14 @@ typedef struct {
     // Flow field interaction
     float flow_sensitivity;
     
-    // NEW: Predator system parameters
-    float danger_level;                 // How dangerous this fish is (0.0 = herbivore, 1.0 = apex predator)
-    int is_predator;                    // 1 = predator (eats fish), 0 = herbivore (eats plants)
-    int eating_cooldown_frames;         // Cooldown between eating attempts for predators
-    float fish_detection_range;         // Range for detecting other fish
+    // Predator system parameters
+    float danger_level;
+    int is_predator;
+    int eating_cooldown_frames;
+    float fish_detection_range;
+    
+    // NEW: Aging system
+    int max_age;  // Age in frames when death probability is 50%
     
     // Node colors (RGB 0-255)
     int node_r, node_g, node_b;
@@ -134,14 +141,14 @@ typedef struct {
     float nutrition_cost;
 } Node;
 
-// UPDATED: Enhanced fish structure with predator-prey system
+// UPDATED: Enhanced fish structure with aging system
 typedef struct {
     int node_id;
     int fish_type;
     
     // RL state and control
     float heading;
-    float rl_inputs[RL_INPUT_SIZE];     // Extended inputs
+    float rl_inputs[RL_INPUT_SIZE];
     float rl_outputs[RL_OUTPUT_SIZE];
     
     // Fish state
@@ -149,7 +156,7 @@ typedef struct {
     float stomach_contents;
     float consumed_nutrition;
     int last_eating_frame;
-    int age;
+    int age;  // Age in frames
     int active;
     
     // RL tracking
@@ -159,10 +166,13 @@ typedef struct {
     // Internal state
     int eating_mode;
     
-    // NEW: Predator-prey system
-    int defecation_count;               // Number of times this fish has defecated (for reproduction)
-    int eating_cooldown;                // Frames remaining until can eat again (predators only)
-    int target_fish_id;                 // ID of fish being targeted (-1 = none)
+    // Predator-prey system
+    int defecation_count;
+    int eating_cooldown;
+    int target_fish_id;
+    
+    // NEW: Aging system
+    int birth_frame;  // Frame when fish was born (for death check timing)
     
 } Fish;
 

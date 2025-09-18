@@ -1,4 +1,4 @@
-// fish_update.c - Main fish update loop with enhanced reproduction tracking
+// fish_update.c - Main fish update loop with aging system
 #include <stdio.h>
 #include <stdlib.h>
 #include <math.h>
@@ -8,7 +8,7 @@
 #include "simulation.h"
 #include "flow.h"
 
-// Main fish update function
+// Main fish update function with aging
 void fish_update(void) {
     Node* nodes = simulation_get_nodes();
     int node_count = simulation_get_node_count();
@@ -17,6 +17,9 @@ void fish_update(void) {
     Fish* fish_array = fish_internal_get_array();
     FishType* fish_types = fish_internal_get_types();
     int fish_count = fish_get_count();
+    
+    // Track deaths for this frame
+    int deaths_this_frame = 0;
     
     for (int i = 0; i < fish_count; i++) {
         if (!fish_array[i].active) continue;
@@ -29,6 +32,14 @@ void fish_update(void) {
         
         FishType* fish_type = &fish_types[fish->fish_type];
         Node* node = &nodes[node_id];
+        
+        // NEW: Check for death from aging (every 30 frames based on birth frame)
+        if (fish_should_die_from_age(i)) {
+            fish->active = 0;
+            node->active = 0;
+            deaths_this_frame++;
+            continue;
+        }
         
         // Reset frame reward
         fish->last_reward = 0.0f;
@@ -95,11 +106,11 @@ void fish_update(void) {
             fish_predator_reproduce(i);
         }
         
-        // Age tracking
+        // Age tracking (increment age every frame)
         fish->age++;
     }
     
-    // Debug output every 15 seconds
+    // Debug output every 15 seconds with aging stats
     static int last_debug_frame = 0;
     if (current_frame - last_debug_frame >= 450) {
         last_debug_frame = current_frame;
@@ -111,6 +122,7 @@ void fish_update(void) {
         int eating_mode_fish = 0;
         int predator_count = 0;
         int herbivore_count = 0;
+        int old_fish_count = 0;  // Fish past 75% of max age
         
         for (int i = 0; i < fish_count; i++) {
             if (fish_array[i].active) {
@@ -122,6 +134,13 @@ void fish_update(void) {
                 }
                 
                 if (fish_array[i].eating_mode) eating_mode_fish++;
+                
+                // Check if fish is old (past 75% of max age)
+                int age = current_frame - fish_array[i].birth_frame;
+                if (age > ft->max_age * 0.75f) {
+                    old_fish_count++;
+                }
+                
                 active_fish++;
             }
         }
@@ -129,11 +148,13 @@ void fish_update(void) {
         printf("\n=== FISH ECOSYSTEM STATUS Frame %d ===\n", current_frame);
         printf("Active fish: %d (%d herbivores, %d predators)\n", active_fish, herbivore_count, predator_count);
         printf("Fish in eating mode: %d\n", eating_mode_fish);
+        printf("Old fish (>75%% max age): %d\n", old_fish_count);
+        printf("Total deaths from aging: %d\n", fish_get_total_deaths_from_age());
         printf("Nutrition consumed: %.4f\n", total_consumed);
         printf("Nutrition defecated: %.4f\n", total_defecated);
         printf("Nutrition balance: %.4f\n", balance);
         
-        // Show sample fish with neural network control
+        // Show sample fish with age info
         int samples_shown = 0;
         for (int i = 0; i < fish_count && samples_shown < 3; i++) {
             if (fish_array[i].active) {
@@ -143,16 +164,24 @@ void fish_update(void) {
                 
                 float speed = sqrt(node->vx * node->vx + node->vy * node->vy);
                 
-                printf("Fish %d (%s): pos(%.0f,%.0f), speed=%.1f, "
-                       "outputs=(%.2f,%.2f,%.2f), reward=%.3f, total=%.1f\n",
-                       i, ft->name, node->x, node->y, speed,
-                       fish->rl_outputs[0], fish->rl_outputs[1], fish->rl_outputs[2],
-                       fish->last_reward, fish->total_reward);
+                int age = current_frame - fish->birth_frame;
+                float age_minutes = age / (TARGET_FPS * 60.0f);
+                float max_age_minutes = ft->max_age / (TARGET_FPS * 60.0f);
+                float age_percentage = (float)age / (float)ft->max_age * 100.0f;
+                
+                printf("Fish %d (%s): pos(%.0f,%.0f), speed=%.1f, age=%.1f/%.1f min (%.0f%%), "
+                       "outputs=(%.2f,%.2f,%.2f), reward=%.3f\n",
+                       i, ft->name, node->x, node->y, speed, age_minutes, max_age_minutes, age_percentage,
+                       fish->rl_outputs[0], fish->rl_outputs[1], fish->rl_outputs[2], fish->last_reward);
                 samples_shown++;
             }
         }
         
-        printf("Neural networks learning through experience...\n");
+        if (deaths_this_frame > 0) {
+            printf("Deaths this frame: %d\n", deaths_this_frame);
+        }
+        
+        printf("Neural networks learning with natural aging...\n");
         printf("==========================================\n\n");
     }
 }

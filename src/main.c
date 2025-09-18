@@ -1,3 +1,4 @@
+// main.c - Enhanced with aging system debug output
 #include <SDL2/SDL.h>
 #include <stdio.h>
 #include <time.h>
@@ -15,7 +16,6 @@
 #include "gas.h"
 #include "flow.h"
 
-#define TARGET_FPS 30
 #define FRAME_DELAY (1000 / TARGET_FPS)
 
 // Global state
@@ -29,10 +29,10 @@ static void populate_reef_randomly(void) {
     
     if (total_plant_species == 0) return;
     
-    printf("Populating reef with %d plants and %d fish...\n", 
+    printf("Populating reef with %d plants and %d fish (aging system active)...\n", 
            INITIAL_PLANT_COUNT, INITIAL_FISH_COUNT);
     
-    // Spawn plants based on INITIAL_PLANT_COUNT
+    // Spawn plants
     for (int i = 0; i < INITIAL_PLANT_COUNT; i++) {
         float x = WORLD_LEFT + ((float)rand() / RAND_MAX) * WORLD_WIDTH;
         float y = WORLD_TOP + ((float)rand() / RAND_MAX) * WORLD_HEIGHT;
@@ -40,9 +40,9 @@ static void populate_reef_randomly(void) {
         simulation_add_node(x, y, species);
     }
     
-    // Spawn fish based on INITIAL_FISH_COUNT
+    // Spawn fish with aging info
     if (total_fish_species > 0) {
-        printf("Spawning %d fish with flow sensitivity...\n", INITIAL_FISH_COUNT);
+        printf("Spawning %d fish with natural aging...\n", INITIAL_FISH_COUNT);
         
         for (int i = 0; i < INITIAL_FISH_COUNT; i++) {
             float x = WORLD_LEFT + ((float)rand() / RAND_MAX) * WORLD_WIDTH;
@@ -52,13 +52,14 @@ static void populate_reef_randomly(void) {
             int fish_id = fish_add(x, y, fish_type);
             if (fish_id >= 0) {
                 FishType* ft = fish_get_type(fish_type);
-                printf("Spawned %s at (%.0f, %.0f) - flow sensitivity: %.1f\n", 
-                       ft->name, x, y, ft->flow_sensitivity);
+                float lifespan_minutes = ft->max_age / (TARGET_FPS * 60.0f);
+                printf("Spawned %s at (%.0f, %.0f) - max age: %.1f min\n", 
+                       ft->name, x, y, lifespan_minutes);
             }
         }
     }
     
-    printf("Reef population complete! World size: %.0fx%.0f\n", WORLD_WIDTH, WORLD_HEIGHT);
+    printf("Reef population complete! Fish will age and die naturally.\n");
 }
 
 static void handle_mouse_click(int screen_x, int screen_y, int button) {
@@ -81,8 +82,9 @@ static void handle_mouse_click(int screen_x, int screen_y, int button) {
                 int new_fish = fish_add(world_x, world_y, g_current_fish_type);
                 if (new_fish >= 0) {
                     FishType* ft = fish_get_type(g_current_fish_type);
-                    printf("Created fish %s at (%.1f, %.1f) - flow sensitivity: %.1f\n", 
-                           ft->name, world_x, world_y, ft->flow_sensitivity);
+                    float lifespan_minutes = ft->max_age / (TARGET_FPS * 60.0f);
+                    printf("Created fish %s at (%.1f, %.1f) - max age: %.1f min\n", 
+                           ft->name, world_x, world_y, lifespan_minutes);
                 }
             } else {
                 printf("No fish types available!\n");
@@ -114,7 +116,7 @@ static void handle_mouse_click(int screen_x, int screen_y, int button) {
 }
 
 static void print_debug_info(void) {
-    printf("\n=== DEBUG INFO ===\n");
+    printf("\n=== DEBUG INFO WITH AGING SYSTEM ===\n");
     printf("World size: %.0fx%.0f\n", WORLD_WIDTH, WORLD_HEIGHT);
     printf("Zoom: unlimited (current: %.6f)\n", camera_get_zoom());
     printf("Plant types: %d\n", plants_get_type_count());
@@ -125,67 +127,85 @@ static void print_debug_info(void) {
     printf("Ray rendering: %s\n", fish_is_ray_rendering_enabled() ? "ON" : "OFF");
     printf("Flow field: %s\n", flow_is_visible() ? "ON" : "OFF");
     
-    // Enhanced nutrition cycle balance with plant costs
+    // Aging system statistics
+    printf("\n=== AGING SYSTEM STATUS ===\n");
+    printf("Total deaths from aging: %d\n", fish_get_total_deaths_from_age());
+    printf("Death check interval: %d frames (%.1f sec)\n", DEATH_CHECK_INTERVAL, DEATH_CHECK_INTERVAL / (float)TARGET_FPS);
+    
+    // Fish age distribution
+    Fish* fish_list = fish_get_all();
+    int current_frame = simulation_get_frame_counter();
+    int young_fish = 0, middle_aged_fish = 0, old_fish = 0;
+    
+    for (int i = 0; i < fish_get_count(); i++) {
+        if (fish_list[i].active) {
+            FishType* ft = fish_get_type(fish_list[i].fish_type);
+            if (ft) {
+                int age = current_frame - fish_list[i].birth_frame;
+                float age_ratio = (float)age / (float)ft->max_age;
+                
+                if (age_ratio < 0.33f) young_fish++;
+                else if (age_ratio < 0.66f) middle_aged_fish++;
+                else old_fish++;
+            }
+        }
+    }
+    
+    printf("Age distribution: %d young, %d middle-aged, %d old\n", young_fish, middle_aged_fish, old_fish);
+    
+    // Show fish lifespans
+    printf("\nFish type lifespans:\n");
+    for (int i = 0; i < fish_get_type_count(); i++) {
+        FishType* ft = fish_get_type(i);
+        if (ft) {
+            float lifespan_minutes = ft->max_age / (TARGET_FPS * 60.0f);
+            printf("  %s: %.1f minutes\n", ft->name, lifespan_minutes);
+        }
+    }
+    
+    // Enhanced nutrition cycle balance
     printf("\n=== NUTRITION CYCLE BALANCE ===\n");
-    
-    // Plant side (nutrition costs)
-    float total_plant_cost = plants_get_total_nutrition_cost();
-    printf("Plants total nutrition cost: %.4f\n", total_plant_cost);
-    
-    // Fish side (consumption and defecation)
     float fish_consumed = fish_get_total_nutrition_consumed();
     float fish_defecated = fish_get_total_nutrition_defecated();
     printf("Fish consumed: %.4f\n", fish_consumed);
     printf("Fish defecated: %.4f\n", fish_defecated);
     printf("Fish balance: %.4f\n", fish_consumed - fish_defecated);
     
-    // Environment side (depletion and addition)
     float env_added = nutrition_get_total_added();
     float env_depleted = nutrition_get_total_depleted();
     printf("Environment depleted: %.4f\n", env_depleted);
     printf("Environment added: %.4f\n", env_added);
     printf("Environment balance: %.4f\n", env_added - env_depleted);
     
-    // Total system balance
     float total_system_balance = (env_added - env_depleted) + (fish_consumed - fish_defecated);
     printf("Total system balance: %.4f\n", total_system_balance);
-    
-    // Expected balance (should be close to zero for perfect cycle)
-    float expected_balance = total_plant_cost - env_depleted + env_added - fish_defecated;
-    printf("Expected perfect balance: %.4f\n", expected_balance);
-    
-    // Cycle efficiency
-    if (fish_consumed > 0.0f) {
-        float cycle_efficiency = (fish_defecated / fish_consumed) * 100.0f;
-        printf("Fish cycle efficiency: %.1f%%\n", cycle_efficiency);
-    }
     
     if (g_spawn_mode == 0 && plants_get_type_count() > 0) {
         PlantType* pt = plants_get_type(g_current_plant_type);
         printf("Current plant: %s\n", pt->name);
     } else if (g_spawn_mode == 1 && fish_get_type_count() > 0) {
         FishType* ft = fish_get_type(g_current_fish_type);
-        printf("Current fish: %s (flow sensitivity: %.1f)\n", ft->name, ft->flow_sensitivity);
+        float lifespan_minutes = ft->max_age / (TARGET_FPS * 60.0f);
+        printf("Current fish: %s (max age: %.1f min)\n", ft->name, lifespan_minutes);
     }
     
-    // Show fish details with flow sensitivity
-    Fish* fish_list = fish_get_all();
+    // Show sample fish details with aging
     Node* nodes = simulation_get_nodes();
-    printf("\n=== FISH DETAILS (WITH FLOW INFLUENCE) ===\n");
-    for (int i = 0; i < fish_get_count(); i++) {
+    printf("\n=== FISH DETAILS WITH AGING ===\n");
+    int samples_shown = 0;
+    for (int i = 0; i < fish_get_count() && samples_shown < 5; i++) {
         if (fish_list[i].active) {
             Node* node = &nodes[fish_list[i].node_id];
             FishType* ft = fish_get_type(fish_list[i].fish_type);
             
-            // Get flow at fish position
-            float flow_x, flow_y;
-            flow_get_vector_at(node->x, node->y, &flow_x, &flow_y);
-            float flow_magnitude = sqrt(flow_x * flow_x + flow_y * flow_y);
+            int age = current_frame - fish_list[i].birth_frame;
+            float age_minutes = age / (TARGET_FPS * 60.0f);
+            float max_age_minutes = ft->max_age / (TARGET_FPS * 60.0f);
+            float age_percentage = (float)age / (float)ft->max_age * 100.0f;
             
-            printf("Fish %d (%s): pos(%.1f,%.1f) energy=%.2f consumed=%.4f stomach=%.3f flow_sens=%.1f current_flow=%.2f\n", 
-                   i, ft->name, node->x, node->y,
-                   fish_list[i].energy, fish_list[i].consumed_nutrition, fish_list[i].stomach_contents,
-                   ft->flow_sensitivity, flow_magnitude);
+            printf("Fish %d (%s): pos(%.0f,%.0f) age=%.1f/%.1f min (%.0f%%) energy=%.2f\n", 
+                   i, ft->name, node->x, node->y, age_minutes, max_age_minutes, age_percentage, fish_list[i].energy);
+            samples_shown++;
         }
     }
     printf("==========================================\n\n");
@@ -195,10 +215,10 @@ int main(int argc, char* argv[]) {
     (void)argc;
     (void)argv;
     
-    printf("Starting Great Barrier Reef Ecosystem v3 with Flow Field Fish Influence...\n");
+    printf("Starting Great Barrier Reef Ecosystem v3 with Aging System...\n");
     printf("World dimensions: %.0fx%.0f, Initial population: %d plants, %d fish\n",
            WORLD_WIDTH, WORLD_HEIGHT, INITIAL_PLANT_COUNT, INITIAL_FISH_COUNT);
-    printf("Zoom: unlimited range\n");
+    printf("Fish will age and die naturally every %d frames\n", DEATH_CHECK_INTERVAL);
     
     srand((unsigned int)time(NULL));
     
@@ -209,7 +229,7 @@ int main(int argc, char* argv[]) {
     }
     
     // Create window and renderer
-    SDL_Window* window = SDL_CreateWindow("Great Barrier Reef Ecosystem v3 - Fish Flow Influence",
+    SDL_Window* window = SDL_CreateWindow("Great Barrier Reef Ecosystem v3 - Aging System",
                                          SDL_WINDOWPOS_CENTERED, SDL_WINDOWPOS_CENTERED,
                                          WINDOW_WIDTH, WINDOW_HEIGHT, SDL_WINDOW_SHOWN);
     if (!window) {
@@ -287,15 +307,17 @@ int main(int argc, char* argv[]) {
     populate_reef_randomly();
     
     // Print status
-    printf("\nSystem ready with fish flow influence!\n");
+    printf("\nSystem ready with aging mechanics!\n");
     printf("Plant types loaded: %d\n", plants_get_type_count());
     printf("Fish types loaded: %d\n", fish_get_type_count());
     
-    // Show flow sensitivity ranges
-    printf("\nFlow sensitivity ranges:\n");
+    // Show aging info for each fish type
+    printf("\nFish aging parameters:\n");
     for (int i = 0; i < fish_get_type_count(); i++) {
         FishType* ft = fish_get_type(i);
-        printf("  %s: %.1f\n", ft->name, ft->flow_sensitivity);
+        float lifespan_minutes = ft->max_age / (TARGET_FPS * 60.0f);
+        printf("  %s: %d frames (%.1f min) - %s\n", ft->name, ft->max_age, lifespan_minutes,
+               ft->is_predator ? "PREDATOR" : "HERBIVORE");
     }
     
     // Print controls
@@ -312,7 +334,7 @@ int main(int argc, char* argv[]) {
     printf("  G: Toggle gas layer\n");
     printf("  F: Toggle flow field\n");
     printf("  R: Toggle fish vision rays\n");
-    printf("  P: Print debug info (includes flow influence)\n");
+    printf("  P: Print debug info (includes aging stats)\n");
     printf("  ESC: Exit\n\n");
     
     // Set initial mode
@@ -358,7 +380,8 @@ int main(int argc, char* argv[]) {
                                 printf("Mode: PLANT (%s)\n", plants_get_type(g_current_plant_type)->name);
                             } else if (g_spawn_mode == 1 && fish_get_type_count() > 0) {
                                 FishType* ft = fish_get_type(g_current_fish_type);
-                                printf("Mode: FISH (%s, flow sens: %.1f)\n", ft->name, ft->flow_sensitivity);
+                                float lifespan_minutes = ft->max_age / (TARGET_FPS * 60.0f);
+                                printf("Mode: FISH (%s, max age: %.1f min)\n", ft->name, lifespan_minutes);
                             } else {
                                 printf("Mode: %s (no types available)\n", g_spawn_mode == 0 ? "PLANT" : "FISH");
                             }
@@ -402,7 +425,8 @@ int main(int argc, char* argv[]) {
                                 g_current_fish_type = fish_index;
                                 g_spawn_mode = 1;
                                 FishType* ft = fish_get_type(fish_index);
-                                printf("Selected fish: %s (flow sensitivity: %.1f)\n", ft->name, ft->flow_sensitivity);
+                                float lifespan_minutes = ft->max_age / (TARGET_FPS * 60.0f);
+                                printf("Selected fish: %s (max age: %.1f min)\n", ft->name, lifespan_minutes);
                             } else {
                                 printf("Fish type F%d not available (%d types loaded)\n", 
                                        fish_index + 1, fish_get_type_count());
@@ -431,7 +455,7 @@ int main(int argc, char* argv[]) {
         // Update systems
         camera_update_with_sprint(movement_keys, sprint);
         python_api_update();
-        fish_update();
+        fish_update();  // Now includes aging checks
         physics_update();
         
         // Render
@@ -447,8 +471,9 @@ int main(int argc, char* argv[]) {
 cleanup:
     printf("Shutting down...\n");
     
-    // Final nutrition balance report
-    printf("\n=== FINAL NUTRITION CYCLE REPORT ===\n");
+    // Final report with aging stats
+    printf("\n=== FINAL AGING AND NUTRITION REPORT ===\n");
+    printf("Total deaths from aging: %d\n", fish_get_total_deaths_from_age());
     printf("Fish consumed: %.2f\n", fish_get_total_nutrition_consumed());
     printf("Fish defecated: %.2f\n", fish_get_total_nutrition_defecated());
     printf("Fish balance: %.2f\n", fish_get_nutrition_balance());
@@ -457,8 +482,8 @@ cleanup:
     printf("Environment balance: %.2f\n", nutrition_get_balance());
     printf("Total system balance: %.2f\n", 
            fish_get_nutrition_balance() + nutrition_get_balance());
-    printf("Fish were influenced by flow field currents\n");
-    printf("====================================\n");
+    printf("Natural aging system completed successfully\n");
+    printf("========================================\n");
     
     python_api_cleanup();
     fish_cleanup();

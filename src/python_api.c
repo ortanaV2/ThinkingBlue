@@ -1,4 +1,4 @@
-// python_api.c - Enhanced Python interface with neural network inheritance support
+// python_api.c - Enhanced Python interface with aging system support
 #include <Python.h>
 #include <stdio.h>
 
@@ -10,6 +10,45 @@
 
 static PyObject* g_python_module = NULL;
 static PyObject* g_update_function = NULL;
+
+// Get fish age info
+static PyObject* py_fish_get_age_info(PyObject* self, PyObject* args) {
+    (void)self;
+    int fish_id;
+    
+    if (!PyArg_ParseTuple(args, "i", &fish_id)) {
+        return NULL;
+    }
+    
+    Fish* fish = fish_get_by_id(fish_id);
+    if (!fish) {
+        Py_RETURN_NONE;
+    }
+    
+    FishType* fish_type = fish_get_type(fish->fish_type);
+    if (!fish_type) {
+        Py_RETURN_NONE;
+    }
+    
+    int current_frame = simulation_get_frame_counter();
+    int age = current_frame - fish->birth_frame;
+    float age_ratio = (float)age / (float)fish_type->max_age;
+    
+    return Py_BuildValue("(iifi)", 
+                         age,                    // Current age in frames
+                         fish_type->max_age,     // Max age in frames
+                         age_ratio,              // Age ratio (0.0 to 1.0+)
+                         fish->birth_frame);     // Birth frame
+}
+
+// Get aging statistics
+static PyObject* py_fish_get_aging_stats(PyObject* self, PyObject* args) {
+    (void)self;
+    (void)args;
+    
+    int total_deaths = fish_get_total_deaths_from_age();
+    return PyLong_FromLong(total_deaths);
+}
 
 // Python C API functions for enhanced RL system with inheritance
 
@@ -166,7 +205,7 @@ static PyObject* py_fish_get_type_count(PyObject* self, PyObject* args) {
     return PyLong_FromLong(fish_get_type_count());
 }
 
-// Get fish type info (predator status, danger level)
+// Get fish type info (predator status, danger level, max_age)
 static PyObject* py_fish_get_type_info(PyObject* self, PyObject* args) {
     (void)self;
     int fish_id;
@@ -185,14 +224,15 @@ static PyObject* py_fish_get_type_info(PyObject* self, PyObject* args) {
         Py_RETURN_NONE;
     }
     
-    return Py_BuildValue("(sifi)", 
-                         fish_type->name,
-                         fish_type->is_predator,
-                         fish_type->danger_level,
-                         fish->defecation_count);
+    return Py_BuildValue("(sifii)", 
+                         fish_type->name,           // Fish type name
+                         fish_type->is_predator,    // Is predator
+                         fish_type->danger_level,   // Danger level
+                         fish->defecation_count,    // Defecation count
+                         fish_type->max_age);       // Max age in frames
 }
 
-// NEW: Get parent fish ID for neural network inheritance
+// Get parent fish ID for neural network inheritance
 static PyObject* py_fish_get_parent_for_inheritance(PyObject* self, PyObject* args) {
     (void)self;
     (void)args;
@@ -201,7 +241,7 @@ static PyObject* py_fish_get_parent_for_inheritance(PyObject* self, PyObject* ar
     return PyLong_FromLong(parent_id);
 }
 
-// NEW: Check if reproduction notification is pending
+// Check if reproduction notification is pending
 static PyObject* py_fish_is_reproduction_pending(PyObject* self, PyObject* args) {
     (void)self;
     (void)args;
@@ -373,7 +413,7 @@ static PyObject* py_get_vision_info(PyObject* self, PyObject* args) {
     return Py_BuildValue("(ii)", 12, 12);
 }
 
-// Method definitions with inheritance support
+// Method definitions with aging support
 static PyMethodDef SimulationMethods[] = {
     {"fish_add", py_fish_add, METH_VARARGS, "Add a fish to the simulation"},
     {"fish_get_count", py_fish_get_count, METH_NOARGS, "Get total fish count"},
@@ -385,12 +425,16 @@ static PyMethodDef SimulationMethods[] = {
     {"fish_get_stomach_contents", py_fish_get_stomach_contents, METH_VARARGS, "Get fish stomach contents"},
     {"fish_is_eating", py_fish_is_eating, METH_VARARGS, "Check if fish is in eating mode"},
     {"fish_get_type_count", py_fish_get_type_count, METH_NOARGS, "Get fish type count"},
-    {"fish_get_type_info", py_fish_get_type_info, METH_VARARGS, "Get fish type info"},
+    {"fish_get_type_info", py_fish_get_type_info, METH_VARARGS, "Get fish type info with max_age"},
     {"fish_get_predator_stats", py_fish_get_predator_stats, METH_VARARGS, "Get predator stats"},
     
-    // NEW: Neural network inheritance functions
+    // Neural network inheritance functions
     {"fish_get_parent_for_inheritance", py_fish_get_parent_for_inheritance, METH_NOARGS, "Get parent fish ID for NN inheritance"},
     {"fish_is_reproduction_pending", py_fish_is_reproduction_pending, METH_NOARGS, "Check if reproduction notification pending"},
+    
+    // NEW: Aging system functions
+    {"fish_get_age_info", py_fish_get_age_info, METH_VARARGS, "Get fish age info (age, max_age, ratio, birth_frame)"},
+    {"fish_get_aging_stats", py_fish_get_aging_stats, METH_NOARGS, "Get total deaths from aging"},
     
     {"get_world_bounds", py_get_world_bounds, METH_NOARGS, "Get world boundaries"},
     {"get_nutrition_balance", py_get_nutrition_balance, METH_NOARGS, "Get nutrition cycle balance"},
@@ -417,7 +461,7 @@ static PyMethodDef SimulationMethods[] = {
 static struct PyModuleDef simulation_module = {
     PyModuleDef_HEAD_INIT,
     "simulation",
-    "Marine ecosystem simulation API with neural network inheritance (7 inputs, 3 outputs)",
+    "Marine ecosystem simulation API with aging system and neural network inheritance",
     -1,
     SimulationMethods,
     NULL,
@@ -443,7 +487,7 @@ int python_api_init(void) {
         return 0;
     }
     
-    printf("Enhanced Python API initialized with neural network inheritance support\n");
+    printf("Python API initialized with aging system support\n");
     return 1;
 }
 
@@ -488,7 +532,7 @@ int python_api_run_script(const char* script_path) {
             }
             printf("Warning: No callable 'update_fish' function found in Python script\n");
         } else {
-            printf("Neural network inheritance script loaded successfully\n");
+            printf("Neural network script with aging system loaded successfully\n");
         }
     }
     

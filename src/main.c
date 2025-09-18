@@ -29,22 +29,22 @@ static void populate_reef_randomly(void) {
     
     if (total_plant_species == 0) return;
     
-    printf("Populating reef with plants and fish...\n");
+    printf("Populating reef with %d plants and %d fish...\n", 
+           INITIAL_PLANT_COUNT, INITIAL_FISH_COUNT);
     
-    // Spawn 500 plants
-    for (int i = 0; i < 500; i++) {
+    // Spawn plants based on INITIAL_PLANT_COUNT
+    for (int i = 0; i < INITIAL_PLANT_COUNT; i++) {
         float x = WORLD_LEFT + ((float)rand() / RAND_MAX) * WORLD_WIDTH;
         float y = WORLD_TOP + ((float)rand() / RAND_MAX) * WORLD_HEIGHT;
         int species = rand() % total_plant_species;
         simulation_add_node(x, y, species);
     }
     
-    // Spawn fish if available
+    // Spawn fish based on INITIAL_FISH_COUNT
     if (total_fish_species > 0) {
-        int fish_count = 50;
-        printf("Spawning %d fish with flow sensitivity...\n", fish_count);
+        printf("Spawning %d fish with flow sensitivity...\n", INITIAL_FISH_COUNT);
         
-        for (int i = 0; i < fish_count; i++) {
+        for (int i = 0; i < INITIAL_FISH_COUNT; i++) {
             float x = WORLD_LEFT + ((float)rand() / RAND_MAX) * WORLD_WIDTH;
             float y = WORLD_TOP + ((float)rand() / RAND_MAX) * WORLD_HEIGHT;
             int fish_type = rand() % total_fish_species;
@@ -58,7 +58,7 @@ static void populate_reef_randomly(void) {
         }
     }
     
-    printf("Reef population complete!\n");
+    printf("Reef population complete! World size: %.0fx%.0f\n", WORLD_WIDTH, WORLD_HEIGHT);
 }
 
 static void handle_mouse_click(int screen_x, int screen_y, int button) {
@@ -115,6 +115,8 @@ static void handle_mouse_click(int screen_x, int screen_y, int button) {
 
 static void print_debug_info(void) {
     printf("\n=== DEBUG INFO ===\n");
+    printf("World size: %.0fx%.0f\n", WORLD_WIDTH, WORLD_HEIGHT);
+    printf("Zoom: unlimited (current: %.6f)\n", camera_get_zoom());
     printf("Plant types: %d\n", plants_get_type_count());
     printf("Fish types: %d\n", fish_get_type_count());
     printf("Total fish: %d\n", fish_get_count());
@@ -194,6 +196,10 @@ int main(int argc, char* argv[]) {
     (void)argv;
     
     printf("Starting Great Barrier Reef Ecosystem v3 with Flow Field Fish Influence...\n");
+    printf("World dimensions: %.0fx%.0f, Initial population: %d plants, %d fish\n",
+           WORLD_WIDTH, WORLD_HEIGHT, INITIAL_PLANT_COUNT, INITIAL_FISH_COUNT);
+    printf("Zoom: unlimited range\n");
+    
     srand((unsigned int)time(NULL));
     
     // Initialize SDL
@@ -298,7 +304,7 @@ int main(int argc, char* argv[]) {
     printf("  Right click: Chain plants (plant mode only)\n");
     printf("  WASD: Move camera\n");
     printf("  Shift+WASD: Sprint\n");
-    printf("  Mouse wheel: Zoom\n");
+    printf("  Mouse wheel: Zoom (unlimited range)\n");
     printf("  1-8: Select plant type\n");
     printf("  F1-F6: Select fish type\n");
     printf("  TAB: Toggle plant/fish mode\n");

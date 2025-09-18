@@ -69,12 +69,17 @@ void fish_calculate_rl_rewards(int fish_id);
 
 // Enhanced eating system
 int fish_attempt_eating(int fish_id);  // Wrapper function
-int fish_attempt_eating_plant(int fish_id);  // NEW: Herbivore eating
-int fish_attempt_eating_fish(int fish_id);   // NEW: Predator eating
+int fish_attempt_eating_plant(int fish_id);  // Herbivore eating
+int fish_attempt_eating_fish(int fish_id);   // Predator eating
 void fish_defecate(int fish_id);
 
-// NEW: Reproduction system
+// Reproduction system with inheritance support
 void fish_reproduce(int fish_id);
+void fish_predator_reproduce(int fish_id);
+
+// NEW: Neural network inheritance support
+int fish_get_parent_for_inheritance(void);
+int fish_is_reproduction_pending(void);
 
 // RL state accessors for Python API
 float fish_get_rl_input(int fish_id, int input_index);

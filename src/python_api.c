@@ -1,4 +1,4 @@
-// python_api.c - Enhanced Python interface with predator-prey system (7 inputs)
+// python_api.c - Enhanced Python interface with neural network inheritance support
 #include <Python.h>
 #include <stdio.h>
 
@@ -11,7 +11,7 @@
 static PyObject* g_python_module = NULL;
 static PyObject* g_update_function = NULL;
 
-// Python C API functions for enhanced RL system
+// Python C API functions for enhanced RL system with inheritance
 
 static PyObject* py_fish_add(PyObject* self, PyObject* args) {
     (void)self;
@@ -70,7 +70,7 @@ static PyObject* py_fish_get_heading(PyObject* self, PyObject* args) {
     return PyFloat_FromDouble(fish->heading);
 }
 
-// ENHANCED: Get RL inputs (now 7 inputs with predator-prey system)
+// Get RL inputs (7 inputs with predator-prey system)
 static PyObject* py_fish_get_rl_inputs(PyObject* self, PyObject* args) {
     (void)self;
     int fish_id;
@@ -109,18 +109,9 @@ static PyObject* py_fish_set_rl_outputs(PyObject* self, PyObject* args) {
         Py_RETURN_NONE;
     }
     
-    fish->rl_outputs[0] = turn_direction;   // -1.0 to 1.0
-    fish->rl_outputs[1] = movement_strength; // 0.0 to 1.0
-    fish->rl_outputs[2] = eat_command;       // 0.0 to 1.0
-    
-    // DEBUG: Track RL output setting for multiple fish
-    static int debug_counters[MAX_FISH] = {0};
-    
-    if (fish_id < MAX_FISH && (debug_counters[fish_id]++ % 90) == 0) {
-        FishType* ft = fish_get_type(fish->fish_type);
-        printf("DEBUG py_fish_set_rl_outputs: Fish %d (%s) outputs set to (%.3f, %.3f, %.3f)\n",
-               fish_id, ft ? ft->name : "?", turn_direction, movement_strength, eat_command);
-    }
+    fish->rl_outputs[0] = turn_direction;
+    fish->rl_outputs[1] = movement_strength;
+    fish->rl_outputs[2] = eat_command;
     
     Py_RETURN_NONE;
 }
@@ -175,7 +166,7 @@ static PyObject* py_fish_get_type_count(PyObject* self, PyObject* args) {
     return PyLong_FromLong(fish_get_type_count());
 }
 
-// NEW: Get fish type info (predator status, danger level)
+// Get fish type info (predator status, danger level)
 static PyObject* py_fish_get_type_info(PyObject* self, PyObject* args) {
     (void)self;
     int fish_id;
@@ -201,7 +192,25 @@ static PyObject* py_fish_get_type_info(PyObject* self, PyObject* args) {
                          fish->defecation_count);
 }
 
-// NEW: Get predator-prey stats
+// NEW: Get parent fish ID for neural network inheritance
+static PyObject* py_fish_get_parent_for_inheritance(PyObject* self, PyObject* args) {
+    (void)self;
+    (void)args;
+    
+    int parent_id = fish_get_parent_for_inheritance();
+    return PyLong_FromLong(parent_id);
+}
+
+// NEW: Check if reproduction notification is pending
+static PyObject* py_fish_is_reproduction_pending(PyObject* self, PyObject* args) {
+    (void)self;
+    (void)args;
+    
+    int pending = fish_is_reproduction_pending();
+    return PyLong_FromLong(pending);
+}
+
+// Get predator-prey stats
 static PyObject* py_fish_get_predator_stats(PyObject* self, PyObject* args) {
     (void)self;
     int fish_id;
@@ -238,7 +247,7 @@ static PyObject* py_get_nutrition_balance(PyObject* self, PyObject* args) {
     return Py_BuildValue("(ffff)", fish_consumed, fish_defecated, env_added, env_depleted);
 }
 
-// ENHANCED: Get RL info with new input size
+// Get RL info with new input size
 static PyObject* py_get_rl_info(PyObject* self, PyObject* args) {
     (void)self;
     (void)args;
@@ -364,20 +373,25 @@ static PyObject* py_get_vision_info(PyObject* self, PyObject* args) {
     return Py_BuildValue("(ii)", 12, 12);
 }
 
-// ENHANCED: Method definitions with predator-prey system
+// Method definitions with inheritance support
 static PyMethodDef SimulationMethods[] = {
     {"fish_add", py_fish_add, METH_VARARGS, "Add a fish to the simulation"},
     {"fish_get_count", py_fish_get_count, METH_NOARGS, "Get total fish count"},
     {"fish_get_position", py_fish_get_position, METH_VARARGS, "Get fish position"},
     {"fish_get_heading", py_fish_get_heading, METH_VARARGS, "Get fish heading in radians"},
-    {"fish_get_rl_inputs", py_fish_get_rl_inputs, METH_VARARGS, "Get RL inputs (plant + fish + danger)"},
-    {"fish_set_rl_outputs", py_fish_set_rl_outputs, METH_VARARGS, "Set RL outputs (turn, movement, eat)"},
+    {"fish_get_rl_inputs", py_fish_get_rl_inputs, METH_VARARGS, "Get RL inputs (7 inputs)"},
+    {"fish_set_rl_outputs", py_fish_set_rl_outputs, METH_VARARGS, "Set RL outputs (3 outputs)"},
     {"fish_get_last_reward", py_fish_get_last_reward, METH_VARARGS, "Get fish last reward"},
     {"fish_get_stomach_contents", py_fish_get_stomach_contents, METH_VARARGS, "Get fish stomach contents"},
     {"fish_is_eating", py_fish_is_eating, METH_VARARGS, "Check if fish is in eating mode"},
     {"fish_get_type_count", py_fish_get_type_count, METH_NOARGS, "Get fish type count"},
-    {"fish_get_type_info", py_fish_get_type_info, METH_VARARGS, "Get fish type info (name, predator, danger)"},
-    {"fish_get_predator_stats", py_fish_get_predator_stats, METH_VARARGS, "Get predator stats (cooldown, target, defecations)"},
+    {"fish_get_type_info", py_fish_get_type_info, METH_VARARGS, "Get fish type info"},
+    {"fish_get_predator_stats", py_fish_get_predator_stats, METH_VARARGS, "Get predator stats"},
+    
+    // NEW: Neural network inheritance functions
+    {"fish_get_parent_for_inheritance", py_fish_get_parent_for_inheritance, METH_NOARGS, "Get parent fish ID for NN inheritance"},
+    {"fish_is_reproduction_pending", py_fish_is_reproduction_pending, METH_NOARGS, "Check if reproduction notification pending"},
+    
     {"get_world_bounds", py_get_world_bounds, METH_NOARGS, "Get world boundaries"},
     {"get_nutrition_balance", py_get_nutrition_balance, METH_NOARGS, "Get nutrition cycle balance"},
     {"get_rl_info", py_get_rl_info, METH_NOARGS, "Get RL system info (7 inputs, 3 outputs)"},
@@ -403,7 +417,7 @@ static PyMethodDef SimulationMethods[] = {
 static struct PyModuleDef simulation_module = {
     PyModuleDef_HEAD_INIT,
     "simulation",
-    "Marine ecosystem simulation API with enhanced predator-prey RL control (7 inputs)",
+    "Marine ecosystem simulation API with neural network inheritance (7 inputs, 3 outputs)",
     -1,
     SimulationMethods,
     NULL,
@@ -429,7 +443,7 @@ int python_api_init(void) {
         return 0;
     }
     
-    printf("Enhanced Python API initialized for predator-prey RL fish control (7 inputs)\n");
+    printf("Enhanced Python API initialized with neural network inheritance support\n");
     return 1;
 }
 
@@ -474,7 +488,7 @@ int python_api_run_script(const char* script_path) {
             }
             printf("Warning: No callable 'update_fish' function found in Python script\n");
         } else {
-            printf("Enhanced Python script loaded successfully with predator-prey RL support (7 inputs)\n");
+            printf("Neural network inheritance script loaded successfully\n");
         }
     }
     

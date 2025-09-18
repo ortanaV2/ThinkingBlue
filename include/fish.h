@@ -43,12 +43,13 @@ void fish_internal_add_consumed_nutrition(float amount);
 void fish_internal_add_defecated_nutrition(float amount);
 
 // ============================================================================
-// FISH_VISION.C - RL vision and input system
+// FISH_VISION.C - Enhanced RL vision with predator detection
 // ============================================================================
 
-// RL input system
+// RL input system with predator detection
 void fish_update_rl_inputs(int fish_id);
 float fish_get_distance_to_nearest_plant(int fish_id);
+float fish_get_distance_to_nearest_foreign_fish(int fish_id);
 
 // Legacy vision functions (compatibility)
 void fish_update_vision(int fish_id);
@@ -59,16 +60,21 @@ float fish_get_vision_ray(int fish_id, int ray_index);
 float fish_get_nutrition_ray(int fish_id, int ray_index);
 
 // ============================================================================
-// FISH_BEHAVIOR.C - RL behavior system
+// FISH_BEHAVIOR.C - Enhanced RL behavior with predator-prey system
 // ============================================================================
 
 // RL control system
 void fish_apply_rl_outputs(int fish_id);
 void fish_calculate_rl_rewards(int fish_id);
 
-// Eating system
-int fish_attempt_eating(int fish_id);
+// Enhanced eating system
+int fish_attempt_eating(int fish_id);  // Wrapper function
+int fish_attempt_eating_plant(int fish_id);  // NEW: Herbivore eating
+int fish_attempt_eating_fish(int fish_id);   // NEW: Predator eating
 void fish_defecate(int fish_id);
+
+// NEW: Reproduction system
+void fish_reproduce(int fish_id);
 
 // RL state accessors for Python API
 float fish_get_rl_input(int fish_id, int input_index);

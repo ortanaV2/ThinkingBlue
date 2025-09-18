@@ -1,4 +1,4 @@
-// fish_core.c - Core fish system for RL control
+// fish_core.c - Enhanced core fish system with predator-prey dynamics
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -44,7 +44,7 @@ int fish_init(void) {
     g_total_nutrition_consumed = 0.0f;
     g_total_nutrition_defecated = 0.0f;
     
-    printf("Fish system initialized with RL control\n");
+    printf("Enhanced fish system initialized with predator-prey dynamics\n");
     return 1;
 }
 
@@ -76,7 +76,7 @@ int fish_load_config(const char* filename) {
         return 0;
     }
     
-    printf("Loading RL fish config from '%s'\n", filename);
+    printf("Loading enhanced fish config with predator system from '%s'\n", filename);
     
     char line[256];
     FishType* current_fish = NULL;
@@ -104,18 +104,25 @@ int fish_load_config(const char* filename) {
                 current_fish->name[name_len] = '\0';
                 current_fish->active = 1;
                 
-                // Default values for RL system
-                current_fish->max_speed = 30.0f;
-                current_fish->max_force = 8.0f;
+                // Default values for enhanced system
+                current_fish->max_speed = 15.0f;
+                current_fish->max_force = 3.0f;
                 current_fish->mass = 1.0f;
                 current_fish->size_radius = 8.0f;
-                current_fish->eating_range = 80.0f;
+                current_fish->eating_range = 70.0f;
                 current_fish->fov_angle = 200.0f;
                 current_fish->max_turn_angle = 45.0f;
                 current_fish->oxygen_reward_factor = 0.01f;
                 current_fish->proximity_reward_factor = 0.005f;
                 current_fish->eat_punishment = -0.02f;
-                current_fish->flow_sensitivity = 0.3f;
+                current_fish->flow_sensitivity = 0.2f;
+                
+                // NEW: Predator system defaults
+                current_fish->danger_level = 0.1f;
+                current_fish->is_predator = 0;
+                current_fish->eating_cooldown_frames = 0;
+                current_fish->fish_detection_range = 300.0f;
+                
                 current_fish->node_r = 255;
                 current_fish->node_g = 165;
                 current_fish->node_b = 0;
@@ -149,7 +156,7 @@ int fish_load_config(const char* filename) {
             value_end--;
         }
         
-        // Parse configuration values for RL system
+        // Parse configuration values
         if (strcmp(key, "max_speed") == 0) {
             current_fish->max_speed = (float)atof(value);
         } else if (strcmp(key, "max_force") == 0) {
@@ -172,6 +179,14 @@ int fish_load_config(const char* filename) {
             current_fish->eat_punishment = (float)atof(value);
         } else if (strcmp(key, "flow_sensitivity") == 0) {
             current_fish->flow_sensitivity = (float)atof(value);
+        } else if (strcmp(key, "danger_level") == 0) {
+            current_fish->danger_level = (float)atof(value);
+        } else if (strcmp(key, "is_predator") == 0) {
+            current_fish->is_predator = atoi(value);
+        } else if (strcmp(key, "eating_cooldown_frames") == 0) {
+            current_fish->eating_cooldown_frames = atoi(value);
+        } else if (strcmp(key, "fish_detection_range") == 0) {
+            current_fish->fish_detection_range = (float)atof(value);
         } else if (strcmp(key, "node_color") == 0) {
             parse_color(value, &current_fish->node_r, &current_fish->node_g, &current_fish->node_b);
         }
@@ -179,12 +194,25 @@ int fish_load_config(const char* filename) {
     
     fclose(file);
     
-    printf("Loaded %d RL fish types\n", g_fish_type_count);
+    printf("Loaded %d enhanced fish types with predator-prey system\n", g_fish_type_count);
+    
+    int herbivore_count = 0;
+    int predator_count = 0;
+    
     for (int i = 0; i < g_fish_type_count; i++) {
         FishType* ft = &g_fish_types[i];
-        printf("  %s: FOV=%.0f°, MaxTurn=%.0f°, MaxForce=%.1f, OxyReward=%.3f\n",
-               ft->name, ft->fov_angle, ft->max_turn_angle, ft->max_force, ft->oxygen_reward_factor);
+        if (ft->is_predator) {
+            predator_count++;
+            printf("  PREDATOR %s: Danger=%.1f, Speed=%.1f, Cooldown=%d frames, Range=%.0f\n",
+                   ft->name, ft->danger_level, ft->max_speed, ft->eating_cooldown_frames, ft->fish_detection_range);
+        } else {
+            herbivore_count++;
+            printf("  HERBIVORE %s: Danger=%.1f, FOV=%.0f°, OxyReward=%.3f, Range=%.0f\n",
+                   ft->name, ft->danger_level, ft->fov_angle, ft->oxygen_reward_factor, ft->fish_detection_range);
+        }
     }
+    
+    printf("Fish ecosystem: %d herbivores, %d predators\n", herbivore_count, predator_count);
     
     return g_fish_type_count > 0;
 }
@@ -210,8 +238,8 @@ int fish_add(float x, float y, int fish_type) {
     fish->node_id = node_id;
     fish->fish_type = fish_type;
     
-    // Initialize RL system
-    fish->heading = 0.0f;  // Start facing right
+    // Initialize RL system with extended inputs
+    fish->heading = ((float)rand() / RAND_MAX) * 2.0f * M_PI;  // Random initial heading
     for (int i = 0; i < RL_INPUT_SIZE; i++) {
         fish->rl_inputs[i] = 0.0f;
     }
@@ -232,11 +260,18 @@ int fish_add(float x, float y, int fish_type) {
     fish->total_reward = 0.0f;
     fish->last_reward = 0.0f;
     
+    // NEW: Initialize predator-prey system
+    fish->defecation_count = 0;
+    fish->eating_cooldown = 0;
+    fish->target_fish_id = -1;
+    
     int fish_id = g_fish_count;
     g_fish_count++;
     
     FishType* ft = &g_fish_types[fish_type];
-    printf("Created RL fish %d (%s) with FOV=%.0f°\n", fish_id, ft->name, ft->fov_angle);
+    printf("Created %s fish %d (danger: %.1f, %s) with FOV=%.0f°\n", 
+           ft->name, fish_id, ft->danger_level, 
+           ft->is_predator ? "PREDATOR" : "HERBIVORE", ft->fov_angle);
     
     return fish_id;
 }
@@ -244,8 +279,10 @@ int fish_add(float x, float y, int fish_type) {
 void fish_remove(int fish_id) {
     if (fish_id < 0 || fish_id >= g_fish_count) return;
     
+    FishType* ft = fish_get_type(g_fish[fish_id].fish_type);
+    printf("Removed fish %d (%s)\n", fish_id, ft ? ft->name : "?");
+    
     g_fish[fish_id].active = 0;
-    printf("Removed fish %d\n", fish_id);
 }
 
 // Accessor functions

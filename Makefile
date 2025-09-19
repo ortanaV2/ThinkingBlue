@@ -93,6 +93,26 @@ run: $(TARGET)
 	@echo "Starting $(TARGET)..."
 	./$(TARGET)
 
+# NEW: Test ecosystem stats independently
+test-stats:
+	@echo "Testing ecosystem statistics monitor..."
+	@if [ -f ecosystem_stats.py ]; then \
+		python ecosystem_stats.py; \
+	else \
+		echo "Error: ecosystem_stats.py not found"; \
+	fi
+
+# NEW: Check Python dependencies
+check-stats-deps:
+	@echo "Checking ecosystem statistics dependencies..."
+	@python -c "import tkinter; print('✓ tkinter available')" || echo "✗ tkinter missing"
+	@python -c "import threading; print('✓ threading available')" || echo "✗ threading missing"
+	@python -c "import time; print('✓ time available')" || echo "✗ time missing"
+	@python -c "import struct; print('✓ struct available')" || echo "✗ struct missing"
+	@python -c "import os; print('✓ os available')" || echo "✗ os missing"
+	@python -c "import collections; print('✓ collections available')" || echo "✗ collections missing"
+	@echo "All dependencies use Python standard library only"
+
 # Show help
 help:
 	@echo "Available targets:"
@@ -102,8 +122,18 @@ help:
 	@echo "  rebuild          - Clean and build"
 	@echo "  debug            - Build with debug symbols"
 	@echo "  run              - Build and run the program"
+	@echo "  test-stats       - Test ecosystem statistics monitor"
+	@echo "  check-stats-deps - Check statistics dependencies"
 	@echo "  install-deps     - Install dependencies"
 	@echo "  install-python-headers - Install Python development files"
 	@echo "  help             - Show this help"
+	@echo ""
+	@echo "Live Statistics:"
+	@echo "  - Press 'TAB' in simulation to open statistics window"
+	@echo "  - Press 'Shift+TAB' to toggle plant/fish spawn mode"
+	@echo "  - Shows live plots: nutrition balance, fish count, plant count"
+	@echo "  - Updates every second automatically"
+	@echo "  - Uses shared file communication (simulation_stats.tmp)"
+	@echo "  - Single ecosystem_stats.py script handles everything"
 
-.PHONY: all build-no-check clean rebuild debug install-deps run help check-python install-python-headers
+.PHONY: all build-no-check clean rebuild debug install-deps run test-stats check-stats-deps help check-python install-python-headers

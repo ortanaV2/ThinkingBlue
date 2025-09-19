@@ -9,3 +9,7 @@ obj/
 *.tmp
 
 *.log
+
+*.json
+
+simulation_stats.tmp

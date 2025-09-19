@@ -1,4 +1,4 @@
-// main.c - Enhanced with graceful shutdown for model saving
+// main.c - Enhanced with statistics plotter integration
 #include <SDL2/SDL.h>
 #include <stdio.h>
 #include <time.h>
@@ -24,11 +24,16 @@ static int g_current_plant_type = 0;
 static int g_current_fish_type = 0;
 static int g_spawn_mode = 0; // 0 = plants, 1 = fish
 static int g_graceful_shutdown_requested = 0;
+// Removed: g_stats_plotter_started (can now open multiple times)
 
 // Signal handler for graceful shutdown
 static void signal_handler(int signum) {
     printf("\nReceived signal %d, initiating graceful shutdown for model saving...\n", signum);
     g_graceful_shutdown_requested = 1;
+    
+    // Clean up stats file immediately
+    remove("simulation_stats.tmp");
+    printf("Cleaned up simulation_stats.tmp\n");
 }
 
 static void populate_reef_randomly(void) {
@@ -68,6 +73,61 @@ static void populate_reef_randomly(void) {
     }
     
     printf("Reef populated! Neural networks will learn and best models will be saved on exit.\n");
+}
+
+static void write_stats_file(void) {
+    static int last_write_frame = 0;
+    int current_frame = simulation_get_frame_counter();
+    
+    // Write stats every 30 frames (1 second at 30 FPS)
+    if (current_frame - last_write_frame < 30) {
+        return;
+    }
+    last_write_frame = current_frame;
+    
+    FILE* stats_file = fopen("simulation_stats.tmp", "wb");
+    if (!stats_file) {
+        return;  // Fail silently
+    }
+    
+    // Get current statistics
+    int fish_count = fish_get_count();
+    int plant_count = 0;
+    
+    // Count active plant nodes
+    Node* nodes = simulation_get_nodes();
+    int node_count = simulation_get_node_count();
+    for (int i = 0; i < node_count; i++) {
+        if (nodes[i].active && nodes[i].plant_type >= 0) {
+            plant_count++;
+        }
+    }
+    
+    // Get nutrition balance
+    float env_added = nutrition_get_total_added();
+    float env_depleted = nutrition_get_total_depleted();
+    float nutrition_balance = env_added - env_depleted;
+    
+    // Write binary data: nutrition_balance, fish_count, plant_count
+    float data[3] = {nutrition_balance, (float)fish_count, (float)plant_count};
+    fwrite(data, sizeof(float), 3, stats_file);
+    
+    fclose(stats_file);
+}
+
+static void start_stats_plotter(void) {
+    printf("Starting ecosystem statistics monitor...\n");
+    
+    // Execute ecosystem stats in background
+    #ifdef _WIN32
+        system("start python ecosystem_stats.py");
+    #else
+        system("python3 ecosystem_stats.py &");
+    #endif
+    
+    printf("Statistics monitor started! Live plots should appear.\n");
+    printf("Data is updated every second via simulation_stats.tmp\n");
+    printf("You can close and reopen the statistics window anytime with TAB\n");
 }
 
 static void handle_mouse_click(int screen_x, int screen_y, int button) {
@@ -134,6 +194,7 @@ static void print_debug_info(void) {
     printf("Spawn mode: %s\n", g_spawn_mode == 0 ? "PLANT" : "FISH");
     printf("Ray rendering: %s\n", fish_is_ray_rendering_enabled() ? "ON" : "OFF");
     printf("Flow field: %s\n", flow_is_visible() ? "ON" : "OFF");
+    printf("Statistics: Available via TAB key\n");
     
     // Aging system statistics
     printf("\n=== AGING SYSTEM STATUS ===\n");
@@ -233,6 +294,7 @@ int main(int argc, char* argv[]) {
            WORLD_WIDTH, WORLD_HEIGHT, INITIAL_PLANT_COUNT, INITIAL_FISH_COUNT);
     printf("Fish will age naturally and neural networks will learn from experience\n");
     printf("Best models will be saved on graceful shutdown (Ctrl+C)\n");
+    printf("Live statistics plotter available (press 'S' to start)\n");
     
     srand((unsigned int)time(NULL));
     
@@ -247,7 +309,7 @@ int main(int argc, char* argv[]) {
     }
     
     // Create window and renderer
-    SDL_Window* window = SDL_CreateWindow("Great Barrier Reef Ecosystem v3 - NN Training + Model Saving",
+    SDL_Window* window = SDL_CreateWindow("Great Barrier Reef Ecosystem v3 - NN Training + Live Stats",
                                          SDL_WINDOWPOS_CENTERED, SDL_WINDOWPOS_CENTERED,
                                          WINDOW_WIDTH, WINDOW_HEIGHT, SDL_WINDOW_SHOWN);
     if (!window) {
@@ -347,13 +409,15 @@ int main(int argc, char* argv[]) {
     printf("  Mouse wheel: Zoom (unlimited range)\n");
     printf("  1-8: Select plant type\n");
     printf("  F1-F6: Select fish type\n");
-    printf("  TAB: Toggle plant/fish mode\n");
+    printf("  TAB: Open statistics plotter (live plots)\n");
+    printf("  Shift+TAB: Toggle plant/fish mode\n");
     printf("  N: Toggle nutrition layer\n");
     printf("  G: Toggle gas layer\n");
     printf("  F: Toggle flow field\n");
     printf("  R: Toggle fish vision rays\n");
+    printf("  S: Start statistics plotter (live plots)\n");
     printf("  P: Print debug info (includes training stats)\n");
-    printf("  ESC or Ctrl+C: Save best models and exit\n\n");
+    printf("  ESC or Ctrl+C: Save best models and exit (cleans temp files)\n\n");
     
     // Set initial mode
     if (plants_get_type_count() > 0) {
@@ -366,7 +430,9 @@ int main(int argc, char* argv[]) {
     int mouse_x = 0, mouse_y = 0;
     
     printf("Neural network training started! Fish are learning to survive and reproduce...\n");
-    printf("Best performing models will be saved automatically on exit.\n\n");
+    printf("Best performing models will be saved automatically on exit.\n");
+    printf("Press 'TAB' to open live statistics window with real-time plots.\n");
+    printf("Use Ctrl+C for clean shutdown (saves models + cleans temp files).\n\n");
     
     // Main game loop
     while (running && !g_graceful_shutdown_requested) {
@@ -393,19 +459,30 @@ int main(int argc, char* argv[]) {
                     switch (event.key.keysym.sym) {
                         case SDLK_ESCAPE:
                             printf("ESC pressed - initiating graceful shutdown...\n");
+                            // Clean up stats file before exit
+                            remove("simulation_stats.tmp");
+                            printf("Cleaned up simulation_stats.tmp\n");
                             running = 0;
                             break;
                             
                         case SDLK_TAB:
-                            g_spawn_mode = !g_spawn_mode;
-                            if (g_spawn_mode == 0 && plants_get_type_count() > 0) {
-                                printf("Mode: PLANT (%s)\n", plants_get_type(g_current_plant_type)->name);
-                            } else if (g_spawn_mode == 1 && fish_get_type_count() > 0) {
-                                FishType* ft = fish_get_type(g_current_fish_type);
-                                float lifespan_minutes = ft->max_age / (TARGET_FPS * 60.0f);
-                                printf("Mode: FISH (%s, max age: %.1f min)\n", ft->name, lifespan_minutes);
+                            // Check if Shift is held for spawn mode toggle
+                            const Uint8* keystate = SDL_GetKeyboardState(NULL);
+                            if (keystate[SDL_SCANCODE_LSHIFT] || keystate[SDL_SCANCODE_RSHIFT]) {
+                                // Shift+Tab: Toggle spawn mode
+                                g_spawn_mode = !g_spawn_mode;
+                                if (g_spawn_mode == 0 && plants_get_type_count() > 0) {
+                                    printf("Mode: PLANT (%s)\n", plants_get_type(g_current_plant_type)->name);
+                                } else if (g_spawn_mode == 1 && fish_get_type_count() > 0) {
+                                    FishType* ft = fish_get_type(g_current_fish_type);
+                                    float lifespan_minutes = ft->max_age / (TARGET_FPS * 60.0f);
+                                    printf("Mode: FISH (%s, max age: %.1f min)\n", ft->name, lifespan_minutes);
+                                } else {
+                                    printf("Mode: %s (no types available)\n", g_spawn_mode == 0 ? "PLANT" : "FISH");
+                                }
                             } else {
-                                printf("Mode: %s (no types available)\n", g_spawn_mode == 0 ? "PLANT" : "FISH");
+                                // Tab: Open statistics
+                                start_stats_plotter();
                             }
                             break;
                             
@@ -480,6 +557,9 @@ int main(int argc, char* argv[]) {
         fish_update();        // Includes aging checks
         physics_update();
         
+        // Write statistics for plotter
+        write_stats_file();
+        
         // Render
         rendering_render();
         
@@ -492,6 +572,9 @@ int main(int argc, char* argv[]) {
     
 cleanup:
     printf("Shutting down and saving neural network models...\n");
+    
+    // Clean up stats file
+    remove("simulation_stats.tmp");
     
     // Give Python time to save models if graceful shutdown was requested
     if (g_graceful_shutdown_requested) {
@@ -512,6 +595,7 @@ cleanup:
            fish_get_nutrition_balance() + nutrition_get_balance());
     printf("Neural network training completed successfully\n");
     printf("Check for best_herbivore_model.json and best_predator_model.json files\n");
+    printf("Statistics: Available via TAB key anytime\n");
     printf("========================================\n");
     
     python_api_cleanup();

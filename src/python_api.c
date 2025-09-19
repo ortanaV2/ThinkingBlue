@@ -1,4 +1,4 @@
-// python_api.c - Enhanced Python interface with aging system support
+// python_api.c - Enhanced Python interface with statistics support
 #include <Python.h>
 #include <stdio.h>
 
@@ -10,6 +10,36 @@
 
 static PyObject* g_python_module = NULL;
 static PyObject* g_update_function = NULL;
+
+// NEW: Get total plant node count
+static PyObject* py_get_plant_node_count(PyObject* self, PyObject* args) {
+    (void)self;
+    (void)args;
+    
+    Node* nodes = simulation_get_nodes();
+    int node_count = simulation_get_node_count();
+    int plant_count = 0;
+    
+    for (int i = 0; i < node_count; i++) {
+        if (nodes[i].active && nodes[i].plant_type >= 0) {
+            plant_count++;
+        }
+    }
+    
+    return PyLong_FromLong(plant_count);
+}
+
+// NEW: Get total nutrition in environment
+static PyObject* py_get_total_environment_nutrition(PyObject* self, PyObject* args) {
+    (void)self;
+    (void)args;
+    
+    float env_added = nutrition_get_total_added();
+    float env_depleted = nutrition_get_total_depleted();
+    float balance = env_added - env_depleted;
+    
+    return PyFloat_FromDouble(balance);
+}
 
 // Get fish age info
 static PyObject* py_fish_get_age_info(PyObject* self, PyObject* args) {
@@ -276,6 +306,7 @@ static PyObject* py_get_world_bounds(PyObject* self, PyObject* args) {
     return Py_BuildValue("(ffff)", WORLD_LEFT, WORLD_TOP, WORLD_RIGHT, WORLD_BOTTOM);
 }
 
+// ENHANCED: Get comprehensive nutrition balance data
 static PyObject* py_get_nutrition_balance(PyObject* self, PyObject* args) {
     (void)self;
     (void)args;
@@ -413,7 +444,7 @@ static PyObject* py_get_vision_info(PyObject* self, PyObject* args) {
     return Py_BuildValue("(ii)", 12, 12);
 }
 
-// Method definitions with aging support
+// Method definitions with statistics support
 static PyMethodDef SimulationMethods[] = {
     {"fish_add", py_fish_add, METH_VARARGS, "Add a fish to the simulation"},
     {"fish_get_count", py_fish_get_count, METH_NOARGS, "Get total fish count"},
@@ -432,9 +463,13 @@ static PyMethodDef SimulationMethods[] = {
     {"fish_get_parent_for_inheritance", py_fish_get_parent_for_inheritance, METH_NOARGS, "Get parent fish ID for NN inheritance"},
     {"fish_is_reproduction_pending", py_fish_is_reproduction_pending, METH_NOARGS, "Check if reproduction notification pending"},
     
-    // NEW: Aging system functions
+    // Aging system functions
     {"fish_get_age_info", py_fish_get_age_info, METH_VARARGS, "Get fish age info (age, max_age, ratio, birth_frame)"},
     {"fish_get_aging_stats", py_fish_get_aging_stats, METH_NOARGS, "Get total deaths from aging"},
+    
+    // NEW: Statistics functions for live plotting
+    {"get_plant_node_count", py_get_plant_node_count, METH_NOARGS, "Get total active plant nodes"},
+    {"get_total_environment_nutrition", py_get_total_environment_nutrition, METH_NOARGS, "Get total nutrition balance in environment"},
     
     {"get_world_bounds", py_get_world_bounds, METH_NOARGS, "Get world boundaries"},
     {"get_nutrition_balance", py_get_nutrition_balance, METH_NOARGS, "Get nutrition cycle balance"},
@@ -461,7 +496,7 @@ static PyMethodDef SimulationMethods[] = {
 static struct PyModuleDef simulation_module = {
     PyModuleDef_HEAD_INIT,
     "simulation",
-    "Marine ecosystem simulation API with aging system and neural network inheritance",
+    "Marine ecosystem simulation API with statistics support for live plotting",
     -1,
     SimulationMethods,
     NULL,
@@ -487,7 +522,7 @@ int python_api_init(void) {
         return 0;
     }
     
-    printf("Python API initialized with aging system support\n");
+    printf("Python API initialized with statistics support for live plotting\n");
     return 1;
 }
 
@@ -532,7 +567,7 @@ int python_api_run_script(const char* script_path) {
             }
             printf("Warning: No callable 'update_fish' function found in Python script\n");
         } else {
-            printf("Neural network script with aging system loaded successfully\n");
+            printf("Neural network script with statistics support loaded successfully\n");
         }
     }
     

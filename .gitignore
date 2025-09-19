@@ -9,3 +9,5 @@ obj/
 *.tmp
 
 *.log
+
+*.json

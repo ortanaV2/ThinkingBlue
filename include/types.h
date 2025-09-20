@@ -1,3 +1,4 @@
+// Enhanced types.h with configurable plant visualization
 #ifndef TYPES_H
 #define TYPES_H
 
@@ -46,12 +47,12 @@
 #define INITIAL_PLANT_COUNT 100
 #define INITIAL_FISH_COUNT 10
 
-// NEW: Fish aging constants
+// Fish aging constants
 #define TARGET_FPS 30
-#define DEATH_CHECK_INTERVAL 30  // Check every 30 frames
+#define DEATH_CHECK_INTERVAL 30  
 
-// NEW: Corpse system constants
-#define CORPSE_DECAY_TIME 1800  // 60 seconds at 30 FPS
+// Corpse system constants
+#define CORPSE_DECAY_TIME 1800  
 
 // Derived world bounds
 #define WORLD_LEFT (WORLD_CENTER_X - WORLD_WIDTH / 2.0f)
@@ -67,7 +68,7 @@
 #define M_PI 3.14159265358979323846
 #endif
 
-// Plant type configuration
+// ENHANCED: Plant type with visual configuration
 typedef struct {
     char name[MAX_NAME_LENGTH];
     float growth_probability;
@@ -85,6 +86,11 @@ typedef struct {
     float oxygen_production_factor;
     float oxygen_production_radius;
     
+    // NEW: Visual configuration
+    float node_size_factor;        // Multiplier for node size (default 1.0)
+    float chain_thickness_factor;  // Multiplier for chain thickness (default 1.0) 
+    float chain_curvature_factor;  // Controls chain curvature strength (default 1.0)
+    
     // Node colors (RGB 0-255)
     int node_r, node_g, node_b;
     
@@ -94,7 +100,7 @@ typedef struct {
     int active;
 } PlantType;
 
-// UPDATED: Enhanced fish type with aging system
+// Fish type configuration
 typedef struct {
     char name[MAX_NAME_LENGTH];
     float max_speed;
@@ -121,7 +127,7 @@ typedef struct {
     int eating_cooldown_frames;
     float fish_detection_range;
     
-    // NEW: Aging system
+    // Aging system
     int max_age;  // Age in frames when death probability is 50%
     
     // Node colors (RGB 0-255)
@@ -140,17 +146,17 @@ typedef struct {
     int branch_count;
     int age;
     
-    // NEW: Corpse system
+    // Corpse system
     int is_corpse;
     int corpse_decay_timer;
     int original_fish_type;  // Fish type that became this corpse
     float corpse_heading;    // Preserved heading from when fish died
     
-    // Kept for compatibility
+    // Compatibility
     float nutrition_cost;
 } Node;
 
-// UPDATED: Enhanced fish structure with aging system
+// Fish structure with aging system
 typedef struct {
     int node_id;
     int fish_type;
@@ -180,19 +186,20 @@ typedef struct {
     int eating_cooldown;
     int target_fish_id;
     
-    // NEW: Aging system
-    int birth_frame;  // Frame when fish was born (for death check timing)
+    // Aging system
+    int birth_frame;  // Frame when fish was born
     
 } Fish;
 
-// Chain structure connecting two nodes
+// ENHANCED: Chain structure with curvature parameters
 typedef struct {
     int node1, node2;
     int active;
     int plant_type;
     int age;
-    float curve_strength;
-    float curve_offset;
+    float curve_strength;    // Base curvature strength
+    float curve_offset;      // Random offset for variety
+    float curve_multiplier;  // Per-chain multiplier for visual diversity
 } Chain;
 
 // Camera for viewport control

@@ -1,4 +1,4 @@
-// plants.c - Enhanced with coral bleaching effects
+// plants.c - Enhanced with configurable visualization and coral bleaching effects
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -49,7 +49,7 @@ int plants_load_config(const char* filename) {
             current_plant->name[strlen(line) - 2] = '\0';
             current_plant->active = 1;
             
-            // Default values
+            // Default biological values
             current_plant->growth_probability = 0.02f;
             current_plant->growth_attempts = 5;
             current_plant->max_branches = 3;
@@ -60,6 +60,13 @@ int plants_load_config(const char* filename) {
             current_plant->nutrition_depletion_radius = 120.0f;
             current_plant->oxygen_production_factor = 0.2f;
             current_plant->oxygen_production_radius = 80.0f;
+            
+            // NEW: Default visual values
+            current_plant->node_size_factor = 1.0f;
+            current_plant->chain_thickness_factor = 1.0f;
+            current_plant->chain_curvature_factor = 1.0f;
+            
+            // Default colors
             current_plant->node_r = 150;
             current_plant->node_g = 255;
             current_plant->node_b = 150;
@@ -83,6 +90,7 @@ int plants_load_config(const char* filename) {
         while (*key == ' ' || *key == '\t') key++;
         while (*value == ' ' || *value == '\t') value++;
         
+        // Parse biological parameters
         if (strcmp(key, "growth_probability") == 0) {
             current_plant->growth_probability = (float)atof(value);
         } else if (strcmp(key, "growth_attempts") == 0) {
@@ -103,26 +111,44 @@ int plants_load_config(const char* filename) {
             current_plant->oxygen_production_factor = (float)atof(value);
         } else if (strcmp(key, "oxygen_production_radius") == 0) {
             current_plant->oxygen_production_radius = (float)atof(value);
-        } else if (strcmp(key, "nutrition_value") == 0) {
-            // Ignored - nutrition_value is obsolete
-            printf("Warning: nutrition_value is obsolete and ignored for %s\n", current_plant->name);
-        } else if (strcmp(key, "node_color") == 0) {
+        } 
+        // NEW: Visual parameters
+        else if (strcmp(key, "node_size_factor") == 0) {
+            current_plant->node_size_factor = (float)atof(value);
+            if (current_plant->node_size_factor < 0.1f) current_plant->node_size_factor = 0.1f;
+            if (current_plant->node_size_factor > 5.0f) current_plant->node_size_factor = 5.0f;
+        } else if (strcmp(key, "chain_thickness_factor") == 0) {
+            current_plant->chain_thickness_factor = (float)atof(value);
+            if (current_plant->chain_thickness_factor < 0.1f) current_plant->chain_thickness_factor = 0.1f;
+            if (current_plant->chain_thickness_factor > 5.0f) current_plant->chain_thickness_factor = 5.0f;
+        } else if (strcmp(key, "chain_curvature_factor") == 0) {
+            current_plant->chain_curvature_factor = (float)atof(value);
+            if (current_plant->chain_curvature_factor < 0.0f) current_plant->chain_curvature_factor = 0.0f;
+            if (current_plant->chain_curvature_factor > 3.0f) current_plant->chain_curvature_factor = 3.0f;
+        }
+        // Color parameters
+        else if (strcmp(key, "node_color") == 0) {
             parse_color(value, &current_plant->node_r, &current_plant->node_g, &current_plant->node_b);
         } else if (strcmp(key, "chain_color") == 0) {
             parse_color(value, &current_plant->chain_r, &current_plant->chain_g, &current_plant->chain_b);
+        } else if (strcmp(key, "nutrition_value") == 0) {
+            // Ignored - nutrition_value is obsolete
+            printf("Warning: nutrition_value is obsolete and ignored for %s\n", current_plant->name);
         }
     }
     
     fclose(file);
     
-    printf("Loaded %d plant types with coral bleaching system\n", g_plant_type_count);
+    printf("Loaded %d plant types with enhanced visualization\n", g_plant_type_count);
     for (int i = 0; i < g_plant_type_count; i++) {
         PlantType* pt = &g_plant_types[i];
         float size_factor = (pt->max_branches / 3.0f) * (pt->branch_distance / OPTIMAL_DISTANCE);
         float unified_nutrition_cost = pt->nutrition_depletion_strength * size_factor;
         int is_coral = strstr(pt->name, "Coral") != NULL ? 1 : 0;
-        printf("  %s: unified_nutrition=%.3f, %s\n",
-               pt->name, unified_nutrition_cost, is_coral ? "CORAL (can bleach)" : "NON-CORAL");
+        printf("  %s: nutrition=%.3f, visual(size=%.1f, thick=%.1f, curve=%.1f), %s\n",
+               pt->name, unified_nutrition_cost, 
+               pt->node_size_factor, pt->chain_thickness_factor, pt->chain_curvature_factor,
+               is_coral ? "CORAL" : "NON-CORAL");
     }
     
     return g_plant_type_count > 0;

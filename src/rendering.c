@@ -1,4 +1,4 @@
-// rendering.c - Enhanced with coral bleaching and corpse visualization
+// rendering.c - Enhanced with configurable plant visualization
 #include <SDL2/SDL.h>
 #include <math.h>
 
@@ -61,7 +61,6 @@ static void calculate_bleached_color(int base_r, int base_g, int base_b, int* bl
     if (*bleached_b < 200) *bleached_b = 200;
 }
 
-// NEW: Calculate corpse color (white/gray like bleached coral)
 static void calculate_corpse_color(int original_fish_type, int decay_timer, int* corpse_r, int* corpse_g, int* corpse_b) {
     // Base corpse color is white/gray
     int base_gray = 220;
@@ -157,7 +156,6 @@ static void draw_fish_tail(SDL_Renderer* renderer, int screen_x, int screen_y, f
     }
 }
 
-// Draw RL vision system (plant detection FOV)
 static void draw_fish_rl_vision(SDL_Renderer* renderer, int fish_id) {
     if (!fish_is_ray_rendering_enabled()) return;
     
@@ -232,6 +230,7 @@ static void draw_fish_rl_vision(SDL_Renderer* renderer, int fish_id) {
     draw_thick_line(renderer, fish_screen_x, fish_screen_y, heading_end_x, heading_end_y, 3);
 }
 
+// ENHANCED: Curved line drawing with configurable curvature
 static void draw_curved_line(SDL_Renderer* renderer, int x1, int y1, int x2, int y2, float curve_strength, float curve_offset, int thickness) {
     float mid_x = (x1 + x2) * 0.5f;
     float mid_y = (y1 + y2) * 0.5f;
@@ -310,7 +309,7 @@ void rendering_render(void) {
     int selected_node = simulation_get_selected_node();
     int selection_mode = simulation_get_selection_mode();
     
-    // Render chains (only for plants)
+    // ENHANCED: Render chains with configurable thickness and curvature
     for (int i = 0; i < chain_count; i++) {
         if (!chains[i].active) continue;
         
@@ -320,9 +319,8 @@ void rendering_render(void) {
         if (n1 < 0 || n1 >= node_count || n2 < 0 || n2 >= node_count) continue;
         if (!nodes[n1].active || !nodes[n2].active) continue;
         
-        // Skip chains involving fish nodes
+        // Skip chains involving fish nodes or corpses
         if (nodes[n1].plant_type == -1 || nodes[n2].plant_type == -1) continue;
-        // Skip chains involving corpses
         if (nodes[n1].is_corpse || nodes[n2].is_corpse) continue;
         
         // Frustum culling
@@ -336,24 +334,22 @@ void rendering_render(void) {
             continue;
         }
         
-        // Set chain color - check for bleaching
+        // Get plant type for visual configuration
         int plant_type = chains[i].plant_type;
-        if (plant_type >= 0 && plant_type < plants_get_type_count()) {
-            PlantType* pt = plants_get_type(plant_type);
-            if (pt && pt->active) {
-                int aged_r, aged_g, aged_b;
-                calculate_aged_color(pt->chain_r, pt->chain_g, pt->chain_b, chains[i].age, pt->age_mature, &aged_r, &aged_g, &aged_b);
-                
-                // Check if either node is bleached
-                if (temperature_is_coral_bleached(n1) || temperature_is_coral_bleached(n2)) {
-                    int bleached_r, bleached_g, bleached_b;
-                    calculate_bleached_color(aged_r, aged_g, aged_b, &bleached_r, &bleached_g, &bleached_b);
-                    SDL_SetRenderDrawColor(g_renderer, bleached_r, bleached_g, bleached_b, 255);
-                } else {
-                    SDL_SetRenderDrawColor(g_renderer, aged_r, aged_g, aged_b, 255);
-                }
+        PlantType* pt = plants_get_type(plant_type);
+        
+        // Set chain color - check for bleaching
+        if (pt && pt->active) {
+            int aged_r, aged_g, aged_b;
+            calculate_aged_color(pt->chain_r, pt->chain_g, pt->chain_b, chains[i].age, pt->age_mature, &aged_r, &aged_g, &aged_b);
+            
+            // Check if either node is bleached
+            if (temperature_is_coral_bleached(n1) || temperature_is_coral_bleached(n2)) {
+                int bleached_r, bleached_g, bleached_b;
+                calculate_bleached_color(aged_r, aged_g, aged_b, &bleached_r, &bleached_g, &bleached_b);
+                SDL_SetRenderDrawColor(g_renderer, bleached_r, bleached_g, bleached_b, 255);
             } else {
-                SDL_SetRenderDrawColor(g_renderer, 100, 200, 100, 255);
+                SDL_SetRenderDrawColor(g_renderer, aged_r, aged_g, aged_b, 255);
             }
         } else {
             SDL_SetRenderDrawColor(g_renderer, 100, 200, 100, 255);
@@ -363,11 +359,16 @@ void rendering_render(void) {
         camera_world_to_screen(nodes[n1].x, nodes[n1].y, &screen_x1, &screen_y1);
         camera_world_to_screen(nodes[n2].x, nodes[n2].y, &screen_x2, &screen_y2);
         
-        int thickness = (int)(CHAIN_THICKNESS * camera_get_zoom());
+        // ENHANCED: Calculate thickness with plant-specific factor
+        float thickness_factor = pt ? pt->chain_thickness_factor : 1.0f;
+        int thickness = (int)(CHAIN_THICKNESS * camera_get_zoom() * thickness_factor);
         if (thickness < 2) thickness = 2;
         
+        // ENHANCED: Apply curvature multiplier
+        float final_curve_strength = chains[i].curve_strength * chains[i].curve_multiplier;
+        
         draw_curved_line(g_renderer, screen_x1, screen_y1, screen_x2, screen_y2, 
-                        chains[i].curve_strength, chains[i].curve_offset, thickness);
+                        final_curve_strength, chains[i].curve_offset, thickness);
     }
     
     // Get fish data for rendering
@@ -383,7 +384,7 @@ void rendering_render(void) {
         }
     }
     
-    // Render nodes (plants, fish, and corpses)
+    // ENHANCED: Render nodes with configurable sizes
     for (int i = 0; i < node_count; i++) {
         if (!nodes[i].active) continue;
         
@@ -411,12 +412,12 @@ void rendering_render(void) {
             scaled_radius = (int)((NODE_RADIUS * 1.5f) * camera_get_zoom());
             if (scaled_radius < 1) scaled_radius = 1;
             
-            // Draw corpse tail FIRST (using preserved heading from when fish died)
+            // Draw corpse tail FIRST
             if (scaled_radius > 2) {
                 draw_fish_tail(g_renderer, screen_x, screen_y, nodes[i].corpse_heading, scaled_radius, corpse_r, corpse_g, corpse_b);
             }
             
-            // Draw corpse body SECOND (over the tail)
+            // Draw corpse body
             if (scaled_radius <= 2) {
                 SDL_RenderDrawPoint(g_renderer, screen_x, screen_y);
                 if (scaled_radius > 1) {
@@ -438,11 +439,10 @@ void rendering_render(void) {
                 }
             }
             
-            // Draw decay indicator (small outline)
+            // Draw decay indicator
             float decay_progress = 1.0f - ((float)nodes[i].corpse_decay_timer / (float)CORPSE_DECAY_TIME);
             if (decay_progress > 0.5f) {
                 SDL_SetRenderDrawColor(g_renderer, 100, 100, 100, 255);
-                // Draw outline to show advanced decay
                 for (int angle = 0; angle < 360; angle += 45) {
                     float rad = angle * M_PI / 180.0f;
                     int outline_x = screen_x + (int)(cos(rad) * scaled_radius);
@@ -456,7 +456,7 @@ void rendering_render(void) {
         
         // Check if this is a fish node
         if (nodes[i].plant_type == -1) {
-            // This is a fish node - find the fish that owns this node
+            // Fish node rendering
             Fish* fish = NULL;
             for (int f = 0; f < fish_count; f++) {
                 if (fish_list[f].active && fish_list[f].node_id == i) {
@@ -489,12 +489,12 @@ void rendering_render(void) {
                 SDL_SetRenderDrawColor(g_renderer, fish_r, fish_g, fish_b, 255);
             }
             
-            // Draw fish tail FIRST (under the node) using heading
+            // Draw fish tail FIRST
             if (scaled_radius > 2 && fish) {
                 draw_fish_tail(g_renderer, screen_x, screen_y, fish->heading, scaled_radius, fish_r, fish_g, fish_b);
             }
             
-            // Draw fish body (circle) SECOND (over the tail)
+            // Draw fish body
             if (scaled_radius <= 2) {
                 SDL_RenderDrawPoint(g_renderer, screen_x, screen_y);
                 if (scaled_radius > 1) {
@@ -518,30 +518,30 @@ void rendering_render(void) {
             
             continue;
         } else {
-            // Plant node
+            // ENHANCED: Plant node with configurable size
+            int plant_type = nodes[i].plant_type;
+            PlantType* pt = plants_get_type(plant_type);
+            
+            // Apply size factor from plant configuration
+            float size_factor = pt ? pt->node_size_factor : 1.0f;
+            scaled_radius = (int)(NODE_RADIUS * camera_get_zoom() * size_factor);
             if (scaled_radius < 1) scaled_radius = 1;
             
             // Set color based on selection state, plant type, and bleaching
             if (i == selected_node && selection_mode == 1) {
                 SDL_SetRenderDrawColor(g_renderer, 255, 255, 0, 255);
             } else {
-                int plant_type = nodes[i].plant_type;
-                if (plant_type >= 0 && plant_type < plants_get_type_count()) {
-                    PlantType* pt = plants_get_type(plant_type);
-                    if (pt && pt->active) {
-                        int aged_r, aged_g, aged_b;
-                        calculate_aged_color(pt->node_r, pt->node_g, pt->node_b, nodes[i].age, pt->age_mature, &aged_r, &aged_g, &aged_b);
-                        
-                        // Check if coral is bleached
-                        if (temperature_is_coral_bleached(i)) {
-                            int bleached_r, bleached_g, bleached_b;
-                            calculate_bleached_color(aged_r, aged_g, aged_b, &bleached_r, &bleached_g, &bleached_b);
-                            SDL_SetRenderDrawColor(g_renderer, bleached_r, bleached_g, bleached_b, 255);
-                        } else {
-                            SDL_SetRenderDrawColor(g_renderer, aged_r, aged_g, aged_b, 255);
-                        }
+                if (pt && pt->active) {
+                    int aged_r, aged_g, aged_b;
+                    calculate_aged_color(pt->node_r, pt->node_g, pt->node_b, nodes[i].age, pt->age_mature, &aged_r, &aged_g, &aged_b);
+                    
+                    // Check if coral is bleached
+                    if (temperature_is_coral_bleached(i)) {
+                        int bleached_r, bleached_g, bleached_b;
+                        calculate_bleached_color(aged_r, aged_g, aged_b, &bleached_r, &bleached_g, &bleached_b);
+                        SDL_SetRenderDrawColor(g_renderer, bleached_r, bleached_g, bleached_b, 255);
                     } else {
-                        SDL_SetRenderDrawColor(g_renderer, 150, 255, 150, 255);
+                        SDL_SetRenderDrawColor(g_renderer, aged_r, aged_g, aged_b, 255);
                     }
                 } else {
                     SDL_SetRenderDrawColor(g_renderer, 150, 255, 150, 255);

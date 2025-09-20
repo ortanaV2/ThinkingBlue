@@ -1,4 +1,4 @@
-// simulation.c - Enhanced with corpse node support
+// simulation.c - Enhanced with per-plant-type chain curvature
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -41,7 +41,7 @@ int simulation_init(void) {
         return 0;
     }
     
-    printf("Simulation initialized with corpse system support\n");
+    printf("Simulation initialized with enhanced plant visualization\n");
     return 1;
 }
 
@@ -132,9 +132,16 @@ int simulation_add_chain(int node1, int node2) {
     chain->plant_type = g_nodes[node1].plant_type;
     chain->age = 0;
     
-    // Generate random curve parameters
+    // ENHANCED: Generate curve parameters based on plant type
+    PlantType* plant_type = plants_get_type(g_nodes[node1].plant_type);
+    float curvature_factor = plant_type ? plant_type->chain_curvature_factor : 1.0f;
+    
+    // Base curve strength and offset
     chain->curve_strength = ((float)rand() / RAND_MAX - 0.5f) * 0.6f;
     chain->curve_offset = ((float)rand() / RAND_MAX - 0.5f) * 20.0f;
+    
+    // Apply plant-specific curvature factor with additional randomness
+    chain->curve_multiplier = curvature_factor * (0.8f + ((float)rand() / RAND_MAX) * 0.4f);
     
     return g_chain_count++;
 }

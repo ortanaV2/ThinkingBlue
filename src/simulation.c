@@ -1,3 +1,4 @@
+// simulation.c - Enhanced with corpse node support
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -40,7 +41,7 @@ int simulation_init(void) {
         return 0;
     }
     
-    printf("Simulation initialized\n");
+    printf("Simulation initialized with corpse system support\n");
     return 1;
 }
 
@@ -76,12 +77,25 @@ int simulation_add_node(float x, float y, int plant_type) {
     node->vy = 0;
     node->active = 1;
     node->can_grow = 1;
-    node->plant_type = plant_type;
+    node->plant_type = plant_type;  // -1 for fish, -2 for corpse, >=0 for plants
     node->branch_count = 0;
     node->age = 0;
     
-    // REMOVED: nutrition_cost field is no longer used
-    // The new system calculates nutrition values directly when fish eat
+    // Initialize corpse system fields
+    node->is_corpse = 0;
+    node->corpse_decay_timer = 0;
+    node->original_fish_type = -1;
+    node->corpse_heading = 0.0f;
+    
+    // Handle special node types
+    if (plant_type == -2) {
+        // This is being created as a corpse node (will be set up by caller)
+        node->can_grow = 0;
+    } else if (plant_type == -1) {
+        // This is a fish node
+        node->can_grow = 0;
+    }
+    
     node->nutrition_cost = 0.0f;
     
     return g_node_count++;
@@ -95,6 +109,10 @@ int simulation_add_chain(int node1, int node2) {
     if (node1 == node2) return -1;
     if (node1 < 0 || node1 >= g_node_count) return -1;
     if (node2 < 0 || node2 >= g_node_count) return -1;
+    
+    // Don't create chains for fish nodes or corpses
+    if (g_nodes[node1].plant_type < 0 || g_nodes[node2].plant_type < 0) return -1;
+    if (g_nodes[node1].is_corpse || g_nodes[node2].is_corpse) return -1;
     
     // Check for duplicate chains in recent history
     int check_count = (g_chain_count > 1000) ? 1000 : g_chain_count;

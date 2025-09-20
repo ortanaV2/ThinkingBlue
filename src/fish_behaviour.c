@@ -1,4 +1,4 @@
-// fish_behaviour.c - Enhanced predator-prey behavior with reproduction tracking
+// fish_behaviour.c - Enhanced predator-prey behavior with corpse eating system
 #include <stdio.h>
 #include <stdlib.h>
 #include <math.h>
@@ -26,6 +26,21 @@ static float calculate_plant_nutrition_value(int plant_type) {
     
     float size_factor = (pt->max_branches / 3.0f) * (pt->branch_distance / OPTIMAL_DISTANCE);
     float nutrition_value = pt->nutrition_depletion_strength * size_factor;
+    
+    return nutrition_value;
+}
+
+// Calculate corpse nutrition value based on original fish type
+static float calculate_corpse_nutrition_value(int original_fish_type) {
+    if (original_fish_type < 0 || original_fish_type >= fish_get_type_count()) {
+        return 0.15f;  // Default corpse nutrition
+    }
+    
+    FishType* ft = fish_get_type(original_fish_type);
+    if (!ft) return 0.15f;
+    
+    // Corpse nutrition based on fish size and danger level
+    float nutrition_value = ft->size_radius * 0.02f + ft->danger_level * 0.1f + 0.1f;
     
     return nutrition_value;
 }
@@ -79,7 +94,7 @@ void fish_apply_rl_outputs(int fish_id) {
         
         // Enhanced movement for better learning
         if (movement_strength > 0.7f) {
-            force_magnitude *= 1.2f;  // Boost for high movement
+            force_magnitude *= 1.2f;
         }
         
         float force_x = cos(fish->heading) * force_magnitude;
@@ -119,7 +134,7 @@ void fish_calculate_rl_rewards(int fish_id) {
     if (current_speed > 1.0f) {
         fish->last_reward += 0.01f * (current_speed / fish_type->max_speed);
     } else if (current_speed < 0.3f) {
-        fish->last_reward -= 0.015f;  // Punish camping
+        fish->last_reward -= 0.015f;
     }
     
     // Species-specific rewards
@@ -148,16 +163,13 @@ void fish_calculate_rl_rewards(int fish_id) {
                                         fish->rl_inputs[5] * fish->rl_inputs[5]);
     
     if (fabs(danger_level) > 0.1f && foreign_fish_magnitude > 0.1f) {
-        if (danger_level < -0.3f) {  // Dangerous predator nearby
+        if (danger_level < -0.3f) {
             if (current_speed > fish_type->max_speed * 0.7f) {
-                // Big reward for fleeing fast
                 fish->last_reward += 0.1f * (-danger_level);
             } else {
-                // Punishment for not fleeing
                 fish->last_reward -= 0.08f * (-danger_level);
             }
         } else if (fish_type->is_predator && danger_level > 0.2f) {
-            // Predator hunting prey
             float prey_weakness = danger_level;
             if (current_speed > fish_type->max_speed * 0.6f) {
                 fish->last_reward += 0.06f * prey_weakness;
@@ -177,6 +189,9 @@ void fish_calculate_rl_rewards(int fish_id) {
         
         if (fish_type->is_predator) {
             ate_something = fish_attempt_eating_fish(fish_id);
+            if (!ate_something) {
+                ate_something = fish_attempt_eating_corpse(fish_id);  // Try corpses too
+            }
         } else {
             ate_something = fish_attempt_eating_plant(fish_id);
         }
@@ -216,6 +231,7 @@ int fish_attempt_eating_plant(int fish_id) {
             if (node_id < 0 || node_id >= simulation_get_node_count()) continue;
             if (!nodes[node_id].active) continue;
             if (nodes[node_id].plant_type == -1) continue;
+            if (nodes[node_id].is_corpse) continue;  // Skip corpses
             
             float dx = nodes[node_id].x - fish_x;
             float dy = nodes[node_id].y - fish_y;
@@ -254,7 +270,7 @@ int fish_attempt_eating_fish(int fish_id) {
     if (!fish_type || !fish_type->is_predator) return 0;
     
     if (fish->eating_cooldown > 0) {
-        fish->last_reward += 0.002f;  // Small reward for timing
+        fish->last_reward += 0.002f;
         return 0;
     }
     
@@ -305,6 +321,68 @@ int fish_attempt_eating_fish(int fish_id) {
     return 0;
 }
 
+// NEW: Attempt to eat corpse (predators only)
+int fish_attempt_eating_corpse(int fish_id) {
+    Fish* fish = fish_get_by_id(fish_id);
+    if (!fish) return 0;
+    
+    FishType* fish_type = fish_get_type(fish->fish_type);
+    if (!fish_type || !fish_type->is_predator) return 0;
+    
+    Node* nodes = simulation_get_nodes();
+    Node* fish_node = &nodes[fish->node_id];
+    
+    float fish_x = fish_node->x;
+    float fish_y = fish_node->y;
+    float eating_range_sq = fish_type->eating_range * fish_type->eating_range;
+    
+    GridCell* cells[9];
+    int cell_count = grid_get_cells_at_position(fish_x, fish_y, cells, 9);
+    
+    for (int c = 0; c < cell_count; c++) {
+        GridCell* cell = cells[c];
+        if (!cell) continue;
+        
+        for (int k = 0; k < cell->count; k++) {
+            int node_id = cell->node_indices[k];
+            if (node_id < 0 || node_id >= simulation_get_node_count()) continue;
+            if (!nodes[node_id].active) continue;
+            if (!nodes[node_id].is_corpse) continue;  // Only corpses
+            
+            float dx = nodes[node_id].x - fish_x;
+            float dy = nodes[node_id].y - fish_y;
+            float distance_sq = dx * dx + dy * dy;
+            
+            if (distance_sq <= eating_range_sq) {
+                int original_fish_type = nodes[node_id].original_fish_type;
+                float nutrition_value = calculate_corpse_nutrition_value(original_fish_type);
+                
+                fish->stomach_contents += nutrition_value;
+                fish_internal_add_consumed_nutrition(nutrition_value);
+                
+                // Good reward for eating corpse
+                float eating_reward = nutrition_value * 35.0f;
+                fish->last_reward += eating_reward;
+                
+                // Remove corpse
+                nodes[node_id].active = 0;
+                
+                fish->last_eating_frame = simulation_get_frame_counter();
+                fish_increment_corpses_eaten();
+                
+                FishType* original_type = fish_get_type(original_fish_type);
+                printf("Predator fish %d ate corpse of %s (nutrition: %.2f, reward: %.1f)\n", 
+                       fish_id, original_type ? original_type->name : "Unknown", 
+                       nutrition_value, eating_reward);
+                
+                return 1;
+            }
+        }
+    }
+    
+    return 0;
+}
+
 // Enhanced defecation with reproduction tracking for inheritance
 void fish_defecate(int fish_id) {
     Fish* fish = fish_get_by_id(fish_id);
@@ -336,11 +414,11 @@ void fish_defecate(int fish_id) {
     
     fish->defecation_count++;
     
-    fish->last_reward += defecation_amount * 3.0f;  // Good reward for completing cycle
+    fish->last_reward += defecation_amount * 3.0f;
     
     // Reproduction after 3 defecations (herbivores only)
     if (fish->defecation_count >= 3) {
-        g_parent_fish_id = fish_id;  // Set parent for inheritance
+        g_parent_fish_id = fish_id;
         fish_reproduce(fish_id);
         fish->defecation_count = 0;
     }
@@ -405,7 +483,7 @@ void fish_reproduce(int fish_id) {
         g_reproduction_notification_pending = 1;
     }
     
-    g_parent_fish_id = -1;  // Clear parent tracking
+    g_parent_fish_id = -1;
 }
 
 // Predator reproduction (separate system, based on kills)
@@ -427,8 +505,8 @@ void fish_predator_reproduce(int fish_id) {
         printf("Predator fish %d (%s) kill count: %d/3\n", 
                fish_id, fish_type->name, kill_counts[fish_id]);
         
-        if (kill_counts[fish_id] >= 3) {  // Reproduce after 3 kills
-            kill_counts[fish_id] = 0;  // Reset counter
+        if (kill_counts[fish_id] >= 3) {
+            kill_counts[fish_id] = 0;
             
             Node* nodes = simulation_get_nodes();
             Node* parent_node = &nodes[predator->node_id];
@@ -444,11 +522,11 @@ void fish_predator_reproduce(int fish_id) {
             if (spawn_y < WORLD_TOP + 20) spawn_y = WORLD_TOP + 20;
             if (spawn_y > WORLD_BOTTOM - 20) spawn_y = WORLD_BOTTOM - 20;
             
-            g_parent_fish_id = fish_id;  // Set parent for inheritance
+            g_parent_fish_id = fish_id;
             int offspring_id = fish_add(spawn_x, spawn_y, predator->fish_type);
             
             if (offspring_id >= 0) {
-                predator->last_reward += 200.0f;  // Huge predator reproduction reward
+                predator->last_reward += 200.0f;
                 
                 printf("Predator fish %d (%s) reproduced after 3 kills! Offspring %d inherits NN\n",
                        fish_id, fish_type->name, offspring_id);
@@ -467,13 +545,13 @@ int fish_get_parent_for_inheritance(void) {
 // Check if reproduction notification is pending
 int fish_is_reproduction_pending(void) {
     if (g_reproduction_notification_pending) {
-        g_reproduction_notification_pending = 0;  // Reset flag
+        g_reproduction_notification_pending = 0;
         return 1;
     }
     return 0;
 }
 
-// Wrapper function for backward compatibility
+// Wrapper function for backward compatibility - now includes corpse eating
 int fish_attempt_eating(int fish_id) {
     Fish* fish = fish_get_by_id(fish_id);
     if (!fish) return 0;
@@ -482,7 +560,11 @@ int fish_attempt_eating(int fish_id) {
     if (!fish_type) return 0;
     
     if (fish_type->is_predator) {
-        return fish_attempt_eating_fish(fish_id);
+        // Try fish first, then corpses
+        int ate_fish = fish_attempt_eating_fish(fish_id);
+        if (ate_fish) return 1;
+        
+        return fish_attempt_eating_corpse(fish_id);
     } else {
         return fish_attempt_eating_plant(fish_id);
     }

@@ -1,4 +1,4 @@
-// fish_update.c - Main fish update loop with aging system
+// fish_update.c - Main fish update loop with aging and corpse decay system
 #include <stdio.h>
 #include <stdlib.h>
 #include <math.h>
@@ -8,7 +8,36 @@
 #include "simulation.h"
 #include "flow.h"
 
-// Main fish update function with aging
+// Update corpse decay system
+void fish_update_corpses(void) {
+    Node* nodes = simulation_get_nodes();
+    int node_count = simulation_get_node_count();
+    int corpses_decayed = 0;
+    
+    for (int i = 0; i < node_count; i++) {
+        if (!nodes[i].active) continue;
+        if (!nodes[i].is_corpse) continue;
+        
+        // Decay timer countdown
+        nodes[i].corpse_decay_timer--;
+        
+        // Remove corpse when timer reaches zero
+        if (nodes[i].corpse_decay_timer <= 0) {
+            nodes[i].active = 0;
+            corpses_decayed++;
+        }
+    }
+    
+    // Debug output for corpse decay
+    static int last_corpse_log = 0;
+    int current_frame = simulation_get_frame_counter();
+    if (corpses_decayed > 0 && (current_frame - last_corpse_log) > 300) {
+        printf("Corpse decay: %d corpses naturally decayed\n", corpses_decayed);
+        last_corpse_log = current_frame;
+    }
+}
+
+// Main fish update function with aging and corpse system
 void fish_update(void) {
     Node* nodes = simulation_get_nodes();
     int node_count = simulation_get_node_count();
@@ -17,6 +46,9 @@ void fish_update(void) {
     Fish* fish_array = fish_internal_get_array();
     FishType* fish_types = fish_internal_get_types();
     int fish_count = fish_get_count();
+    
+    // Update corpse decay system
+    fish_update_corpses();
     
     // Track deaths for this frame
     int deaths_this_frame = 0;
@@ -33,7 +65,7 @@ void fish_update(void) {
         FishType* fish_type = &fish_types[fish->fish_type];
         Node* node = &nodes[node_id];
         
-        // NEW: Check for death from aging (every 30 frames based on birth frame)
+        // Check for death from aging (every 30 frames based on birth frame)
         if (fish_should_die_from_age(i)) {
             fish->active = 0;
             node->active = 0;
@@ -110,7 +142,7 @@ void fish_update(void) {
         fish->age++;
     }
     
-    // Debug output every 15 seconds with aging stats
+    // Debug output every 15 seconds with aging and corpse stats
     static int last_debug_frame = 0;
     if (current_frame - last_debug_frame >= 450) {
         last_debug_frame = current_frame;
@@ -122,7 +154,15 @@ void fish_update(void) {
         int eating_mode_fish = 0;
         int predator_count = 0;
         int herbivore_count = 0;
-        int old_fish_count = 0;  // Fish past 75% of max age
+        int old_fish_count = 0;
+        int active_corpses = 0;
+        
+        // Count active corpses
+        for (int i = 0; i < node_count; i++) {
+            if (nodes[i].active && nodes[i].is_corpse) {
+                active_corpses++;
+            }
+        }
         
         for (int i = 0; i < fish_count; i++) {
             if (fish_array[i].active) {
@@ -145,11 +185,14 @@ void fish_update(void) {
             }
         }
         
-        printf("\n=== FISH ECOSYSTEM STATUS Frame %d ===\n", current_frame);
+        printf("\n=== FISH ECOSYSTEM STATUS WITH CORPSE SYSTEM Frame %d ===\n", current_frame);
         printf("Active fish: %d (%d herbivores, %d predators)\n", active_fish, herbivore_count, predator_count);
         printf("Fish in eating mode: %d\n", eating_mode_fish);
         printf("Old fish (>75%% max age): %d\n", old_fish_count);
+        printf("Active corpses: %d\n", active_corpses);
         printf("Total deaths from aging: %d\n", fish_get_total_deaths_from_age());
+        printf("Total corpses created: %d\n", fish_get_total_corpses_created());
+        printf("Total corpses eaten: %d\n", fish_get_total_corpses_eaten());
         printf("Nutrition consumed: %.4f\n", total_consumed);
         printf("Nutrition defecated: %.4f\n", total_defecated);
         printf("Nutrition balance: %.4f\n", balance);
@@ -181,7 +224,7 @@ void fish_update(void) {
             printf("Deaths this frame: %d\n", deaths_this_frame);
         }
         
-        printf("Neural networks learning with natural aging...\n");
+        printf("Neural networks learning with natural aging and corpse system...\n");
         printf("==========================================\n\n");
     }
 }

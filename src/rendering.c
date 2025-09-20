@@ -1,4 +1,4 @@
-// rendering.c - Enhanced with coral bleaching visualization
+// rendering.c - Enhanced with coral bleaching and corpse visualization
 #include <SDL2/SDL.h>
 #include <math.h>
 
@@ -51,7 +51,7 @@ static void calculate_bleached_color(int base_r, int base_g, int base_b, int* bl
     int gray_value = (int)(0.299f * base_r + 0.587f * base_g + 0.114f * base_b);
     
     // Make it very light gray/white for bleached effect
-    *bleached_r = (gray_value + 255) / 2;  // Average with white
+    *bleached_r = (gray_value + 255) / 2;
     *bleached_g = (gray_value + 255) / 2;
     *bleached_b = (gray_value + 255) / 2;
     
@@ -59,6 +59,36 @@ static void calculate_bleached_color(int base_r, int base_g, int base_b, int* bl
     if (*bleached_r < 200) *bleached_r = 200;
     if (*bleached_g < 200) *bleached_g = 200;
     if (*bleached_b < 200) *bleached_b = 200;
+}
+
+// NEW: Calculate corpse color (white/gray like bleached coral)
+static void calculate_corpse_color(int original_fish_type, int decay_timer, int* corpse_r, int* corpse_g, int* corpse_b) {
+    // Base corpse color is white/gray
+    int base_gray = 220;
+    
+    // Darken based on decay progress
+    float decay_factor = (float)decay_timer / (float)CORPSE_DECAY_TIME;
+    
+    // Fresh corpse is lighter, old corpse is darker
+    int gray_value = (int)(base_gray * (0.5f + decay_factor * 0.5f));
+    
+    // Slight color tint based on original fish type
+    FishType* original_type = fish_get_type(original_fish_type);
+    if (original_type) {
+        // Very subtle tint from original colors
+        *corpse_r = (gray_value * 9 + original_type->node_r) / 10;
+        *corpse_g = (gray_value * 9 + original_type->node_g) / 10;
+        *corpse_b = (gray_value * 9 + original_type->node_b) / 10;
+    } else {
+        *corpse_r = gray_value;
+        *corpse_g = gray_value;
+        *corpse_b = gray_value;
+    }
+    
+    // Ensure minimum brightness for visibility
+    if (*corpse_r < 150) *corpse_r = 150;
+    if (*corpse_g < 150) *corpse_g = 150;
+    if (*corpse_b < 150) *corpse_b = 150;
 }
 
 static void draw_thick_line(SDL_Renderer* renderer, int x1, int y1, int x2, int y2, int thickness) {
@@ -147,9 +177,9 @@ static void draw_fish_rl_vision(SDL_Renderer* renderer, int fish_id) {
     // Draw FOV arc
     float fov_rad = (fish_type->fov_angle * M_PI) / 180.0f;
     float half_fov = fov_rad * 0.5f;
-    float fov_range = 200.0f;  // Visual range for FOV display
+    float fov_range = 200.0f;
     
-    SDL_SetRenderDrawColor(renderer, 100, 150, 255, 100);  // Light blue
+    SDL_SetRenderDrawColor(renderer, 100, 150, 255, 100);
     
     // Draw FOV boundary lines
     float left_angle = fish->heading - half_fov;
@@ -168,8 +198,7 @@ static void draw_fish_rl_vision(SDL_Renderer* renderer, int fish_id) {
     float plant_vec_y = fish->rl_inputs[1];
     
     if (plant_vec_x != 0.0f || plant_vec_y != 0.0f) {
-        // Draw thick line to nearest plant
-        SDL_SetRenderDrawColor(renderer, 255, 100, 100, 200);  // Red
+        SDL_SetRenderDrawColor(renderer, 255, 100, 100, 200);
         
         float plant_range = 150.0f;
         int plant_end_x = fish_screen_x + (int)(plant_vec_x * plant_range * camera_get_zoom());
@@ -195,7 +224,7 @@ static void draw_fish_rl_vision(SDL_Renderer* renderer, int fish_id) {
     }
     
     // Draw heading direction
-    SDL_SetRenderDrawColor(renderer, 255, 255, 100, 150);  // Yellow
+    SDL_SetRenderDrawColor(renderer, 255, 255, 100, 150);
     
     int heading_end_x = fish_screen_x + (int)(cos(fish->heading) * 50.0f * camera_get_zoom());
     int heading_end_y = fish_screen_y + (int)(sin(fish->heading) * 50.0f * camera_get_zoom());
@@ -293,6 +322,8 @@ void rendering_render(void) {
         
         // Skip chains involving fish nodes
         if (nodes[n1].plant_type == -1 || nodes[n2].plant_type == -1) continue;
+        // Skip chains involving corpses
+        if (nodes[n1].is_corpse || nodes[n2].is_corpse) continue;
         
         // Frustum culling
         float min_x = fminf(nodes[n1].x, nodes[n2].x);
@@ -352,7 +383,7 @@ void rendering_render(void) {
         }
     }
     
-    // Render nodes (both plants and fish)
+    // Render nodes (plants, fish, and corpses)
     for (int i = 0; i < node_count; i++) {
         if (!nodes[i].active) continue;
         
@@ -366,6 +397,62 @@ void rendering_render(void) {
         camera_world_to_screen(nodes[i].x, nodes[i].y, &screen_x, &screen_y);
         
         int scaled_radius = (int)(NODE_RADIUS * camera_get_zoom());
+        
+        // Check if this is a corpse node
+        if (nodes[i].is_corpse) {
+            // Render corpse with white/gray color and tail
+            if (scaled_radius < 1) scaled_radius = 1;
+            
+            int corpse_r, corpse_g, corpse_b;
+            calculate_corpse_color(nodes[i].original_fish_type, nodes[i].corpse_decay_timer, &corpse_r, &corpse_g, &corpse_b);
+            SDL_SetRenderDrawColor(g_renderer, corpse_r, corpse_g, corpse_b, 255);
+            
+            // Make corpse slightly larger than regular nodes
+            scaled_radius = (int)((NODE_RADIUS * 1.5f) * camera_get_zoom());
+            if (scaled_radius < 1) scaled_radius = 1;
+            
+            // Draw corpse tail FIRST (using preserved heading from when fish died)
+            if (scaled_radius > 2) {
+                draw_fish_tail(g_renderer, screen_x, screen_y, nodes[i].corpse_heading, scaled_radius, corpse_r, corpse_g, corpse_b);
+            }
+            
+            // Draw corpse body SECOND (over the tail)
+            if (scaled_radius <= 2) {
+                SDL_RenderDrawPoint(g_renderer, screen_x, screen_y);
+                if (scaled_radius > 1) {
+                    SDL_RenderDrawPoint(g_renderer, screen_x-1, screen_y);
+                    SDL_RenderDrawPoint(g_renderer, screen_x+1, screen_y);
+                    SDL_RenderDrawPoint(g_renderer, screen_x, screen_y-1);
+                    SDL_RenderDrawPoint(g_renderer, screen_x, screen_y+1);
+                }
+            } else {
+                for (int dx = -scaled_radius; dx <= scaled_radius; dx++) {
+                    int dy_max = (int)sqrt(scaled_radius * scaled_radius - dx * dx);
+                    for (int dy = -dy_max; dy <= dy_max; dy++) {
+                        int px = screen_x + dx;
+                        int py = screen_y + dy;
+                        if (px >= 0 && px < WINDOW_WIDTH && py >= 0 && py < WINDOW_HEIGHT) {
+                            SDL_RenderDrawPoint(g_renderer, px, py);
+                        }
+                    }
+                }
+            }
+            
+            // Draw decay indicator (small outline)
+            float decay_progress = 1.0f - ((float)nodes[i].corpse_decay_timer / (float)CORPSE_DECAY_TIME);
+            if (decay_progress > 0.5f) {
+                SDL_SetRenderDrawColor(g_renderer, 100, 100, 100, 255);
+                // Draw outline to show advanced decay
+                for (int angle = 0; angle < 360; angle += 45) {
+                    float rad = angle * M_PI / 180.0f;
+                    int outline_x = screen_x + (int)(cos(rad) * scaled_radius);
+                    int outline_y = screen_y + (int)(sin(rad) * scaled_radius);
+                    SDL_RenderDrawPoint(g_renderer, outline_x, outline_y);
+                }
+            }
+            
+            continue;
+        }
         
         // Check if this is a fish node
         if (nodes[i].plant_type == -1) {

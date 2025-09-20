@@ -50,6 +50,9 @@
 #define TARGET_FPS 30
 #define DEATH_CHECK_INTERVAL 30  // Check every 30 frames
 
+// NEW: Corpse system constants
+#define CORPSE_DECAY_TIME 1800  // 60 seconds at 30 FPS
+
 // Derived world bounds
 #define WORLD_LEFT (WORLD_CENTER_X - WORLD_WIDTH / 2.0f)
 #define WORLD_RIGHT (WORLD_CENTER_X + WORLD_WIDTH / 2.0f)
@@ -133,9 +136,15 @@ typedef struct {
     float vx, vy;
     int active;
     int can_grow;
-    int plant_type;   // Plant type index (-1 for fish nodes)
+    int plant_type;   // Plant type index (-1 for fish nodes, -2 for corpse nodes)
     int branch_count;
     int age;
+    
+    // NEW: Corpse system
+    int is_corpse;
+    int corpse_decay_timer;
+    int original_fish_type;  // Fish type that became this corpse
+    float corpse_heading;    // Preserved heading from when fish died
     
     // Kept for compatibility
     float nutrition_cost;

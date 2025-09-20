@@ -1,4 +1,4 @@
-// python_api.c - Enhanced Python interface with statistics support
+// python_api.c - Enhanced Python interface with temperature control
 #include <Python.h>
 #include <stdio.h>
 
@@ -7,11 +7,50 @@
 #include "fish.h"
 #include "simulation.h"
 #include "nutrition.h"
+#include "temperature.h"
 
 static PyObject* g_python_module = NULL;
 static PyObject* g_update_function = NULL;
 
-// NEW: Get total plant node count
+// Temperature control functions
+static PyObject* py_temperature_get_current(PyObject* self, PyObject* args) {
+    (void)self;
+    (void)args;
+    
+    float temp = temperature_get_current();
+    return PyFloat_FromDouble(temp);
+}
+
+static PyObject* py_temperature_set_current(PyObject* self, PyObject* args) {
+    (void)self;
+    float temp;
+    
+    if (!PyArg_ParseTuple(args, "f", &temp)) {
+        return NULL;
+    }
+    
+    temperature_set_current(temp);
+    Py_RETURN_NONE;
+}
+
+static PyObject* py_temperature_get_bleached_count(PyObject* self, PyObject* args) {
+    (void)self;
+    (void)args;
+    
+    Node* nodes = simulation_get_nodes();
+    int node_count = simulation_get_node_count();
+    int bleached_count = 0;
+    
+    for (int i = 0; i < node_count; i++) {
+        if (nodes[i].active && temperature_is_coral_bleached(i)) {
+            bleached_count++;
+        }
+    }
+    
+    return PyLong_FromLong(bleached_count);
+}
+
+// Get total plant node count
 static PyObject* py_get_plant_node_count(PyObject* self, PyObject* args) {
     (void)self;
     (void)args;
@@ -29,7 +68,7 @@ static PyObject* py_get_plant_node_count(PyObject* self, PyObject* args) {
     return PyLong_FromLong(plant_count);
 }
 
-// NEW: Get total nutrition in environment
+// Get total nutrition in environment
 static PyObject* py_get_total_environment_nutrition(PyObject* self, PyObject* args) {
     (void)self;
     (void)args;
@@ -306,7 +345,7 @@ static PyObject* py_get_world_bounds(PyObject* self, PyObject* args) {
     return Py_BuildValue("(ffff)", WORLD_LEFT, WORLD_TOP, WORLD_RIGHT, WORLD_BOTTOM);
 }
 
-// ENHANCED: Get comprehensive nutrition balance data
+// Get comprehensive nutrition balance data
 static PyObject* py_get_nutrition_balance(PyObject* self, PyObject* args) {
     (void)self;
     (void)args;
@@ -444,7 +483,7 @@ static PyObject* py_get_vision_info(PyObject* self, PyObject* args) {
     return Py_BuildValue("(ii)", 12, 12);
 }
 
-// Method definitions with statistics support
+// Method definitions with temperature control
 static PyMethodDef SimulationMethods[] = {
     {"fish_add", py_fish_add, METH_VARARGS, "Add a fish to the simulation"},
     {"fish_get_count", py_fish_get_count, METH_NOARGS, "Get total fish count"},
@@ -467,7 +506,12 @@ static PyMethodDef SimulationMethods[] = {
     {"fish_get_age_info", py_fish_get_age_info, METH_VARARGS, "Get fish age info (age, max_age, ratio, birth_frame)"},
     {"fish_get_aging_stats", py_fish_get_aging_stats, METH_NOARGS, "Get total deaths from aging"},
     
-    // NEW: Statistics functions for live plotting
+    // Temperature control functions
+    {"temperature_get_current", py_temperature_get_current, METH_NOARGS, "Get current temperature in Celsius"},
+    {"temperature_set_current", py_temperature_set_current, METH_VARARGS, "Set current temperature in Celsius"},
+    {"temperature_get_bleached_count", py_temperature_get_bleached_count, METH_NOARGS, "Get count of bleached coral nodes"},
+    
+    // Statistics functions for live plotting
     {"get_plant_node_count", py_get_plant_node_count, METH_NOARGS, "Get total active plant nodes"},
     {"get_total_environment_nutrition", py_get_total_environment_nutrition, METH_NOARGS, "Get total nutrition balance in environment"},
     
@@ -496,7 +540,7 @@ static PyMethodDef SimulationMethods[] = {
 static struct PyModuleDef simulation_module = {
     PyModuleDef_HEAD_INIT,
     "simulation",
-    "Marine ecosystem simulation API with statistics support for live plotting",
+    "Marine ecosystem simulation API with temperature control for coral bleaching",
     -1,
     SimulationMethods,
     NULL,
@@ -522,7 +566,7 @@ int python_api_init(void) {
         return 0;
     }
     
-    printf("Python API initialized with statistics support for live plotting\n");
+    printf("Python API initialized with temperature control for coral bleaching\n");
     return 1;
 }
 
@@ -567,7 +611,7 @@ int python_api_run_script(const char* script_path) {
             }
             printf("Warning: No callable 'update_fish' function found in Python script\n");
         } else {
-            printf("Neural network script with statistics support loaded successfully\n");
+            printf("Neural network script with temperature control loaded successfully\n");
         }
     }
     

@@ -1,4 +1,4 @@
-// main.c - Enhanced with statistics plotter integration
+// main.c - Enhanced with temperature system for coral bleaching
 #include <SDL2/SDL.h>
 #include <stdio.h>
 #include <time.h>
@@ -16,6 +16,7 @@
 #include "nutrition.h"
 #include "gas.h"
 #include "flow.h"
+#include "temperature.h"
 
 #define FRAME_DELAY (1000 / TARGET_FPS)
 
@@ -24,7 +25,6 @@ static int g_current_plant_type = 0;
 static int g_current_fish_type = 0;
 static int g_spawn_mode = 0; // 0 = plants, 1 = fish
 static int g_graceful_shutdown_requested = 0;
-// Removed: g_stats_plotter_started (can now open multiple times)
 
 // Signal handler for graceful shutdown
 static void signal_handler(int signum) {
@@ -42,7 +42,7 @@ static void populate_reef_randomly(void) {
     
     if (total_plant_species == 0) return;
     
-    printf("Populating reef with %d plants and %d fish (aging + model saving)...\n", 
+    printf("Populating reef with %d plants and %d fish (aging + model saving + temperature)...\n", 
            INITIAL_PLANT_COUNT, INITIAL_FISH_COUNT);
     
     // Spawn plants
@@ -72,7 +72,7 @@ static void populate_reef_randomly(void) {
         }
     }
     
-    printf("Reef populated! Neural networks will learn and best models will be saved on exit.\n");
+    printf("Reef populated! Temperature system active for coral bleaching.\n");
 }
 
 static void write_stats_file(void) {
@@ -84,6 +84,17 @@ static void write_stats_file(void) {
         return;
     }
     last_write_frame = current_frame;
+    
+    // Check for temperature control from Python GUI
+    FILE* temp_control = fopen("temperature_control.tmp", "r");
+    if (temp_control) {
+        char line[32];
+        if (fgets(line, sizeof(line), temp_control)) {
+            float new_temp = atof(line);
+            temperature_set_current(new_temp);
+        }
+        fclose(temp_control);
+    }
     
     FILE* stats_file = fopen("simulation_stats.tmp", "wb");
     if (!stats_file) {
@@ -108,15 +119,15 @@ static void write_stats_file(void) {
     float env_depleted = nutrition_get_total_depleted();
     float nutrition_balance = env_added - env_depleted;
     
-    // Write binary data: nutrition_balance, fish_count, plant_count
-    float data[3] = {nutrition_balance, (float)fish_count, (float)plant_count};
-    fwrite(data, sizeof(float), 3, stats_file);
+    // Write binary data: nutrition_balance, fish_count, plant_count, temperature
+    float data[4] = {nutrition_balance, (float)fish_count, (float)plant_count, temperature_get_current()};
+    fwrite(data, sizeof(float), 4, stats_file);
     
     fclose(stats_file);
 }
 
 static void start_stats_plotter(void) {
-    printf("Starting ecosystem statistics monitor...\n");
+    printf("Starting ecosystem statistics monitor with temperature control...\n");
     
     // Execute ecosystem stats in background
     #ifdef _WIN32
@@ -125,7 +136,7 @@ static void start_stats_plotter(void) {
         system("python3 ecosystem_stats.py &");
     #endif
     
-    printf("Statistics monitor started! Live plots should appear.\n");
+    printf("Statistics monitor started! Live plots should appear with temperature slider.\n");
     printf("Data is updated every second via simulation_stats.tmp\n");
     printf("You can close and reopen the statistics window anytime with TAB\n");
 }
@@ -184,7 +195,7 @@ static void handle_mouse_click(int screen_x, int screen_y, int button) {
 }
 
 static void print_debug_info(void) {
-    printf("\n=== DEBUG INFO WITH NEURAL NETWORK TRAINING ===\n");
+    printf("\n=== DEBUG INFO WITH NEURAL NETWORK TRAINING + TEMPERATURE ===\n");
     printf("World size: %.0fx%.0f\n", WORLD_WIDTH, WORLD_HEIGHT);
     printf("Zoom: unlimited (current: %.6f)\n", camera_get_zoom());
     printf("Plant types: %d\n", plants_get_type_count());
@@ -194,7 +205,20 @@ static void print_debug_info(void) {
     printf("Spawn mode: %s\n", g_spawn_mode == 0 ? "PLANT" : "FISH");
     printf("Ray rendering: %s\n", fish_is_ray_rendering_enabled() ? "ON" : "OFF");
     printf("Flow field: %s\n", flow_is_visible() ? "ON" : "OFF");
+    printf("Temperature: %.1f°C\n", temperature_get_current());
     printf("Statistics: Available via TAB key\n");
+    
+    // Count bleached corals
+    Node* nodes = simulation_get_nodes();
+    int node_count = simulation_get_node_count();
+    int bleached_count = 0;
+    
+    for (int i = 0; i < node_count; i++) {
+        if (nodes[i].active && temperature_is_coral_bleached(i)) {
+            bleached_count++;
+        }
+    }
+    printf("Bleached corals: %d\n", bleached_count);
     
     // Aging system statistics
     printf("\n=== AGING SYSTEM STATUS ===\n");
@@ -221,16 +245,6 @@ static void print_debug_info(void) {
     }
     
     printf("Age distribution: %d young, %d middle-aged, %d old\n", young_fish, middle_aged_fish, old_fish);
-    
-    // Show fish lifespans
-    printf("\nFish type lifespans:\n");
-    for (int i = 0; i < fish_get_type_count(); i++) {
-        FishType* ft = fish_get_type(i);
-        if (ft) {
-            float lifespan_minutes = ft->max_age / (TARGET_FPS * 60.0f);
-            printf("  %s: %.1f minutes\n", ft->name, lifespan_minutes);
-        }
-    }
     
     // Enhanced nutrition cycle balance
     printf("\n=== NUTRITION CYCLE BALANCE ===\n");
@@ -262,26 +276,6 @@ static void print_debug_info(void) {
     printf("Models will be saved on exit (Ctrl+C or ESC)\n");
     printf("Best herbivore and predator models will be saved to JSON files\n");
     printf("Training is ongoing - reproduction success tracked for model selection\n");
-    
-    // Show sample fish details with aging
-    Node* nodes = simulation_get_nodes();
-    printf("\n=== FISH DETAILS WITH AGING ===\n");
-    int samples_shown = 0;
-    for (int i = 0; i < fish_get_count() && samples_shown < 5; i++) {
-        if (fish_list[i].active) {
-            Node* node = &nodes[fish_list[i].node_id];
-            FishType* ft = fish_get_type(fish_list[i].fish_type);
-            
-            int age = current_frame - fish_list[i].birth_frame;
-            float age_minutes = age / (TARGET_FPS * 60.0f);
-            float max_age_minutes = ft->max_age / (TARGET_FPS * 60.0f);
-            float age_percentage = (float)age / (float)ft->max_age * 100.0f;
-            
-            printf("Fish %d (%s): pos(%.0f,%.0f) age=%.1f/%.1f min (%.0f%%) energy=%.2f\n", 
-                   i, ft->name, node->x, node->y, age_minutes, max_age_minutes, age_percentage, fish_list[i].energy);
-            samples_shown++;
-        }
-    }
     printf("==========================================\n\n");
 }
 
@@ -289,12 +283,12 @@ int main(int argc, char* argv[]) {
     (void)argc;
     (void)argv;
     
-    printf("Starting Great Barrier Reef Ecosystem v3 with Neural Network Training...\n");
+    printf("Starting Great Barrier Reef Ecosystem v3 with Temperature System...\n");
     printf("World dimensions: %.0fx%.0f, Initial population: %d plants, %d fish\n",
            WORLD_WIDTH, WORLD_HEIGHT, INITIAL_PLANT_COUNT, INITIAL_FISH_COUNT);
-    printf("Fish will age naturally and neural networks will learn from experience\n");
+    printf("Temperature system active - coral bleaching will occur at temperatures > 0°C\n");
     printf("Best models will be saved on graceful shutdown (Ctrl+C)\n");
-    printf("Live statistics plotter available (press 'S' to start)\n");
+    printf("Live statistics plotter available with temperature control (press 'TAB')\n");
     
     srand((unsigned int)time(NULL));
     
@@ -309,7 +303,7 @@ int main(int argc, char* argv[]) {
     }
     
     // Create window and renderer
-    SDL_Window* window = SDL_CreateWindow("Great Barrier Reef Ecosystem v3 - NN Training + Live Stats",
+    SDL_Window* window = SDL_CreateWindow("Great Barrier Reef Ecosystem v3 - Temperature + Coral Bleaching",
                                          SDL_WINDOWPOS_CENTERED, SDL_WINDOWPOS_CENTERED,
                                          WINDOW_WIDTH, WINDOW_HEIGHT, SDL_WINDOW_SHOWN);
     if (!window) {
@@ -357,6 +351,10 @@ int main(int argc, char* argv[]) {
         printf("Fish init failed\n");
         goto cleanup;
     }
+    if (!temperature_init()) {
+        printf("Temperature init failed\n");
+        goto cleanup;
+    }
     
     // Load configurations
     printf("Loading configurations...\n");
@@ -387,18 +385,10 @@ int main(int argc, char* argv[]) {
     populate_reef_randomly();
     
     // Print status
-    printf("\nSystem ready with neural network training!\n");
+    printf("\nSystem ready with temperature-based coral bleaching!\n");
     printf("Plant types loaded: %d\n", plants_get_type_count());
     printf("Fish types loaded: %d\n", fish_get_type_count());
-    
-    // Show aging info for each fish type
-    printf("\nFish aging and training parameters:\n");
-    for (int i = 0; i < fish_get_type_count(); i++) {
-        FishType* ft = fish_get_type(i);
-        float lifespan_minutes = ft->max_age / (TARGET_FPS * 60.0f);
-        printf("  %s: %d frames (%.1f min) - %s\n", ft->name, ft->max_age, lifespan_minutes,
-               ft->is_predator ? "PREDATOR" : "HERBIVORE");
-    }
+    printf("Temperature: %.1f°C (use stats GUI to adjust)\n", temperature_get_current());
     
     // Print controls
     printf("\nControls:\n");
@@ -409,14 +399,13 @@ int main(int argc, char* argv[]) {
     printf("  Mouse wheel: Zoom (unlimited range)\n");
     printf("  1-8: Select plant type\n");
     printf("  F1-F6: Select fish type\n");
-    printf("  TAB: Open statistics plotter (live plots)\n");
+    printf("  TAB: Open statistics plotter with temperature control\n");
     printf("  Shift+TAB: Toggle plant/fish mode\n");
     printf("  N: Toggle nutrition layer\n");
     printf("  G: Toggle gas layer\n");
     printf("  F: Toggle flow field\n");
     printf("  R: Toggle fish vision rays\n");
-    printf("  S: Start statistics plotter (live plots)\n");
-    printf("  P: Print debug info (includes training stats)\n");
+    printf("  P: Print debug info (includes temperature stats)\n");
     printf("  ESC or Ctrl+C: Save best models and exit (cleans temp files)\n\n");
     
     // Set initial mode
@@ -429,10 +418,8 @@ int main(int argc, char* argv[]) {
     SDL_Event event;
     int mouse_x = 0, mouse_y = 0;
     
-    printf("Neural network training started! Fish are learning to survive and reproduce...\n");
-    printf("Best performing models will be saved automatically on exit.\n");
-    printf("Press 'TAB' to open live statistics window with real-time plots.\n");
-    printf("Use Ctrl+C for clean shutdown (saves models + cleans temp files).\n\n");
+    printf("Temperature system active! Coral bleaching will occur at temperatures > 0°C\n");
+    printf("Use the statistics GUI (TAB) to adjust temperature and watch coral health.\n\n");
     
     // Main game loop
     while (running && !g_graceful_shutdown_requested) {
@@ -556,6 +543,7 @@ int main(int argc, char* argv[]) {
         python_api_update();  // Neural network training happens here
         fish_update();        // Includes aging checks
         physics_update();
+        temperature_process_coral_bleaching();  // Process coral bleaching based on temperature
         
         // Write statistics for plotter
         write_stats_file();
@@ -583,8 +571,22 @@ cleanup:
     }
     
     // Final report with aging and training stats
-    printf("\n=== FINAL TRAINING AND AGING REPORT ===\n");
+    printf("\n=== FINAL TRAINING AND TEMPERATURE REPORT ===\n");
     printf("Total deaths from aging: %d\n", fish_get_total_deaths_from_age());
+    printf("Final temperature: %.1f°C\n", temperature_get_current());
+    
+    // Count final bleached corals
+    Node* nodes = simulation_get_nodes();
+    int node_count = simulation_get_node_count();
+    int bleached_count = 0;
+    
+    for (int i = 0; i < node_count; i++) {
+        if (nodes[i].active && temperature_is_coral_bleached(i)) {
+            bleached_count++;
+        }
+    }
+    printf("Total bleached corals: %d\n", bleached_count);
+    
     printf("Fish consumed: %.2f\n", fish_get_total_nutrition_consumed());
     printf("Fish defecated: %.2f\n", fish_get_total_nutrition_defecated());
     printf("Fish balance: %.2f\n", fish_get_nutrition_balance());
@@ -595,9 +597,9 @@ cleanup:
            fish_get_nutrition_balance() + nutrition_get_balance());
     printf("Neural network training completed successfully\n");
     printf("Check for best_herbivore_model.json and best_predator_model.json files\n");
-    printf("Statistics: Available via TAB key anytime\n");
     printf("========================================\n");
     
+    temperature_cleanup();
     python_api_cleanup();
     fish_cleanup();
     flow_cleanup();

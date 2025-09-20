@@ -90,19 +90,19 @@ build-no-check: $(TARGET)
 
 # Run the program
 run: $(TARGET)
-	@echo "Starting $(TARGET)..."
+	@echo "Starting $(TARGET) with temperature control..."
 	./$(TARGET)
 
-# NEW: Test ecosystem stats independently
+# Test ecosystem stats with temperature control
 test-stats:
-	@echo "Testing ecosystem statistics monitor..."
+	@echo "Testing ecosystem statistics monitor with temperature control..."
 	@if [ -f ecosystem_stats.py ]; then \
 		python ecosystem_stats.py; \
 	else \
 		echo "Error: ecosystem_stats.py not found"; \
 	fi
 
-# NEW: Check Python dependencies
+# Check Python dependencies
 check-stats-deps:
 	@echo "Checking ecosystem statistics dependencies..."
 	@python -c "import tkinter; print('✓ tkinter available')" || echo "✗ tkinter missing"
@@ -128,12 +128,14 @@ help:
 	@echo "  install-python-headers - Install Python development files"
 	@echo "  help             - Show this help"
 	@echo ""
-	@echo "Live Statistics:"
-	@echo "  - Press 'TAB' in simulation to open statistics window"
-	@echo "  - Press 'Shift+TAB' to toggle plant/fish spawn mode"
-	@echo "  - Shows live plots: nutrition balance, fish count, plant count"
-	@echo "  - Updates every second automatically"
-	@echo "  - Uses shared file communication (simulation_stats.tmp)"
-	@echo "  - Single ecosystem_stats.py script handles everything"
+	@echo "Temperature Control Features:"
+	@echo "  - Press 'TAB' in simulation to open statistics window with temperature slider"
+	@echo "  - Adjust temperature from 0.0°C to 3.0°C (0.1°C precision)"
+	@echo "  - Coral bleaching occurs at temperatures > 0°C"
+	@echo "  - Higher temperatures increase bleaching probability"
+	@echo "  - Bleached corals appear white/gray and produce no oxygen"
+	@echo "  - Temperature affects entire coral colonies (nodes + chains)"
+	@echo "  - Live monitoring shows bleached coral count in real-time"
+	@echo "  - Temperature data is plotted alongside other ecosystem metrics"
 
 .PHONY: all build-no-check clean rebuild debug install-deps run test-stats check-stats-deps help check-python install-python-headers

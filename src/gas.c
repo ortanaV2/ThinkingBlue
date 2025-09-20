@@ -9,6 +9,7 @@
 #include "camera.h"
 #include "simulation.h"
 #include "plants.h"
+#include "temperature.h"
 
 #define GAS_DECAY_RATE 0.002f
 #define GAS_BASE_LEVEL 0.0f
@@ -115,6 +116,11 @@ void gas_update_heatmap(void) {
         
         PlantType* pt = plants_get_type(plant_type);
         if (!pt) continue;
+        
+        // Check if coral is bleached - bleached corals produce no oxygen
+        if (temperature_is_coral_bleached(node_idx)) {
+            continue;  // Skip oxygen production for bleached corals
+        }
         
         float node_x = nodes[node_idx].x;
         float node_y = nodes[node_idx].y;

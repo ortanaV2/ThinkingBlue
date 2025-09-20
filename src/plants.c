@@ -1,4 +1,4 @@
-// Fixed plants.c - Removed obsolete nutrition_value system
+// plants.c - Enhanced with coral bleaching effects
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -10,6 +10,7 @@
 #include "grid.h"
 #include "nutrition.h"
 #include "gas.h"
+#include "temperature.h"
 
 static PlantType g_plant_types[MAX_PLANT_TYPES];
 static int g_plant_type_count = 0;
@@ -59,7 +60,6 @@ int plants_load_config(const char* filename) {
             current_plant->nutrition_depletion_radius = 120.0f;
             current_plant->oxygen_production_factor = 0.2f;
             current_plant->oxygen_production_radius = 80.0f;
-            // REMOVED: nutrition_value field is no longer used
             current_plant->node_r = 150;
             current_plant->node_g = 255;
             current_plant->node_b = 150;
@@ -104,7 +104,7 @@ int plants_load_config(const char* filename) {
         } else if (strcmp(key, "oxygen_production_radius") == 0) {
             current_plant->oxygen_production_radius = (float)atof(value);
         } else if (strcmp(key, "nutrition_value") == 0) {
-            // REMOVED: nutrition_value is ignored - this prevents config parser errors
+            // Ignored - nutrition_value is obsolete
             printf("Warning: nutrition_value is obsolete and ignored for %s\n", current_plant->name);
         } else if (strcmp(key, "node_color") == 0) {
             parse_color(value, &current_plant->node_r, &current_plant->node_g, &current_plant->node_b);
@@ -115,14 +115,14 @@ int plants_load_config(const char* filename) {
     
     fclose(file);
     
-    printf("Loaded %d plant types with unified nutrition system\n", g_plant_type_count);
+    printf("Loaded %d plant types with coral bleaching system\n", g_plant_type_count);
     for (int i = 0; i < g_plant_type_count; i++) {
         PlantType* pt = &g_plant_types[i];
-        // Calculate unified nutrition cost (same formula as fish eating uses)
         float size_factor = (pt->max_branches / 3.0f) * (pt->branch_distance / OPTIMAL_DISTANCE);
         float unified_nutrition_cost = pt->nutrition_depletion_strength * size_factor;
-        printf("  %s: unified_nutrition=%.3f, strength=%.3f, radius=%.1f\n",
-               pt->name, unified_nutrition_cost, pt->nutrition_depletion_strength, pt->nutrition_depletion_radius);
+        int is_coral = strstr(pt->name, "Coral") != NULL ? 1 : 0;
+        printf("  %s: unified_nutrition=%.3f, %s\n",
+               pt->name, unified_nutrition_cost, is_coral ? "CORAL (can bleach)" : "NON-CORAL");
     }
     
     return g_plant_type_count > 0;
@@ -201,6 +201,11 @@ void plants_grow(void) {
         if (nodes[i].branch_count >= pt->max_branches) continue;
         if (nodes[i].age > pt->age_mature) continue;
         
+        // Check if coral is bleached - bleached corals cannot grow
+        if (temperature_is_coral_bleached(i)) {
+            continue;
+        }
+        
         float nutrition_value = nutrition_get_value_at(nodes[i].x, nodes[i].y);
         float nutrition_modifier = calculate_nutrition_growth_modifier(nutrition_value);
         
@@ -235,14 +240,12 @@ void plants_grow(void) {
                         nodes[i].branch_count++;
                         grown++;
                         
-                        // FIXED: Use unified nutrition depletion formula (same as fish eating/defecation)
                         float depletion_strength = pt->nutrition_depletion_strength;
                         float depletion_radius = pt->nutrition_depletion_radius;
                         
                         float size_factor = (pt->max_branches / 3.0f) * (pt->branch_distance / OPTIMAL_DISTANCE);
                         float actual_depletion = depletion_strength * size_factor;
                         
-                        // Apply nutrition depletion to environment
                         nutrition_deplete_at_position(new_x, new_y, actual_depletion, depletion_radius);
                         
                         break;
@@ -264,16 +267,12 @@ PlantType* plants_get_type(int index) {
     return &g_plant_types[index];
 }
 
-// REMOVED: Old nutrition cost tracking functions are now obsolete
+// Compatibility functions
 float plants_get_nutrition_cost_for_node(int node_id) {
-    // FIXED: This function is kept for compatibility but now returns 0
-    // The unified system calculates nutrition directly in fish.c
-    (void)node_id; // Suppress unused parameter warning
+    (void)node_id;
     return 0.0f;
 }
 
 float plants_get_total_nutrition_cost(void) {
-    // FIXED: This function is kept for compatibility but now returns 0
-    // The unified system doesn't track total plant costs separately
     return 0.0f;
 }

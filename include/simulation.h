@@ -12,6 +12,10 @@ int simulation_add_node(float x, float y, int plant_type);
 int simulation_add_chain(int node1, int node2);
 int simulation_find_node_at_position(float world_x, float world_y);
 
+// NEW: Seed immunity system
+int simulation_add_seed_node(float x, float y, int plant_type);
+void simulation_update_seed_timers(void);
+
 // State accessors
 Node* simulation_get_nodes(void);
 Chain* simulation_get_chains(void);

@@ -1,4 +1,4 @@
-// fish_vision.c - Enhanced RL vision system with predator detection and corpse filtering
+// fish_vision.c - Enhanced with seed immunity filtering
 #include <stdio.h>
 #include <stdlib.h>
 #include <math.h>
@@ -10,7 +10,7 @@
 #include "plants.h"
 #include "gas.h"
 
-// Find nearest plant within FOV (herbivores only - ignore corpses)
+// ENHANCED: Find nearest plant within FOV (excludes immune seeds)
 static int find_nearest_plant_in_fov(int fish_id, float* plant_vector_x, float* plant_vector_y, float* plant_distance) {
     Fish* fish = fish_get_by_id(fish_id);
     if (!fish) {
@@ -51,6 +51,11 @@ static int find_nearest_plant_in_fov(int fish_id, float* plant_vector_x, float* 
         if (!nodes[i].active) continue;
         if (nodes[i].plant_type < 0) continue;  // Skip fish nodes (-1) AND corpses (-2)
         if (nodes[i].is_corpse) continue;       // Extra safety: explicitly skip corpses
+        
+        // NEW: Skip seeds with immunity
+        if (nodes[i].seed_immunity_timer > 0) {
+            continue;  // Fish can't see immune seeds as food
+        }
         
         float dx = nodes[i].x - fish_x;
         float dy = nodes[i].y - fish_y;
@@ -238,7 +243,7 @@ static int find_nearest_foreign_fish_in_fov(int fish_id, float* fish_vector_x, f
     }
 }
 
-// Enhanced RL inputs with predator detection and corpse filtering
+// Enhanced RL inputs with seed immunity filtering
 void fish_update_rl_inputs(int fish_id) {
     Fish* fish = fish_get_by_id(fish_id);
     if (!fish) return;
@@ -246,7 +251,7 @@ void fish_update_rl_inputs(int fish_id) {
     Node* nodes = simulation_get_nodes();
     Node* fish_node = &nodes[fish->node_id];
     
-    // Inputs 0, 1 & 3: Nearest plant vector (x, y) and distance (herbivores only)
+    // Inputs 0, 1 & 3: Nearest plant vector (x, y) and distance (herbivores only, excludes immune seeds)
     float plant_vector_x, plant_vector_y, plant_distance;
     find_nearest_plant_in_fov(fish_id, &plant_vector_x, &plant_vector_y, &plant_distance);
     fish->rl_inputs[0] = plant_vector_x;
@@ -274,7 +279,7 @@ void fish_update_rl_inputs(int fish_id) {
     }
 }
 
-// Get distance to nearest plant for reward calculation (herbivores only)
+// ENHANCED: Get distance to nearest plant (excludes immune seeds)
 float fish_get_distance_to_nearest_plant(int fish_id) {
     Fish* fish = fish_get_by_id(fish_id);
     if (!fish) return 99999.0f;
@@ -294,6 +299,11 @@ float fish_get_distance_to_nearest_plant(int fish_id) {
         if (!nodes[i].active) continue;
         if (nodes[i].plant_type < 0) continue;  // Skip fish nodes AND corpses
         if (nodes[i].is_corpse) continue;       // Extra safety: explicitly skip corpses
+        
+        // NEW: Skip seeds with immunity
+        if (nodes[i].seed_immunity_timer > 0) {
+            continue;  // Can't target immune seeds
+        }
         
         float dx = nodes[i].x - fish_x;
         float dy = nodes[i].y - fish_y;

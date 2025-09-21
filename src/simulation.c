@@ -1,4 +1,4 @@
-// simulation.c - Enhanced with per-plant-type chain curvature
+// simulation.c - Enhanced with seed immunity system
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -41,7 +41,7 @@ int simulation_init(void) {
         return 0;
     }
     
-    printf("Simulation initialized with enhanced plant visualization\n");
+    printf("Simulation initialized with seed immunity system\n");
     return 1;
 }
 
@@ -87,6 +87,9 @@ int simulation_add_node(float x, float y, int plant_type) {
     node->original_fish_type = -1;
     node->corpse_heading = 0.0f;
     
+    // NEW: Initialize seed immunity system
+    node->seed_immunity_timer = 0;  // Default: no immunity
+    
     // Handle special node types
     if (plant_type == -2) {
         // This is being created as a corpse node (will be set up by caller)
@@ -99,6 +102,18 @@ int simulation_add_node(float x, float y, int plant_type) {
     node->nutrition_cost = 0.0f;
     
     return g_node_count++;
+}
+
+// NEW: Add node as seed with immunity
+int simulation_add_seed_node(float x, float y, int plant_type) {
+    int node_id = simulation_add_node(x, y, plant_type);
+    if (node_id >= 0) {
+        g_nodes[node_id].seed_immunity_timer = SEED_IMMUNITY_TIME;
+        printf("Created immune seed %s at (%.0f, %.0f) - immune for %d frames\n",
+               plants_get_type(plant_type) ? plants_get_type(plant_type)->name : "Unknown", 
+               x, y, SEED_IMMUNITY_TIME);
+    }
+    return node_id;
 }
 
 int simulation_add_chain(int node1, int node2) {
@@ -132,7 +147,7 @@ int simulation_add_chain(int node1, int node2) {
     chain->plant_type = g_nodes[node1].plant_type;
     chain->age = 0;
     
-    // ENHANCED: Generate curve parameters based on plant type
+    // Generate curve parameters based on plant type
     PlantType* plant_type = plants_get_type(g_nodes[node1].plant_type);
     float curvature_factor = plant_type ? plant_type->chain_curvature_factor : 1.0f;
     
@@ -144,6 +159,30 @@ int simulation_add_chain(int node1, int node2) {
     chain->curve_multiplier = curvature_factor * (0.8f + ((float)rand() / RAND_MAX) * 0.4f);
     
     return g_chain_count++;
+}
+
+// NEW: Update seed immunity timers
+void simulation_update_seed_timers(void) {
+    int seeds_matured = 0;
+    
+    for (int i = 0; i < g_node_count; i++) {
+        if (!g_nodes[i].active) continue;
+        if (g_nodes[i].plant_type < 0) continue;  // Skip fish and corpse nodes
+        if (g_nodes[i].seed_immunity_timer <= 0) continue;  // Skip non-immune nodes
+        
+        g_nodes[i].seed_immunity_timer--;
+        
+        if (g_nodes[i].seed_immunity_timer == 0) {
+            seeds_matured++;
+        }
+    }
+    
+    // Debug output for seed maturation
+    static int last_seed_log = 0;
+    if (seeds_matured > 0 && (g_frame_counter - last_seed_log) > 300) {
+        printf("Seeds matured: %d seeds are now edible\n", seeds_matured);
+        last_seed_log = g_frame_counter;
+    }
 }
 
 int simulation_find_node_at_position(float world_x, float world_y) {
@@ -176,6 +215,9 @@ int simulation_find_node_at_position(float world_x, float world_y) {
 
 void simulation_update_frame_counter(void) {
     g_frame_counter++;
+    
+    // Update seed immunity timers every frame
+    simulation_update_seed_timers();
 }
 
 int simulation_get_frame_counter(void) {

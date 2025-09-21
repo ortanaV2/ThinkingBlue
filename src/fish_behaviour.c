@@ -1,4 +1,4 @@
-// fish_behaviour.c - Enhanced predator-prey behavior with corpse eating system
+// fish_behaviour.c - Enhanced with seed immunity system
 #include <stdio.h>
 #include <stdlib.h>
 #include <math.h>
@@ -204,7 +204,7 @@ void fish_calculate_rl_rewards(int fish_id) {
     fish->total_reward += fish->last_reward;
 }
 
-// Attempt to eat plants (herbivores only)
+// ENHANCED: Attempt to eat plants with seed immunity check
 int fish_attempt_eating_plant(int fish_id) {
     Fish* fish = fish_get_by_id(fish_id);
     if (!fish) return 0;
@@ -230,8 +230,13 @@ int fish_attempt_eating_plant(int fish_id) {
             int node_id = cell->node_indices[k];
             if (node_id < 0 || node_id >= simulation_get_node_count()) continue;
             if (!nodes[node_id].active) continue;
-            if (nodes[node_id].plant_type == -1) continue;
-            if (nodes[node_id].is_corpse) continue;  // Skip corpses
+            if (nodes[node_id].plant_type == -1) continue;  // Skip fish nodes
+            if (nodes[node_id].is_corpse) continue;         // Skip corpses
+            
+            // NEW: Skip seeds with immunity
+            if (nodes[node_id].seed_immunity_timer > 0) {
+                continue;  // Can't eat immune seeds
+            }
             
             float dx = nodes[node_id].x - fish_x;
             float dy = nodes[node_id].y - fish_y;
@@ -321,7 +326,7 @@ int fish_attempt_eating_fish(int fish_id) {
     return 0;
 }
 
-// NEW: Attempt to eat corpse (predators only)
+// Attempt to eat corpse (predators only)
 int fish_attempt_eating_corpse(int fish_id) {
     Fish* fish = fish_get_by_id(fish_id);
     if (!fish) return 0;
@@ -383,7 +388,7 @@ int fish_attempt_eating_corpse(int fish_id) {
     return 0;
 }
 
-// Enhanced defecation with reproduction tracking for inheritance
+// ENHANCED: Defecation with immune seed creation
 void fish_defecate(int fish_id) {
     Fish* fish = fish_get_by_id(fish_id);
     if (!fish) return;
@@ -423,22 +428,24 @@ void fish_defecate(int fish_id) {
         fish->defecation_count = 0;
     }
     
-    // Plant seeding chance
+    // ENHANCED: Plant seeding with immunity
     if ((float)rand() / RAND_MAX < 0.25f) {
         int plant_type_count = plants_get_type_count();
         if (plant_type_count > 0) {
             int random_plant_type = rand() % plant_type_count;
             
-            float seed_offset_x = ((float)rand() / RAND_MAX - 0.5f) * 30.0f;
-            float seed_offset_y = ((float)rand() / RAND_MAX - 0.5f) * 30.0f;
+            // Enhanced seed dispersal - away from fish
+            float dispersal_angle = fish->heading + M_PI + ((float)rand() / RAND_MAX - 0.5f) * 1.5f;
+            float dispersal_distance = 60.0f + ((float)rand() / RAND_MAX) * 40.0f;
             
-            float seed_x = fish_node->x + seed_offset_x;
-            float seed_y = fish_node->y + seed_offset_y;
+            float seed_x = fish_node->x + cos(dispersal_angle) * dispersal_distance;
+            float seed_y = fish_node->y + sin(dispersal_angle) * dispersal_distance;
             
             if (seed_x >= WORLD_LEFT && seed_x <= WORLD_RIGHT &&
                 seed_y >= WORLD_TOP && seed_y <= WORLD_BOTTOM) {
                 
-                int new_node = simulation_add_node(seed_x, seed_y, random_plant_type);
+                // Use new immune seed creation function
+                int new_node = simulation_add_seed_node(seed_x, seed_y, random_plant_type);
                 if (new_node >= 0) {
                     fish->last_reward += 0.05f;
                 }

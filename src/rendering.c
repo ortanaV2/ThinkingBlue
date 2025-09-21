@@ -1,4 +1,4 @@
-// rendering.c - Enhanced with configurable plant visualization
+// rendering.c - Enhanced with configurable plant visualization and seed immunity
 #include <SDL2/SDL.h>
 #include <math.h>
 
@@ -230,7 +230,7 @@ static void draw_fish_rl_vision(SDL_Renderer* renderer, int fish_id) {
     draw_thick_line(renderer, fish_screen_x, fish_screen_y, heading_end_x, heading_end_y, 3);
 }
 
-// ENHANCED: Curved line drawing with configurable curvature
+// Enhanced curved line drawing with configurable curvature
 static void draw_curved_line(SDL_Renderer* renderer, int x1, int y1, int x2, int y2, float curve_strength, float curve_offset, int thickness) {
     float mid_x = (x1 + x2) * 0.5f;
     float mid_y = (y1 + y2) * 0.5f;
@@ -309,7 +309,7 @@ void rendering_render(void) {
     int selected_node = simulation_get_selected_node();
     int selection_mode = simulation_get_selection_mode();
     
-    // ENHANCED: Render chains with configurable thickness and curvature
+    // Enhanced render chains with configurable thickness and curvature
     for (int i = 0; i < chain_count; i++) {
         if (!chains[i].active) continue;
         
@@ -359,12 +359,12 @@ void rendering_render(void) {
         camera_world_to_screen(nodes[n1].x, nodes[n1].y, &screen_x1, &screen_y1);
         camera_world_to_screen(nodes[n2].x, nodes[n2].y, &screen_x2, &screen_y2);
         
-        // ENHANCED: Calculate thickness with plant-specific factor
+        // Enhanced calculate thickness with plant-specific factor
         float thickness_factor = pt ? pt->chain_thickness_factor : 1.0f;
         int thickness = (int)(CHAIN_THICKNESS * camera_get_zoom() * thickness_factor);
         if (thickness < 2) thickness = 2;
         
-        // ENHANCED: Apply curvature multiplier
+        // Enhanced apply curvature multiplier
         float final_curve_strength = chains[i].curve_strength * chains[i].curve_multiplier;
         
         draw_curved_line(g_renderer, screen_x1, screen_y1, screen_x2, screen_y2, 
@@ -384,7 +384,7 @@ void rendering_render(void) {
         }
     }
     
-    // ENHANCED: Render nodes with configurable sizes
+    // Enhanced render nodes with configurable sizes and seed immunity
     for (int i = 0; i < node_count; i++) {
         if (!nodes[i].active) continue;
         
@@ -518,7 +518,7 @@ void rendering_render(void) {
             
             continue;
         } else {
-            // ENHANCED: Plant node with configurable size
+            // Enhanced plant node with configurable size and seed immunity visual
             int plant_type = nodes[i].plant_type;
             PlantType* pt = plants_get_type(plant_type);
             
@@ -527,7 +527,7 @@ void rendering_render(void) {
             scaled_radius = (int)(NODE_RADIUS * camera_get_zoom() * size_factor);
             if (scaled_radius < 1) scaled_radius = 1;
             
-            // Set color based on selection state, plant type, and bleaching
+            // Set color based on selection state, plant type, bleaching, and seed immunity
             if (i == selected_node && selection_mode == 1) {
                 SDL_SetRenderDrawColor(g_renderer, 255, 255, 0, 255);
             } else {
@@ -540,7 +540,29 @@ void rendering_render(void) {
                         int bleached_r, bleached_g, bleached_b;
                         calculate_bleached_color(aged_r, aged_g, aged_b, &bleached_r, &bleached_g, &bleached_b);
                         SDL_SetRenderDrawColor(g_renderer, bleached_r, bleached_g, bleached_b, 255);
-                    } else {
+                    } 
+                    // NEW: Check if seed has immunity
+                    else if (nodes[i].seed_immunity_timer > 0) {
+                        // Immune seeds get a bright, pulsing color
+                        float immunity_ratio = (float)nodes[i].seed_immunity_timer / (float)SEED_IMMUNITY_TIME;
+                        
+                        // Pulsing effect based on frame counter
+                        int pulse_frame = simulation_get_frame_counter() % 60;  // 2 second cycle at 30 FPS
+                        float pulse_factor = 0.7f + 0.3f * sin((pulse_frame / 60.0f) * 2.0f * M_PI);
+                        
+                        // Bright green-white color for immune seeds
+                        int immune_r = (int)(255 * pulse_factor);
+                        int immune_g = (int)(255 * pulse_factor);  
+                        int immune_b = (int)(200 * pulse_factor);
+                        
+                        // Mix with original color based on immunity remaining
+                        int final_r = (int)(aged_r * (1.0f - immunity_ratio) + immune_r * immunity_ratio);
+                        int final_g = (int)(aged_g * (1.0f - immunity_ratio) + immune_g * immunity_ratio);
+                        int final_b = (int)(aged_b * (1.0f - immunity_ratio) + immune_b * immunity_ratio);
+                        
+                        SDL_SetRenderDrawColor(g_renderer, final_r, final_g, final_b, 255);
+                    } 
+                    else {
                         SDL_SetRenderDrawColor(g_renderer, aged_r, aged_g, aged_b, 255);
                     }
                 } else {
@@ -570,6 +592,8 @@ void rendering_render(void) {
                 }
             }
         }
+        
+
     }
     
     SDL_RenderPresent(g_renderer);

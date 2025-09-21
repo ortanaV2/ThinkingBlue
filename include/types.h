@@ -1,4 +1,4 @@
-// Enhanced types.h with configurable plant visualization
+// types.h - Enhanced with seed immunity system
 #ifndef TYPES_H
 #define TYPES_H
 
@@ -16,7 +16,7 @@
 #define MAX_FISH 50000
 #define MAX_FISH_TYPES 32
 
-// UPDATED: Extended RL system for predator-prey dynamics
+// RL system for predator-prey dynamics
 #define RL_INPUT_SIZE 7     // plant_vector_x, plant_vector_y, oxygen_level, plant_distance, foreign_fish_vector_x, foreign_fish_vector_y, danger_level
 #define RL_OUTPUT_SIZE 3    // turn_direction, movement_strength, eat_command
 
@@ -54,6 +54,9 @@
 // Corpse system constants
 #define CORPSE_DECAY_TIME 1800  
 
+// NEW: Seed immunity system
+#define SEED_IMMUNITY_TIME 180  // 6 seconds at 30 FPS
+
 // Derived world bounds
 #define WORLD_LEFT (WORLD_CENTER_X - WORLD_WIDTH / 2.0f)
 #define WORLD_RIGHT (WORLD_CENTER_X + WORLD_WIDTH / 2.0f)
@@ -68,7 +71,7 @@
 #define M_PI 3.14159265358979323846
 #endif
 
-// ENHANCED: Plant type with visual configuration
+// Plant type with visual configuration
 typedef struct {
     char name[MAX_NAME_LENGTH];
     float growth_probability;
@@ -86,7 +89,7 @@ typedef struct {
     float oxygen_production_factor;
     float oxygen_production_radius;
     
-    // NEW: Visual configuration
+    // Visual configuration
     float node_size_factor;        // Multiplier for node size (default 1.0)
     float chain_thickness_factor;  // Multiplier for chain thickness (default 1.0) 
     float chain_curvature_factor;  // Controls chain curvature strength (default 1.0)
@@ -136,7 +139,7 @@ typedef struct {
     int active;
 } FishType;
 
-// Node structure
+// ENHANCED: Node structure with seed immunity system
 typedef struct {
     float x, y;
     float vx, vy;
@@ -151,6 +154,9 @@ typedef struct {
     int corpse_decay_timer;
     int original_fish_type;  // Fish type that became this corpse
     float corpse_heading;    // Preserved heading from when fish died
+    
+    // NEW: Seed immunity system
+    int seed_immunity_timer;  // Frames until seed can be eaten (0 = can be eaten)
     
     // Compatibility
     float nutrition_cost;
@@ -191,7 +197,7 @@ typedef struct {
     
 } Fish;
 
-// ENHANCED: Chain structure with curvature parameters
+// Chain structure with curvature parameters
 typedef struct {
     int node1, node2;
     int active;

@@ -4,7 +4,7 @@
 #include "types.h"
 
 // ============================================================================
-// FISH_CORE.C - Core system management with aging
+// FISH_CORE.C - Core system management with aging and corpse system
 // ============================================================================
 
 // System initialization and cleanup
@@ -18,9 +18,14 @@ int fish_load_config(const char* filename);
 int fish_add(float x, float y, int fish_type);
 void fish_remove(int fish_id);
 
-// NEW: Aging system
+// Aging system
 int fish_should_die_from_age(int fish_id);
 int fish_get_total_deaths_from_age(void);
+
+// NEW: Corpse system
+int fish_get_total_corpses_created(void);
+int fish_get_total_corpses_eaten(void);
+void fish_increment_corpses_eaten(void);
 
 // Type management
 int fish_get_type_count(void);
@@ -31,7 +36,7 @@ int fish_get_count(void);
 Fish* fish_get_by_id(int fish_id);
 Fish* fish_get_all(void);
 
-// Ray rendering toggle (legacy)
+// Ray rendering toggle
 void fish_toggle_ray_rendering(void);
 int fish_is_ray_rendering_enabled(void);
 
@@ -64,7 +69,7 @@ float fish_get_vision_ray(int fish_id, int ray_index);
 float fish_get_nutrition_ray(int fish_id, int ray_index);
 
 // ============================================================================
-// FISH_BEHAVIOR.C - Enhanced RL behavior with predator-prey system
+// FISH_BEHAVIOR.C - Enhanced RL behavior with predator-prey system and corpse eating
 // ============================================================================
 
 // RL control system
@@ -72,9 +77,10 @@ void fish_apply_rl_outputs(int fish_id);
 void fish_calculate_rl_rewards(int fish_id);
 
 // Enhanced eating system
-int fish_attempt_eating(int fish_id);  // Wrapper function
-int fish_attempt_eating_plant(int fish_id);  // Herbivore eating
-int fish_attempt_eating_fish(int fish_id);   // Predator eating
+int fish_attempt_eating(int fish_id);           // Wrapper function
+int fish_attempt_eating_plant(int fish_id);     // Herbivore eating
+int fish_attempt_eating_fish(int fish_id);      // Predator eating
+int fish_attempt_eating_corpse(int fish_id);    // NEW: Corpse eating
 void fish_defecate(int fish_id);
 
 // Reproduction system with inheritance support
@@ -107,10 +113,13 @@ float fish_get_hunger_level(int fish_id);
 float fish_get_saturation_level(int fish_id);
 
 // ============================================================================
-// FISH_UPDATE.C - Main update loop with aging
+// FISH_UPDATE.C - Main update loop with aging and corpse decay
 // ============================================================================
 
 // Main update function (called each frame)
 void fish_update(void);
+
+// NEW: Corpse system functions
+void fish_update_corpses(void);
 
 #endif // FISH_H

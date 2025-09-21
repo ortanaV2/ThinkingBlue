@@ -1,3 +1,4 @@
+// types.h - Enhanced with seed immunity system
 #ifndef TYPES_H
 #define TYPES_H
 
@@ -15,7 +16,7 @@
 #define MAX_FISH 50000
 #define MAX_FISH_TYPES 32
 
-// UPDATED: Extended RL system for predator-prey dynamics
+// RL system for predator-prey dynamics
 #define RL_INPUT_SIZE 7     // plant_vector_x, plant_vector_y, oxygen_level, plant_distance, foreign_fish_vector_x, foreign_fish_vector_y, danger_level
 #define RL_OUTPUT_SIZE 3    // turn_direction, movement_strength, eat_command
 
@@ -46,9 +47,15 @@
 #define INITIAL_PLANT_COUNT 100
 #define INITIAL_FISH_COUNT 10
 
-// NEW: Fish aging constants
+// Fish aging constants
 #define TARGET_FPS 30
-#define DEATH_CHECK_INTERVAL 30  // Check every 30 frames
+#define DEATH_CHECK_INTERVAL 30  
+
+// Corpse system constants
+#define CORPSE_DECAY_TIME 1800  
+
+// NEW: Seed immunity system
+#define SEED_IMMUNITY_TIME 180  // 6 seconds at 30 FPS
 
 // Derived world bounds
 #define WORLD_LEFT (WORLD_CENTER_X - WORLD_WIDTH / 2.0f)
@@ -64,7 +71,7 @@
 #define M_PI 3.14159265358979323846
 #endif
 
-// Plant type configuration
+// Plant type with visual configuration
 typedef struct {
     char name[MAX_NAME_LENGTH];
     float growth_probability;
@@ -82,6 +89,11 @@ typedef struct {
     float oxygen_production_factor;
     float oxygen_production_radius;
     
+    // Visual configuration
+    float node_size_factor;        // Multiplier for node size (default 1.0)
+    float chain_thickness_factor;  // Multiplier for chain thickness (default 1.0) 
+    float chain_curvature_factor;  // Controls chain curvature strength (default 1.0)
+    
     // Node colors (RGB 0-255)
     int node_r, node_g, node_b;
     
@@ -91,7 +103,7 @@ typedef struct {
     int active;
 } PlantType;
 
-// UPDATED: Enhanced fish type with aging system
+// Fish type configuration
 typedef struct {
     char name[MAX_NAME_LENGTH];
     float max_speed;
@@ -118,7 +130,7 @@ typedef struct {
     int eating_cooldown_frames;
     float fish_detection_range;
     
-    // NEW: Aging system
+    // Aging system
     int max_age;  // Age in frames when death probability is 50%
     
     // Node colors (RGB 0-255)
@@ -127,21 +139,30 @@ typedef struct {
     int active;
 } FishType;
 
-// Node structure
+// ENHANCED: Node structure with seed immunity system
 typedef struct {
     float x, y;
     float vx, vy;
     int active;
     int can_grow;
-    int plant_type;   // Plant type index (-1 for fish nodes)
+    int plant_type;   // Plant type index (-1 for fish nodes, -2 for corpse nodes)
     int branch_count;
     int age;
     
-    // Kept for compatibility
+    // Corpse system
+    int is_corpse;
+    int corpse_decay_timer;
+    int original_fish_type;  // Fish type that became this corpse
+    float corpse_heading;    // Preserved heading from when fish died
+    
+    // NEW: Seed immunity system
+    int seed_immunity_timer;  // Frames until seed can be eaten (0 = can be eaten)
+    
+    // Compatibility
     float nutrition_cost;
 } Node;
 
-// UPDATED: Enhanced fish structure with aging system
+// Fish structure with aging system
 typedef struct {
     int node_id;
     int fish_type;
@@ -171,19 +192,20 @@ typedef struct {
     int eating_cooldown;
     int target_fish_id;
     
-    // NEW: Aging system
-    int birth_frame;  // Frame when fish was born (for death check timing)
+    // Aging system
+    int birth_frame;  // Frame when fish was born
     
 } Fish;
 
-// Chain structure connecting two nodes
+// Chain structure with curvature parameters
 typedef struct {
     int node1, node2;
     int active;
     int plant_type;
     int age;
-    float curve_strength;
-    float curve_offset;
+    float curve_strength;    // Base curvature strength
+    float curve_offset;      // Random offset for variety
+    float curve_multiplier;  // Per-chain multiplier for visual diversity
 } Chain;
 
 // Camera for viewport control

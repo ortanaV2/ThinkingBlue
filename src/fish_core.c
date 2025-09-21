@@ -1,4 +1,4 @@
-// fish_core.c - Enhanced core fish system with aging and death
+// fish_core.c - Enhanced core fish system with aging, death, and corpse creation
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -19,8 +19,10 @@ static int g_ray_rendering_enabled = 0;
 static float g_total_nutrition_consumed = 0.0f;
 static float g_total_nutrition_defecated = 0.0f;
 
-// Death statistics
+// Death and corpse statistics
 static int g_total_deaths_from_age = 0;
+static int g_total_corpses_created = 0;
+static int g_total_corpses_eaten = 0;
 
 // Color parsing utility
 static void parse_color(const char* color_str, int* r, int* g, int* b) {
@@ -31,6 +33,32 @@ static void parse_color(const char* color_str, int* r, int* g, int* b) {
     *r = (color >> 16) & 0xFF;
     *g = (color >> 8) & 0xFF;
     *b = color & 0xFF;
+}
+
+// Create corpse from dead fish
+static int create_corpse(int fish_id, float x, float y, int fish_type, float heading) {
+    int corpse_node = simulation_add_node(x, y, -2);  // -2 indicates corpse
+    if (corpse_node < 0) {
+        return -1;
+    }
+    
+    Node* nodes = simulation_get_nodes();
+    Node* corpse = &nodes[corpse_node];
+    
+    corpse->is_corpse = 1;
+    corpse->corpse_decay_timer = CORPSE_DECAY_TIME;
+    corpse->original_fish_type = fish_type;
+    corpse->corpse_heading = heading;  // Preserve fish heading for tail rendering
+    corpse->vx = 0.0f;  // Corpses don't move
+    corpse->vy = 0.0f;
+    
+    g_total_corpses_created++;
+    
+    FishType* ft = fish_get_type(fish_type);
+    printf("Corpse created from fish %d (%s) at (%.0f, %.0f) - will decay in %d frames\n",
+           fish_id, ft ? ft->name : "Unknown", x, y, CORPSE_DECAY_TIME);
+    
+    return corpse_node;
 }
 
 int fish_init(void) {
@@ -47,8 +75,10 @@ int fish_init(void) {
     g_total_nutrition_consumed = 0.0f;
     g_total_nutrition_defecated = 0.0f;
     g_total_deaths_from_age = 0;
+    g_total_corpses_created = 0;
+    g_total_corpses_eaten = 0;
     
-    printf("Fish system initialized with aging mechanics\n");
+    printf("Fish system initialized with aging mechanics and corpse system\n");
     return 1;
 }
 
@@ -60,8 +90,9 @@ void fish_cleanup(void) {
     g_fish_count = 0;
     g_fish_type_count = 0;
     
-    printf("Fish cleanup - Deaths from age: %d, Consumed: %.2f, Defecated: %.2f\n",
-           g_total_deaths_from_age, g_total_nutrition_consumed, g_total_nutrition_defecated);
+    printf("Fish cleanup - Deaths: %d, Corpses created: %d, Corpses eaten: %d, Consumed: %.2f, Defecated: %.2f\n",
+           g_total_deaths_from_age, g_total_corpses_created, g_total_corpses_eaten,
+           g_total_nutrition_consumed, g_total_nutrition_defecated);
 }
 
 void fish_toggle_ray_rendering(void) {
@@ -80,7 +111,7 @@ int fish_load_config(const char* filename) {
         return 0;
     }
     
-    printf("Loading fish config with aging system from '%s'\n", filename);
+    printf("Loading fish config with aging system and corpse mechanics from '%s'\n", filename);
     
     char line[256];
     FishType* current_fish = NULL;
@@ -198,7 +229,7 @@ int fish_load_config(const char* filename) {
     
     fclose(file);
     
-    printf("Loaded %d fish types with aging system\n", g_fish_type_count);
+    printf("Loaded %d fish types with aging system and corpse mechanics\n", g_fish_type_count);
     
     for (int i = 0; i < g_fish_type_count; i++) {
         FishType* ft = &g_fish_types[i];
@@ -255,7 +286,7 @@ int fish_add(float x, float y, int fish_type) {
     fish->eating_cooldown = 0;
     fish->target_fish_id = -1;
     
-    // NEW: Initialize aging system
+    // Initialize aging system
     fish->birth_frame = simulation_get_frame_counter();
     
     int fish_id = g_fish_count;
@@ -278,7 +309,7 @@ void fish_remove(int fish_id) {
     g_fish[fish_id].active = 0;
 }
 
-// NEW: Check if fish should die from age
+// Check if fish should die from age
 int fish_should_die_from_age(int fish_id) {
     Fish* fish = fish_get_by_id(fish_id);
     if (!fish) return 0;
@@ -296,37 +327,39 @@ int fish_should_die_from_age(int fish_id) {
     int age = current_frame - fish->birth_frame;
     
     // Calculate death probability based on age
-    // At max_age: 50% probability
-    // Before max_age: exponential curve starting very low
-    // After max_age: rapidly increasing probability
-    
     float age_ratio = (float)age / (float)fish_type->max_age;
     float death_probability;
     
     if (age_ratio <= 0.5f) {
         // Young fish: very low probability (0% to 2%)
-        death_probability = age_ratio * age_ratio * 0.08f;  // Quadratic growth
+        death_probability = age_ratio * age_ratio * 0.08f;
     } else if (age_ratio <= 1.0f) {
         // Middle age: probability increases to 50% at max_age
-        float x = (age_ratio - 0.5f) * 2.0f;  // Map [0.5, 1.0] to [0, 1]
-        death_probability = 0.02f + x * x * 0.48f;  // From 2% to 50%
+        float x = (age_ratio - 0.5f) * 2.0f;
+        death_probability = 0.02f + x * x * 0.48f;
     } else {
         // Old fish: rapidly increasing probability
         float excess = age_ratio - 1.0f;
-        death_probability = 0.5f + excess * 0.8f;  // Increases quickly past max_age
-        if (death_probability > 0.95f) death_probability = 0.95f;  // Cap at 95%
+        death_probability = 0.5f + excess * 0.8f;
+        if (death_probability > 0.95f) death_probability = 0.95f;
     }
     
     // Random roll
     float roll = (float)rand() / RAND_MAX;
     
     if (roll < death_probability) {
+        // Create corpse before marking fish as dead
+        Node* nodes = simulation_get_nodes();
+        Node* fish_node = &nodes[fish->node_id];
+        
+        create_corpse(fish_id, fish_node->x, fish_node->y, fish->fish_type, fish->heading);
+        
         g_total_deaths_from_age++;
         
         float age_minutes = age / (TARGET_FPS * 60.0f);
         float max_age_minutes = fish_type->max_age / (TARGET_FPS * 60.0f);
         
-        printf("Fish %d (%s) died from age: %.1f/%.1f min (%.0f%% probability)\n",
+        printf("Fish %d (%s) died from age: %.1f/%.1f min (%.0f%% probability) - corpse created\n",
                fish_id, fish_type->name, age_minutes, max_age_minutes, 
                death_probability * 100.0f);
         
@@ -339,6 +372,19 @@ int fish_should_die_from_age(int fish_id) {
 // Get death statistics
 int fish_get_total_deaths_from_age(void) {
     return g_total_deaths_from_age;
+}
+
+// Get corpse statistics
+int fish_get_total_corpses_created(void) {
+    return g_total_corpses_created;
+}
+
+int fish_get_total_corpses_eaten(void) {
+    return g_total_corpses_eaten;
+}
+
+void fish_increment_corpses_eaten(void) {
+    g_total_corpses_eaten++;
 }
 
 // Accessor functions

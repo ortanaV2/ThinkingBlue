@@ -13,7 +13,7 @@
 // Reduced flow parameters for subtler influence
 #define FLOW_ARROW_SIZE 30.0f        // Larger arrows for visibility
 #define FLOW_ARROW_SPACING 70.0f     // Good spacing
-#define FLOW_MAX_MAGNITUDE 0.8f      // REDUCED: was 3.0f, now much weaker
+#define FLOW_MAX_MAGNITUDE 1.5f      // REDUCED: was 3.0f, now much weaker
 
 static float* g_flow_x = NULL;
 static float* g_flow_y = NULL;

@@ -10,4 +10,8 @@ void rendering_cleanup(void);
 // Main rendering function
 void rendering_render(void);
 
+// FPS display functions
+void rendering_update_fps(float fps);
+void rendering_draw_fps(void);
+
 #endif // RENDERING_H

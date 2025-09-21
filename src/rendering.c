@@ -1,6 +1,8 @@
-// rendering.c - Enhanced with flow-based water background coloring
+// rendering.c - Enhanced with flow-based water background coloring and FPS display
 #include <SDL2/SDL.h>
 #include <math.h>
+#include <stdio.h>
+#include <string.h>
 
 #include "types.h"
 #include "rendering.h"
@@ -15,10 +17,85 @@
 
 static SDL_Renderer* g_renderer = NULL;
 
+// FPS display variables
+static float g_current_fps = 0.0f;
+static char g_fps_text[32] = "FPS: 0.0";
+
+// Forward declarations
 static void draw_thick_line(SDL_Renderer* renderer, int x1, int y1, int x2, int y2, int thickness);
 static void draw_curved_line(SDL_Renderer* renderer, int x1, int y1, int x2, int y2, float curve_strength, float curve_offset, int thickness);
 static void draw_fish_tail(SDL_Renderer* renderer, int screen_x, int screen_y, float heading, int fish_radius, int r, int g, int b);
 static void draw_fish_rl_vision(SDL_Renderer* renderer, int fish_id);
+
+// Simple bitmap font for FPS display
+static void draw_simple_char(SDL_Renderer* renderer, char c, int x, int y, int size);
+static void draw_simple_text(SDL_Renderer* renderer, const char* text, int x, int y, int size);
+
+// Simple bitmap font character rendering
+static void draw_simple_char(SDL_Renderer* renderer, char c, int x, int y, int size) {
+    SDL_SetRenderDrawColor(renderer, 255, 255, 255, 255);
+    
+    // Simple 5x7 bitmap patterns for digits and letters
+    static int patterns[256][7] = {0};
+    static int initialized = 0;
+    
+    if (!initialized) {
+        // Numbers 0-9
+        int nums[10][7] = {
+            {0x1E, 0x21, 0x21, 0x21, 0x21, 0x21, 0x1E}, // 0
+            {0x04, 0x0C, 0x04, 0x04, 0x04, 0x04, 0x0E}, // 1
+            {0x1E, 0x21, 0x01, 0x0E, 0x10, 0x20, 0x3F}, // 2
+            {0x1E, 0x21, 0x01, 0x0E, 0x01, 0x21, 0x1E}, // 3
+            {0x02, 0x06, 0x0A, 0x12, 0x3F, 0x02, 0x02}, // 4
+            {0x3F, 0x20, 0x3E, 0x01, 0x01, 0x21, 0x1E}, // 5
+            {0x0E, 0x10, 0x20, 0x3E, 0x21, 0x21, 0x1E}, // 6
+            {0x3F, 0x01, 0x02, 0x04, 0x08, 0x10, 0x10}, // 7
+            {0x1E, 0x21, 0x21, 0x1E, 0x21, 0x21, 0x1E}, // 8
+            {0x1E, 0x21, 0x21, 0x1F, 0x01, 0x02, 0x1C}  // 9
+        };
+        
+        // Letters F, P, S
+        int let_F[7] = {0x3E, 0x20, 0x20, 0x3C, 0x20, 0x20, 0x20};
+        int let_P[7] = {0x3E, 0x21, 0x21, 0x3E, 0x20, 0x20, 0x20};
+        int let_S[7] = {0x1F, 0x20, 0x20, 0x1E, 0x01, 0x01, 0x3E};
+        int colon[7] = {0x00, 0x18, 0x18, 0x00, 0x18, 0x18, 0x00};
+        int dot[7] = {0x00, 0x00, 0x00, 0x00, 0x00, 0x18, 0x18};
+        
+        // Copy patterns
+        for (int i = 0; i < 10; i++) {
+            for (int j = 0; j < 7; j++) {
+                patterns['0' + i][j] = nums[i][j];
+            }
+        }
+        for (int j = 0; j < 7; j++) {
+            patterns['F'][j] = let_F[j];
+            patterns['P'][j] = let_P[j];
+            patterns['S'][j] = let_S[j];
+            patterns[':'][j] = colon[j];
+            patterns['.'][j] = dot[j];
+        }
+        initialized = 1;
+    }
+    
+    // Draw character
+    unsigned char uc = (unsigned char)c;
+    for (int row = 0; row < 7; row++) {
+        for (int col = 0; col < 6; col++) {
+            if (patterns[uc][row] & (1 << (5-col))) {
+                SDL_Rect pixel = {x + col * size, y + row * size, size, size};
+                SDL_RenderFillRect(renderer, &pixel);
+            }
+        }
+    }
+}
+
+// Draw simple text string
+static void draw_simple_text(SDL_Renderer* renderer, const char* text, int x, int y, int size) {
+    int len = strlen(text);
+    for (int i = 0; i < len; i++) {
+        draw_simple_char(renderer, text[i], x + i * (6 * size), y, size);
+    }
+}
 
 // Enhanced flow-based water background rendering with higher resolution and smoothing
 static void render_flow_based_water_background(void) {
@@ -487,11 +564,33 @@ static void draw_curved_line(SDL_Renderer* renderer, int x1, int y1, int x2, int
     }
 }
 
+// FPS display functions
+void rendering_update_fps(float fps) {
+    g_current_fps = fps;
+    snprintf(g_fps_text, sizeof(g_fps_text), "%.1f", fps);
+}
+
+void rendering_draw_fps(void) {
+    if (!g_renderer) return;
+    
+    // Draw semi-transparent background (smaller)
+    SDL_SetRenderDrawColor(g_renderer, 0, 0, 0, 128);
+    SDL_Rect bg_rect = {WINDOW_WIDTH - 45, 10, 35, 12};
+    SDL_RenderFillRect(g_renderer, &bg_rect);
+    
+    // Draw FPS number centered in background (smaller font)
+    draw_simple_text(g_renderer, g_fps_text, WINDOW_WIDTH - 42, 12, 1);
+}
+
 int rendering_init(SDL_Renderer* renderer) {
     g_renderer = renderer;
     nutrition_set_renderer(renderer);
     gas_set_renderer(renderer);
     flow_set_renderer(renderer);
+    
+    // Initialize FPS display
+    strcpy(g_fps_text, "0.0");
+    
     return 1;
 }
 
@@ -805,6 +904,9 @@ void rendering_render(void) {
             }
         }
     }
+    
+    // Draw FPS display
+    rendering_draw_fps();
     
     SDL_RenderPresent(g_renderer);
 }

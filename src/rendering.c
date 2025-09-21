@@ -1,4 +1,4 @@
-// rendering.c - Enhanced with configurable plant visualization and seed immunity
+// rendering.c - Enhanced with flow-based water background coloring
 #include <SDL2/SDL.h>
 #include <math.h>
 
@@ -19,6 +19,95 @@ static void draw_thick_line(SDL_Renderer* renderer, int x1, int y1, int x2, int 
 static void draw_curved_line(SDL_Renderer* renderer, int x1, int y1, int x2, int y2, float curve_strength, float curve_offset, int thickness);
 static void draw_fish_tail(SDL_Renderer* renderer, int screen_x, int screen_y, float heading, int fish_radius, int r, int g, int b);
 static void draw_fish_rl_vision(SDL_Renderer* renderer, int fish_id);
+
+// NEW: Flow-based water background rendering
+static void render_flow_based_water_background(void) {
+    // Get viewport bounds
+    float world_left, world_top, world_right, world_bottom;
+    camera_get_viewport_bounds(&world_left, &world_top, &world_right, &world_bottom);
+    
+    // Base water color (original blue)
+    int base_r = 22;
+    int base_g = 117; 
+    int base_b = 158;
+    
+    // Calculate grid resolution for background sampling
+    float zoom = camera_get_zoom();
+    int grid_size = (int)(LAYER_GRID_SIZE / zoom);
+    if (grid_size < 8) grid_size = 8;    // Minimum detail
+    if (grid_size > 64) grid_size = 64;  // Maximum performance
+    
+    // Sample flow field and render colored rectangles
+    for (float world_y = world_top; world_y < world_bottom; world_y += grid_size) {
+        for (float world_x = world_left; world_x < world_right; world_x += grid_size) {
+            // Get flow vector at this position
+            float flow_x, flow_y;
+            flow_get_vector_at(world_x, world_y, &flow_x, &flow_y);
+            
+            // Calculate flow magnitude
+            float flow_magnitude = sqrt(flow_x * flow_x + flow_y * flow_y);
+            
+            // Normalize flow magnitude (0.0 = no flow, 1.0 = max flow)
+            float normalized_flow = flow_magnitude / 0.8f;  // Max flow from flow.c is 0.8f
+            if (normalized_flow > 1.0f) normalized_flow = 1.0f;
+            
+            // Calculate color modification based on flow
+            int water_r, water_g, water_b;
+            
+            if (normalized_flow < 0.1f) {
+                // Very weak flow: slightly lighter blue (clear water)
+                water_r = base_r + (int)(8 * (0.1f - normalized_flow) / 0.1f);
+                water_g = base_g + (int)(12 * (0.1f - normalized_flow) / 0.1f);
+                water_b = base_b + (int)(15 * (0.1f - normalized_flow) / 0.1f);
+            } else if (normalized_flow < 0.3f) {
+                // Weak flow: normal water color
+                water_r = base_r;
+                water_g = base_g;
+                water_b = base_b;
+            } else if (normalized_flow < 0.6f) {
+                // Medium flow: slightly darker, more greenish (nutrients stirred up)
+                float factor = (normalized_flow - 0.3f) / 0.3f;
+                water_r = base_r - (int)(6 * factor);
+                water_g = base_g - (int)(5 * factor);
+                water_b = base_b - (int)(8 * factor);
+            } else {
+                // Strong flow: darker, more greenish-brown (sediment suspension)
+                float factor = (normalized_flow - 0.6f) / 0.4f;
+                water_r = base_r - 6 - (int)(8 * factor);
+                water_g = base_g - 5 - (int)(3 * factor);  // Keep more green
+                water_b = base_b - 8 - (int)(12 * factor);
+            }
+            
+            // Clamp colors
+            if (water_r < 10) water_r = 10;
+            if (water_g < 90) water_g = 90;   // Keep minimum green
+            if (water_b < 120) water_b = 120; // Keep minimum blue
+            if (water_r > 35) water_r = 35;
+            if (water_g > 130) water_g = 130;
+            if (water_b > 180) water_b = 180;
+            
+            // Convert world coordinates to screen coordinates
+            int screen_x1, screen_y1, screen_x2, screen_y2;
+            camera_world_to_screen(world_x, world_y, &screen_x1, &screen_y1);
+            camera_world_to_screen(world_x + grid_size, world_y + grid_size, &screen_x2, &screen_y2);
+            
+            // Only render if on screen
+            if (screen_x2 > 0 && screen_x1 < WINDOW_WIDTH && 
+                screen_y2 > 0 && screen_y1 < WINDOW_HEIGHT) {
+                
+                SDL_SetRenderDrawColor(g_renderer, water_r, water_g, water_b, 255);
+                
+                SDL_Rect water_rect;
+                water_rect.x = screen_x1;
+                water_rect.y = screen_y1;
+                water_rect.w = screen_x2 - screen_x1;
+                water_rect.h = screen_y2 - screen_y1;
+                
+                SDL_RenderFillRect(g_renderer, &water_rect);
+            }
+        }
+    }
+}
 
 static void calculate_aged_color(int base_r, int base_g, int base_b, int age, int age_mature, int* aged_r, int* aged_g, int* aged_b) {
     if (age_mature <= 0) age_mature = 1800;
@@ -289,9 +378,8 @@ void rendering_cleanup(void) {
 void rendering_render(void) {
     if (!g_renderer) return;
     
-    // Clear background
-    SDL_SetRenderDrawColor(g_renderer, 22, 117, 158, 255);
-    SDL_RenderClear(g_renderer);
+    // ENHANCED: Render flow-based water background instead of solid color
+    render_flow_based_water_background();
     
     // Render layers
     nutrition_render();
@@ -541,7 +629,7 @@ void rendering_render(void) {
                         calculate_bleached_color(aged_r, aged_g, aged_b, &bleached_r, &bleached_g, &bleached_b);
                         SDL_SetRenderDrawColor(g_renderer, bleached_r, bleached_g, bleached_b, 255);
                     } 
-                    // NEW: Check if seed has immunity
+                    // Check if seed has immunity
                     else if (nodes[i].seed_immunity_timer > 0) {
                         // Immune seeds get a bright, pulsing color
                         float immunity_ratio = (float)nodes[i].seed_immunity_timer / (float)SEED_IMMUNITY_TIME;
@@ -592,8 +680,6 @@ void rendering_render(void) {
                 }
             }
         }
-        
-
     }
     
     SDL_RenderPresent(g_renderer);

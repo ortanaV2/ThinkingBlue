@@ -20,7 +20,7 @@ static void draw_curved_line(SDL_Renderer* renderer, int x1, int y1, int x2, int
 static void draw_fish_tail(SDL_Renderer* renderer, int screen_x, int screen_y, float heading, int fish_radius, int r, int g, int b);
 static void draw_fish_rl_vision(SDL_Renderer* renderer, int fish_id);
 
-// NEW: Flow-based water background rendering
+// Enhanced flow-based water background rendering with higher resolution and smoothing
 static void render_flow_based_water_background(void) {
     // Get viewport bounds
     float world_left, world_top, world_right, world_bottom;
@@ -31,60 +31,178 @@ static void render_flow_based_water_background(void) {
     int base_g = 117; 
     int base_b = 158;
     
-    // Calculate grid resolution for background sampling
+    // Very early scaling resolution: starts improving quality at zoom 0.3+
     float zoom = camera_get_zoom();
-    int grid_size = (int)(LAYER_GRID_SIZE / zoom);
-    if (grid_size < 8) grid_size = 8;    // Minimum detail
-    if (grid_size > 64) grid_size = 64;  // Maximum performance
+    int grid_size;
     
-    // Sample flow field and render colored rectangles
-    for (float world_y = world_top; world_y < world_bottom; world_y += grid_size) {
-        for (float world_x = world_left; world_x < world_right; world_x += grid_size) {
-            // Get flow vector at this position
+    if (zoom >= 0.3f) {
+        // Start high quality very early: from zoom 0.3 onwards
+        float quality_factor = 0.8f + (zoom - 0.3f) * 6.0f;  // Very aggressive scaling from 0.3+
+        grid_size = (int)(LAYER_GRID_SIZE / quality_factor);
+        if (grid_size < 2) grid_size = 2;    // Ultra high detail when zoomed in
+        if (grid_size > 25) grid_size = 25;  // Reasonable maximum
+    } else {
+        // Very zoomed out: reduce quality significantly for performance
+        grid_size = (int)(LAYER_GRID_SIZE * (3.0f - zoom * 5.0f));  // Very aggressive reduction
+        if (grid_size < 25) grid_size = 25;   // Minimum when zoomed out
+        if (grid_size > 40) grid_size = 40; // Maximum for very far zoom
+    }
+    
+    // Calculate grid dimensions for smoothing buffer
+    int grid_width = (int)ceil((world_right - world_left) / grid_size) + 2;
+    int grid_height = (int)ceil((world_bottom - world_top) / grid_size) + 2;
+    
+    // Allocate temporary buffers for flow values and smoothed colors
+    float* flow_magnitudes = malloc(grid_width * grid_height * sizeof(float));
+    int* smoothed_r = malloc(grid_width * grid_height * sizeof(int));
+    int* smoothed_g = malloc(grid_width * grid_height * sizeof(int));
+    int* smoothed_b = malloc(grid_width * grid_height * sizeof(int));
+    
+    if (!flow_magnitudes || !smoothed_r || !smoothed_g || !smoothed_b) {
+        // Fallback to original method if allocation fails
+        free(flow_magnitudes);
+        free(smoothed_r);
+        free(smoothed_g);
+        free(smoothed_b);
+        
+        // Fallback rendering with very early scaling quality
+        int fallback_grid_size;
+        if (zoom >= 0.3f) {
+            float quality_factor = 0.8f + (zoom - 0.3f) * 3.0f;
+            fallback_grid_size = (int)(LAYER_GRID_SIZE / quality_factor);
+            if (fallback_grid_size < 6) fallback_grid_size = 6;
+            if (fallback_grid_size > 50) fallback_grid_size = 50;
+        } else {
+            fallback_grid_size = (int)(LAYER_GRID_SIZE * (4.0f - zoom * 8.0f));
+            if (fallback_grid_size < 50) fallback_grid_size = 50;
+            if (fallback_grid_size > 200) fallback_grid_size = 200;
+        }
+        
+        for (float world_y = world_top; world_y < world_bottom; world_y += fallback_grid_size) {
+            for (float world_x = world_left; world_x < world_right; world_x += fallback_grid_size) {
+                float flow_x, flow_y;
+                flow_get_vector_at(world_x, world_y, &flow_x, &flow_y);
+                float flow_magnitude = sqrt(flow_x * flow_x + flow_y * flow_y);
+                float normalized_flow = flow_magnitude / 0.4f;
+                if (normalized_flow > 1.0f) normalized_flow = 1.0f;
+                
+                int water_r = base_r, water_g = base_g, water_b = base_b;
+                
+                int screen_x1, screen_y1, screen_x2, screen_y2;
+                camera_world_to_screen(world_x, world_y, &screen_x1, &screen_y1);
+                camera_world_to_screen(world_x + fallback_grid_size, world_y + fallback_grid_size, &screen_x2, &screen_y2);
+                
+                if (screen_x2 > 0 && screen_x1 < WINDOW_WIDTH && screen_y2 > 0 && screen_y1 < WINDOW_HEIGHT) {
+                    SDL_SetRenderDrawColor(g_renderer, water_r, water_g, water_b, 255);
+                    SDL_Rect water_rect = {screen_x1, screen_y1, screen_x2 - screen_x1, screen_y2 - screen_y1};
+                    SDL_RenderFillRect(g_renderer, &water_rect);
+                }
+            }
+        }
+        return;
+    }
+    
+    // Sample flow field at higher resolution and store values
+    int grid_idx = 0;
+    for (int gy = 0; gy < grid_height; gy++) {
+        for (int gx = 0; gx < grid_width; gx++) {
+            float world_x = world_left + (gx - 1) * grid_size;
+            float world_y = world_top + (gy - 1) * grid_size;
+            
             float flow_x, flow_y;
             flow_get_vector_at(world_x, world_y, &flow_x, &flow_y);
-            
-            // Calculate flow magnitude
             float flow_magnitude = sqrt(flow_x * flow_x + flow_y * flow_y);
             
-            // Normalize flow magnitude (0.0 = no flow, 1.0 = max flow)
-            float normalized_flow = flow_magnitude / 0.8f;  // Max flow from flow.c is 0.8f
-            if (normalized_flow > 1.0f) normalized_flow = 1.0f;
+            flow_magnitudes[grid_idx] = flow_magnitude / 0.8f;  // Normalize
+            if (flow_magnitudes[grid_idx] > 1.0f) flow_magnitudes[grid_idx] = 1.0f;
             
-            // Calculate color modification based on flow
+            grid_idx++;
+        }
+    }
+    
+    // Apply adaptive smoothing based on zoom level (starts very early)
+    float smoothness;
+    if (zoom >= 0.3f) {
+        smoothness = 0.6f + (zoom - 0.3f) * 1.5f;  // Smoothing starts at zoom 0.3
+    } else {
+        smoothness = 0.2f + zoom * 1.3f;  // Minimal smoothing when very zoomed out
+    }
+    grid_idx = 0;
+    
+    for (int gy = 0; gy < grid_height; gy++) {
+        for (int gx = 0; gx < grid_width; gx++) {
+            float sum_flow = 0.0f;
+            float weight_sum = 0.0f;
+            
+            // 3x3 smoothing kernel
+            for (int dy = -1; dy <= 1; dy++) {
+                for (int dx = -1; dx <= 1; dx++) {
+                    int nx = gx + dx;
+                    int ny = gy + dy;
+                    
+                    if (nx >= 0 && nx < grid_width && ny >= 0 && ny < grid_height) {
+                        float distance = sqrt(dx * dx + dy * dy);
+                        float weight = exp(-distance * distance / (2.0f * smoothness));
+                        
+                        sum_flow += flow_magnitudes[ny * grid_width + nx] * weight;
+                        weight_sum += weight;
+                    }
+                }
+            }
+            
+            float smoothed_flow = (weight_sum > 0.0f) ? (sum_flow / weight_sum) : flow_magnitudes[grid_idx];
+            
+            // Calculate smoothed color based on flow
             int water_r, water_g, water_b;
             
-            if (normalized_flow < 0.1f) {
+            if (smoothed_flow < 0.1f) {
                 // Very weak flow: slightly lighter blue (clear water)
-                water_r = base_r + (int)(8 * (0.1f - normalized_flow) / 0.1f);
-                water_g = base_g + (int)(12 * (0.1f - normalized_flow) / 0.1f);
-                water_b = base_b + (int)(15 * (0.1f - normalized_flow) / 0.1f);
-            } else if (normalized_flow < 0.3f) {
+                water_r = base_r + (int)(8 * (0.1f - smoothed_flow) / 0.1f);
+                water_g = base_g + (int)(12 * (0.1f - smoothed_flow) / 0.1f);
+                water_b = base_b + (int)(15 * (0.1f - smoothed_flow) / 0.1f);
+            } else if (smoothed_flow < 0.3f) {
                 // Weak flow: normal water color
                 water_r = base_r;
                 water_g = base_g;
                 water_b = base_b;
-            } else if (normalized_flow < 0.6f) {
-                // Medium flow: slightly darker, more greenish (nutrients stirred up)
-                float factor = (normalized_flow - 0.3f) / 0.3f;
+            } else if (smoothed_flow < 0.6f) {
+                // Medium flow: slightly darker, more greenish
+                float factor = (smoothed_flow - 0.3f) / 0.3f;
                 water_r = base_r - (int)(6 * factor);
                 water_g = base_g - (int)(5 * factor);
                 water_b = base_b - (int)(8 * factor);
             } else {
-                // Strong flow: darker, more greenish-brown (sediment suspension)
-                float factor = (normalized_flow - 0.6f) / 0.4f;
+                // Strong flow: darker, more greenish-brown
+                float factor = (smoothed_flow - 0.6f) / 0.4f;
                 water_r = base_r - 6 - (int)(8 * factor);
-                water_g = base_g - 5 - (int)(3 * factor);  // Keep more green
+                water_g = base_g - 5 - (int)(3 * factor);
                 water_b = base_b - 8 - (int)(12 * factor);
             }
             
             // Clamp colors
             if (water_r < 10) water_r = 10;
-            if (water_g < 90) water_g = 90;   // Keep minimum green
-            if (water_b < 120) water_b = 120; // Keep minimum blue
+            if (water_g < 90) water_g = 90;
+            if (water_b < 120) water_b = 120;
             if (water_r > 35) water_r = 35;
             if (water_g > 130) water_g = 130;
             if (water_b > 180) water_b = 180;
+            
+            smoothed_r[grid_idx] = water_r;
+            smoothed_g[grid_idx] = water_g;
+            smoothed_b[grid_idx] = water_b;
+            
+            grid_idx++;
+        }
+    }
+    
+    // Render smoothed water tiles
+    grid_idx = 0;
+    for (int gy = 1; gy < grid_height - 1; gy++) {  // Skip border cells
+        for (int gx = 1; gx < grid_width - 1; gx++) {
+            float world_x = world_left + (gx - 1) * grid_size;
+            float world_y = world_top + (gy - 1) * grid_size;
+            
+            int idx = gy * grid_width + gx;
             
             // Convert world coordinates to screen coordinates
             int screen_x1, screen_y1, screen_x2, screen_y2;
@@ -95,7 +213,7 @@ static void render_flow_based_water_background(void) {
             if (screen_x2 > 0 && screen_x1 < WINDOW_WIDTH && 
                 screen_y2 > 0 && screen_y1 < WINDOW_HEIGHT) {
                 
-                SDL_SetRenderDrawColor(g_renderer, water_r, water_g, water_b, 255);
+                SDL_SetRenderDrawColor(g_renderer, smoothed_r[idx], smoothed_g[idx], smoothed_b[idx], 255);
                 
                 SDL_Rect water_rect;
                 water_rect.x = screen_x1;
@@ -107,6 +225,12 @@ static void render_flow_based_water_background(void) {
             }
         }
     }
+    
+    // Clean up temporary buffers
+    free(flow_magnitudes);
+    free(smoothed_r);
+    free(smoothed_g);
+    free(smoothed_b);
 }
 
 static void calculate_aged_color(int base_r, int base_g, int base_b, int age, int age_mature, int* aged_r, int* aged_g, int* aged_b) {

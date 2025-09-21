@@ -39,11 +39,12 @@ void camera_zoom(float zoom_delta, int mouse_x, int mouse_y) {
     float world_x_before, world_y_before;
     camera_screen_to_world(mouse_x, mouse_y, &world_x_before, &world_y_before);
     
-    // Apply zoom with NO limits - unlimited zoom
+    // Apply zoom with limits
     g_camera.zoom *= (1.0f + zoom_delta);
     
-    // Prevent zoom from going to zero or negative (would break rendering)
-    if (g_camera.zoom <= 0.0001f) g_camera.zoom = 0.0001f;
+    // Apply zoom limits
+    if (g_camera.zoom < 0.1f) g_camera.zoom = 0.1f;   // Min zoom (weit heraus)
+    if (g_camera.zoom > 0.75f) g_camera.zoom = 0.75f;     // Max zoom (nah rein)
     
     // Adjust camera to keep world position under mouse cursor
     float world_x_after, world_y_after;

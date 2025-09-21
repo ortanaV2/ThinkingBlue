@@ -1,4 +1,4 @@
-// rendering.c - Enhanced with flow-based water background coloring
+// rendering.c - Enhanced with anti-aliasing and flow-based water background
 #include <SDL2/SDL.h>
 #include <math.h>
 
@@ -15,10 +15,238 @@
 
 static SDL_Renderer* g_renderer = NULL;
 
+// Anti-aliasing helper functions
+static void draw_antialiased_pixel(SDL_Renderer* renderer, float x, float y, int r, int g, int b, float alpha);
+static void draw_antialiased_thick_line(SDL_Renderer* renderer, int x1, int y1, int x2, int y2, int thickness, int r, int g, int b);
+static void draw_antialiased_curved_line(SDL_Renderer* renderer, int x1, int y1, int x2, int y2, float curve_strength, float curve_offset, int thickness, int r, int g, int b);
+static void draw_antialiased_circle(SDL_Renderer* renderer, float center_x, float center_y, float radius, int r, int g, int b);
+static void draw_antialiased_fish_tail(SDL_Renderer* renderer, int screen_x, int screen_y, float heading, int fish_radius, int r, int g, int b);
+static void draw_fish_rl_vision(SDL_Renderer* renderer, int fish_id);
+
+// Legacy non-antialiased functions for compatibility
 static void draw_thick_line(SDL_Renderer* renderer, int x1, int y1, int x2, int y2, int thickness);
 static void draw_curved_line(SDL_Renderer* renderer, int x1, int y1, int x2, int y2, float curve_strength, float curve_offset, int thickness);
-static void draw_fish_tail(SDL_Renderer* renderer, int screen_x, int screen_y, float heading, int fish_radius, int r, int g, int b);
-static void draw_fish_rl_vision(SDL_Renderer* renderer, int fish_id);
+
+// Anti-aliased pixel drawing with subpixel precision
+static void draw_antialiased_pixel(SDL_Renderer* renderer, float x, float y, int r, int g, int b, float alpha) {
+    // Calculate coverage for 4 surrounding integer pixels
+    int x0 = (int)floor(x);
+    int y0 = (int)floor(y);
+    int x1 = x0 + 1;
+    int y1 = y0 + 1;
+    
+    float fx = x - x0;
+    float fy = y - y0;
+    
+    // Calculate coverage weights
+    float w00 = (1.0f - fx) * (1.0f - fy) * alpha;
+    float w10 = fx * (1.0f - fy) * alpha;
+    float w01 = (1.0f - fx) * fy * alpha;
+    float w11 = fx * fy * alpha;
+    
+    // Draw weighted pixels
+    if (w00 > 0.01f) {
+        SDL_SetRenderDrawColor(renderer, r, g, b, (int)(w00 * 255));
+        SDL_RenderDrawPoint(renderer, x0, y0);
+    }
+    if (w10 > 0.01f) {
+        SDL_SetRenderDrawColor(renderer, r, g, b, (int)(w10 * 255));
+        SDL_RenderDrawPoint(renderer, x1, y0);
+    }
+    if (w01 > 0.01f) {
+        SDL_SetRenderDrawColor(renderer, r, g, b, (int)(w01 * 255));
+        SDL_RenderDrawPoint(renderer, x0, y1);
+    }
+    if (w11 > 0.01f) {
+        SDL_SetRenderDrawColor(renderer, r, g, b, (int)(w11 * 255));
+        SDL_RenderDrawPoint(renderer, x1, y1);
+    }
+}
+
+// Anti-aliased thick line with smooth edges
+static void draw_antialiased_thick_line(SDL_Renderer* renderer, int x1, int y1, int x2, int y2, int thickness, int r, int g, int b) {
+    if (thickness <= 1) {
+        SDL_SetRenderDrawColor(renderer, r, g, b, 255);
+        SDL_RenderDrawLine(renderer, x1, y1, x2, y2);
+        return;
+    }
+    
+    float dx = x2 - x1;
+    float dy = y2 - y1;
+    float length = sqrt(dx * dx + dy * dy);
+    
+    if (length < 0.1f) return;
+    
+    dx /= length;
+    dy /= length;
+    
+    float perp_x = -dy;
+    float perp_y = dx;
+    float half_thickness = thickness * 0.5f;
+    
+    // Draw line as series of antialiased pixels
+    int steps = (int)(length * 2) + 1;
+    for (int i = 0; i <= steps; i++) {
+        float t = (float)i / steps;
+        float center_x = x1 + t * (x2 - x1);
+        float center_y = y1 + t * (y2 - y1);
+        
+        // Draw perpendicular strip at this position
+        int strip_steps = thickness * 2 + 4;
+        for (int j = 0; j < strip_steps; j++) {
+            float strip_t = (float)j / (strip_steps - 1) - 0.5f;
+            float strip_distance = strip_t * thickness;
+            
+            float px = center_x + perp_x * strip_distance;
+            float py = center_y + perp_y * strip_distance;
+            
+            // Calculate alpha based on distance from center
+            float alpha = 1.0f - fabs(strip_distance) / half_thickness;
+            if (alpha > 0.0f) {
+                if (alpha > 1.0f) alpha = 1.0f;
+                draw_antialiased_pixel(renderer, px, py, r, g, b, alpha);
+            }
+        }
+    }
+}
+
+// Anti-aliased circle with adjustable brightness and smooth edges
+static void draw_antialiased_circle(SDL_Renderer* renderer, float center_x, float center_y, float radius, int r, int g, int b) {
+    if (radius < 0.5f) {
+        draw_antialiased_pixel(renderer, center_x, center_y, r, g, b, 1.0f);
+        return;
+    }
+    
+    int x_min = (int)(center_x - radius - 1);
+    int x_max = (int)(center_x + radius + 1);
+    int y_min = (int)(center_y - radius - 1);
+    int y_max = (int)(center_y + radius + 1);
+    
+    for (int y = y_min; y <= y_max; y++) {
+        for (int x = x_min; x <= x_max; x++) {
+            float dx = x - center_x;
+            float dy = y - center_y;
+            float distance = sqrt(dx * dx + dy * dy);
+            
+            // Smooth antialiasing at circle edge
+            float alpha = 0.0f;
+            if (distance <= radius - 0.5f) {
+                alpha = 1.0f;  // Reduced from 1.0f to make circles less bright
+            } else if (distance <= radius + 0.5f) {
+                alpha = (radius + 0.5f - distance) * 0.85f;  // Reduced edge alpha too
+            }
+            
+            if (alpha > 0.0f) {
+                draw_antialiased_pixel(renderer, (float)x, (float)y, r, g, b, alpha);
+            }
+        }
+    }
+}
+
+// Anti-aliased curved line with bezier smoothing
+static void draw_antialiased_curved_line(SDL_Renderer* renderer, int x1, int y1, int x2, int y2, 
+                                        float curve_strength, float curve_offset, int thickness, int r, int g, int b) {
+    float mid_x = (x1 + x2) * 0.5f;
+    float mid_y = (y1 + y2) * 0.5f;
+    
+    float dx = x2 - x1;
+    float dy = y2 - y1;
+    float length = sqrt(dx * dx + dy * dy);
+    
+    if (length < 1.0f) {
+        draw_antialiased_thick_line(renderer, x1, y1, x2, y2, thickness, r, g, b);
+        return;
+    }
+    
+    dx /= length;
+    dy /= length;
+    
+    float perp_x = -dy;
+    float perp_y = dx;
+    
+    float curve_amount = curve_strength * length * 0.3f + curve_offset;
+    float ctrl_x = mid_x + perp_x * curve_amount;
+    float ctrl_y = mid_y + perp_y * curve_amount;
+    
+    int segments = (int)(length / 3.0f) + 4;
+    if (segments > 30) segments = 30;
+    
+    float prev_x = x1;
+    float prev_y = y1;
+    
+    for (int i = 1; i <= segments; i++) {
+        float t = (float)i / segments;
+        float inv_t = 1.0f - t;
+        
+        float curr_x = inv_t * inv_t * x1 + 2 * inv_t * t * ctrl_x + t * t * x2;
+        float curr_y = inv_t * inv_t * y1 + 2 * inv_t * t * ctrl_y + t * t * y2;
+        
+        draw_antialiased_thick_line(renderer, (int)prev_x, (int)prev_y, (int)curr_x, (int)curr_y, thickness, r, g, b);
+        
+        prev_x = curr_x;
+        prev_y = curr_y;
+    }
+}
+
+// Anti-aliased fish tail with same color as head (from fish.conf)
+static void draw_antialiased_fish_tail(SDL_Renderer* renderer, int screen_x, int screen_y, float heading, int fish_radius, int r, int g, int b) {
+    float tail_offset_distance = fish_radius * 3.0f;
+    
+    // Calculate tail base position (opposite to heading direction)
+    int tail_base_x = screen_x - (int)(cos(heading) * tail_offset_distance);
+    int tail_base_y = screen_y - (int)(sin(heading) * tail_offset_distance);
+    
+    float tail_length = fish_radius * 2.5f;
+    float tail_width = fish_radius * 3.0f;
+    
+    // Perpendicular vector for triangle width
+    float perp_x = -sin(heading);
+    float perp_y = cos(heading);
+    
+    // Two tail corners
+    int tail_corner1_x = tail_base_x + (int)(perp_x * tail_width * 0.5f);
+    int tail_corner1_y = tail_base_y + (int)(perp_y * tail_width * 0.5f);
+    int tail_corner2_x = tail_base_x - (int)(perp_x * tail_width * 0.5f);
+    int tail_corner2_y = tail_base_y - (int)(perp_y * tail_width * 0.5f);
+    
+    // Third corner (tip of tail)
+    int tail_tip_x = tail_base_x + (int)(cos(heading) * tail_length);
+    int tail_tip_y = tail_base_y + (int)(sin(heading) * tail_length);
+    
+    // Use same color as head (no darkening)
+    int tail_r = r;
+    int tail_g = g;
+    int tail_b = b;
+    
+    // Draw triangle outline with anti-aliasing
+    draw_antialiased_thick_line(renderer, tail_corner1_x, tail_corner1_y, tail_tip_x, tail_tip_y, 2, tail_r, tail_g, tail_b);
+    draw_antialiased_thick_line(renderer, tail_tip_x, tail_tip_y, tail_corner2_x, tail_corner2_y, 2, tail_r, tail_g, tail_b);
+    draw_antialiased_thick_line(renderer, tail_corner2_x, tail_corner2_y, tail_base_x, tail_base_y, 2, tail_r, tail_g, tail_b);
+    draw_antialiased_thick_line(renderer, tail_base_x, tail_base_y, tail_corner1_x, tail_corner1_y, 2, tail_r, tail_g, tail_b);
+    
+    // Fill triangle using original method but with anti-aliased pixels
+    if (tail_width > 2.0f) {
+        // Simple scanline fill approach preserving original shape
+        for (int i = 0; i <= (int)(tail_length); i++) {
+            float t = (float)i / tail_length;
+            
+            // Calculate edge points at this distance
+            int edge_x1 = tail_corner1_x + (int)(t * (tail_tip_x - tail_corner1_x));
+            int edge_y1 = tail_corner1_y + (int)(t * (tail_tip_y - tail_corner1_y));
+            int edge_x2 = tail_corner2_x + (int)(t * (tail_tip_x - tail_corner2_x));
+            int edge_y2 = tail_corner2_y + (int)(t * (tail_tip_y - tail_corner2_y));
+            
+            // Draw lines from base to edges (preserving original fill pattern)
+            draw_antialiased_thick_line(renderer, tail_base_x, tail_base_y, edge_x1, edge_y1, 1, tail_r, tail_g, tail_b);
+            draw_antialiased_thick_line(renderer, tail_base_x, tail_base_y, edge_x2, edge_y2, 1, tail_r, tail_g, tail_b);
+            
+            // Connect the edges
+            if (abs(edge_x2 - edge_x1) > 1 || abs(edge_y2 - edge_y1) > 1) {
+                draw_antialiased_thick_line(renderer, edge_x1, edge_y1, edge_x2, edge_y2, 1, tail_r, tail_g, tail_b);
+            }
+        }
+    }
+}
 
 // Enhanced flow-based water background rendering with higher resolution and smoothing
 static void render_flow_based_water_background(void) {
@@ -303,6 +531,7 @@ static void calculate_corpse_color(int original_fish_type, int decay_timer, int*
     if (*corpse_b < 150) *corpse_b = 150;
 }
 
+// Legacy thick line drawing (non-antialiased)
 static void draw_thick_line(SDL_Renderer* renderer, int x1, int y1, int x2, int y2, int thickness) {
     if (thickness <= 1) {
         SDL_RenderDrawLine(renderer, x1, y1, x2, y2);
@@ -315,57 +544,47 @@ static void draw_thick_line(SDL_Renderer* renderer, int x1, int y1, int x2, int 
     }
 }
 
-static void draw_fish_tail(SDL_Renderer* renderer, int screen_x, int screen_y, float heading, int fish_radius, int r, int g, int b) {
-    // Draw tail based on fish heading
-    float tail_offset_distance = fish_radius * 3.0f;
+// Legacy curved line drawing (non-antialiased)
+static void draw_curved_line(SDL_Renderer* renderer, int x1, int y1, int x2, int y2, float curve_strength, float curve_offset, int thickness) {
+    float mid_x = (x1 + x2) * 0.5f;
+    float mid_y = (y1 + y2) * 0.5f;
     
-    // Calculate tail base position (opposite to heading direction)
-    int tail_base_x = screen_x - (int)(cos(heading) * tail_offset_distance);
-    int tail_base_y = screen_y - (int)(sin(heading) * tail_offset_distance);
+    float dx = x2 - x1;
+    float dy = y2 - y1;
+    float length = sqrt(dx * dx + dy * dy);
     
-    float tail_length = fish_radius * 2.5f;
-    float tail_width = fish_radius * 3.0f;
+    if (length < 1.0f) {
+        draw_thick_line(renderer, x1, y1, x2, y2, thickness);
+        return;
+    }
     
-    // Perpendicular vector for triangle width
-    float perp_x = -sin(heading);
-    float perp_y = cos(heading);
+    dx /= length;
+    dy /= length;
     
-    // Two tail corners
-    int tail_corner1_x = tail_base_x + (int)(perp_x * tail_width * 0.5f);
-    int tail_corner1_y = tail_base_y + (int)(perp_y * tail_width * 0.5f);
-    int tail_corner2_x = tail_base_x - (int)(perp_x * tail_width * 0.5f);
-    int tail_corner2_y = tail_base_y - (int)(perp_y * tail_width * 0.5f);
+    float perp_x = -dy;
+    float perp_y = dx;
     
-    // Third corner (tip of tail)
-    int tail_tip_x = tail_base_x + (int)(cos(heading) * tail_length);
-    int tail_tip_y = tail_base_y + (int)(sin(heading) * tail_length);
+    float curve_amount = curve_strength * length * 0.3f + curve_offset;
+    float ctrl_x = mid_x + perp_x * curve_amount;
+    float ctrl_y = mid_y + perp_y * curve_amount;
     
-    // Make tail color slightly darker
-    int tail_r = (r * 3) / 4;
-    int tail_g = (g * 3) / 4;
-    int tail_b = (b * 3) / 4;
-    SDL_SetRenderDrawColor(renderer, tail_r, tail_g, tail_b, 255);
+    int segments = (int)(length / 8.0f) + 3;
+    if (segments > 20) segments = 20;
     
-    // Draw triangle outline
-    SDL_RenderDrawLine(renderer, tail_base_x, tail_base_y, tail_corner1_x, tail_corner1_y);
-    SDL_RenderDrawLine(renderer, tail_corner1_x, tail_corner1_y, tail_tip_x, tail_tip_y);
-    SDL_RenderDrawLine(renderer, tail_tip_x, tail_tip_y, tail_corner2_x, tail_corner2_y);
-    SDL_RenderDrawLine(renderer, tail_corner2_x, tail_corner2_y, tail_base_x, tail_base_y);
+    float prev_x = x1;
+    float prev_y = y1;
     
-    // Simple fill
-    if (tail_width > 2.0f) {
-        for (int i = 0; i <= (int)(tail_length); i++) {
-            float t = (float)i / tail_length;
-            
-            int edge_x1 = tail_corner1_x + (int)(t * (tail_tip_x - tail_corner1_x));
-            int edge_y1 = tail_corner1_y + (int)(t * (tail_tip_y - tail_corner1_y));
-            int edge_x2 = tail_corner2_x + (int)(t * (tail_tip_x - tail_corner2_x));
-            int edge_y2 = tail_corner2_y + (int)(t * (tail_tip_y - tail_corner2_y));
-            
-            SDL_RenderDrawLine(renderer, tail_base_x, tail_base_y, edge_x1, edge_y1);
-            SDL_RenderDrawLine(renderer, tail_base_x, tail_base_y, edge_x2, edge_y2);
-            SDL_RenderDrawLine(renderer, edge_x1, edge_y1, edge_x2, edge_y2);
-        }
+    for (int i = 1; i <= segments; i++) {
+        float t = (float)i / segments;
+        float inv_t = 1.0f - t;
+        
+        float curr_x = inv_t * inv_t * x1 + 2 * inv_t * t * ctrl_x + t * t * x2;
+        float curr_y = inv_t * inv_t * y1 + 2 * inv_t * t * ctrl_y + t * t * y2;
+        
+        draw_thick_line(renderer, (int)prev_x, (int)prev_y, (int)curr_x, (int)curr_y, thickness);
+        
+        prev_x = curr_x;
+        prev_y = curr_y;
     }
 }
 
@@ -443,55 +662,12 @@ static void draw_fish_rl_vision(SDL_Renderer* renderer, int fish_id) {
     draw_thick_line(renderer, fish_screen_x, fish_screen_y, heading_end_x, heading_end_y, 3);
 }
 
-// Enhanced curved line drawing with configurable curvature
-static void draw_curved_line(SDL_Renderer* renderer, int x1, int y1, int x2, int y2, float curve_strength, float curve_offset, int thickness) {
-    float mid_x = (x1 + x2) * 0.5f;
-    float mid_y = (y1 + y2) * 0.5f;
-    
-    float dx = x2 - x1;
-    float dy = y2 - y1;
-    float length = sqrt(dx * dx + dy * dy);
-    
-    if (length < 1.0f) {
-        draw_thick_line(renderer, x1, y1, x2, y2, thickness);
-        return;
-    }
-    
-    dx /= length;
-    dy /= length;
-    
-    float perp_x = -dy;
-    float perp_y = dx;
-    
-    float curve_amount = curve_strength * length * 0.3f + curve_offset;
-    float ctrl_x = mid_x + perp_x * curve_amount;
-    float ctrl_y = mid_y + perp_y * curve_amount;
-    
-    int segments = (int)(length / 8.0f) + 3;
-    if (segments > 20) segments = 20;
-    
-    float prev_x = x1;
-    float prev_y = y1;
-    
-    for (int i = 1; i <= segments; i++) {
-        float t = (float)i / segments;
-        float inv_t = 1.0f - t;
-        
-        float curr_x = inv_t * inv_t * x1 + 2 * inv_t * t * ctrl_x + t * t * x2;
-        float curr_y = inv_t * inv_t * y1 + 2 * inv_t * t * ctrl_y + t * t * y2;
-        
-        draw_thick_line(renderer, (int)prev_x, (int)prev_y, (int)curr_x, (int)curr_y, thickness);
-        
-        prev_x = curr_x;
-        prev_y = curr_y;
-    }
-}
-
 int rendering_init(SDL_Renderer* renderer) {
     g_renderer = renderer;
     nutrition_set_renderer(renderer);
     gas_set_renderer(renderer);
     flow_set_renderer(renderer);
+    printf("Anti-aliased rendering system initialized\n");
     return 1;
 }
 
@@ -502,7 +678,7 @@ void rendering_cleanup(void) {
 void rendering_render(void) {
     if (!g_renderer) return;
     
-    // ENHANCED: Render flow-based water background instead of solid color
+    // Render flow-based water background with anti-aliasing
     render_flow_based_water_background();
     
     // Render layers
@@ -521,7 +697,7 @@ void rendering_render(void) {
     int selected_node = simulation_get_selected_node();
     int selection_mode = simulation_get_selection_mode();
     
-    // Enhanced render chains with configurable thickness and curvature
+    // Enhanced render chains with anti-aliasing
     for (int i = 0; i < chain_count; i++) {
         if (!chains[i].active) continue;
         
@@ -551,36 +727,39 @@ void rendering_render(void) {
         PlantType* pt = plants_get_type(plant_type);
         
         // Set chain color - check for bleaching
+        int aged_r, aged_g, aged_b;
         if (pt && pt->active) {
-            int aged_r, aged_g, aged_b;
             calculate_aged_color(pt->chain_r, pt->chain_g, pt->chain_b, chains[i].age, pt->age_mature, &aged_r, &aged_g, &aged_b);
             
             // Check if either node is bleached
             if (temperature_is_coral_bleached(n1) || temperature_is_coral_bleached(n2)) {
                 int bleached_r, bleached_g, bleached_b;
                 calculate_bleached_color(aged_r, aged_g, aged_b, &bleached_r, &bleached_g, &bleached_b);
-                SDL_SetRenderDrawColor(g_renderer, bleached_r, bleached_g, bleached_b, 255);
-            } else {
-                SDL_SetRenderDrawColor(g_renderer, aged_r, aged_g, aged_b, 255);
+                aged_r = bleached_r;
+                aged_g = bleached_g;
+                aged_b = bleached_b;
             }
         } else {
-            SDL_SetRenderDrawColor(g_renderer, 100, 200, 100, 255);
+            aged_r = 100;
+            aged_g = 200;
+            aged_b = 100;
         }
         
         int screen_x1, screen_y1, screen_x2, screen_y2;
         camera_world_to_screen(nodes[n1].x, nodes[n1].y, &screen_x1, &screen_y1);
         camera_world_to_screen(nodes[n2].x, nodes[n2].y, &screen_x2, &screen_y2);
         
-        // Enhanced calculate thickness with plant-specific factor
+        // Calculate thickness with plant-specific factor
         float thickness_factor = pt ? pt->chain_thickness_factor : 1.0f;
         int thickness = (int)(CHAIN_THICKNESS * camera_get_zoom() * thickness_factor);
         if (thickness < 2) thickness = 2;
         
-        // Enhanced apply curvature multiplier
+        // Apply curvature multiplier
         float final_curve_strength = chains[i].curve_strength * chains[i].curve_multiplier;
         
-        draw_curved_line(g_renderer, screen_x1, screen_y1, screen_x2, screen_y2, 
-                        final_curve_strength, chains[i].curve_offset, thickness);
+        // Use anti-aliased curved line rendering
+        draw_antialiased_curved_line(g_renderer, screen_x1, screen_y1, screen_x2, screen_y2, 
+                                    final_curve_strength, chains[i].curve_offset, thickness, aged_r, aged_g, aged_b);
     }
     
     // Get fish data for rendering
@@ -596,7 +775,7 @@ void rendering_render(void) {
         }
     }
     
-    // Enhanced render nodes with configurable sizes and seed immunity
+    // Enhanced render nodes with anti-aliasing
     for (int i = 0; i < node_count; i++) {
         if (!nodes[i].active) continue;
         
@@ -609,47 +788,27 @@ void rendering_render(void) {
         int screen_x, screen_y;
         camera_world_to_screen(nodes[i].x, nodes[i].y, &screen_x, &screen_y);
         
-        int scaled_radius = (int)(NODE_RADIUS * camera_get_zoom());
+        float scaled_radius = NODE_RADIUS * camera_get_zoom();
         
         // Check if this is a corpse node
         if (nodes[i].is_corpse) {
             // Render corpse with white/gray color and tail
-            if (scaled_radius < 1) scaled_radius = 1;
+            if (scaled_radius < 1.0f) scaled_radius = 1.0f;
             
             int corpse_r, corpse_g, corpse_b;
             calculate_corpse_color(nodes[i].original_fish_type, nodes[i].corpse_decay_timer, &corpse_r, &corpse_g, &corpse_b);
-            SDL_SetRenderDrawColor(g_renderer, corpse_r, corpse_g, corpse_b, 255);
             
             // Make corpse slightly larger than regular nodes
-            scaled_radius = (int)((NODE_RADIUS * 1.5f) * camera_get_zoom());
-            if (scaled_radius < 1) scaled_radius = 1;
+            scaled_radius = (NODE_RADIUS * 1.5f) * camera_get_zoom();
+            if (scaled_radius < 1.0f) scaled_radius = 1.0f;
             
-            // Draw corpse tail FIRST
-            if (scaled_radius > 2) {
-                draw_fish_tail(g_renderer, screen_x, screen_y, nodes[i].corpse_heading, scaled_radius, corpse_r, corpse_g, corpse_b);
+            // Draw corpse tail FIRST (anti-aliased)
+            if (scaled_radius > 2.0f) {
+                draw_antialiased_fish_tail(g_renderer, screen_x, screen_y, nodes[i].corpse_heading, (int)scaled_radius, corpse_r, corpse_g, corpse_b);
             }
             
-            // Draw corpse body
-            if (scaled_radius <= 2) {
-                SDL_RenderDrawPoint(g_renderer, screen_x, screen_y);
-                if (scaled_radius > 1) {
-                    SDL_RenderDrawPoint(g_renderer, screen_x-1, screen_y);
-                    SDL_RenderDrawPoint(g_renderer, screen_x+1, screen_y);
-                    SDL_RenderDrawPoint(g_renderer, screen_x, screen_y-1);
-                    SDL_RenderDrawPoint(g_renderer, screen_x, screen_y+1);
-                }
-            } else {
-                for (int dx = -scaled_radius; dx <= scaled_radius; dx++) {
-                    int dy_max = (int)sqrt(scaled_radius * scaled_radius - dx * dx);
-                    for (int dy = -dy_max; dy <= dy_max; dy++) {
-                        int px = screen_x + dx;
-                        int py = screen_y + dy;
-                        if (px >= 0 && px < WINDOW_WIDTH && py >= 0 && py < WINDOW_HEIGHT) {
-                            SDL_RenderDrawPoint(g_renderer, px, py);
-                        }
-                    }
-                }
-            }
+            // Draw corpse body (anti-aliased)
+            draw_antialiased_circle(g_renderer, (float)screen_x, (float)screen_y, scaled_radius, corpse_r, corpse_g, corpse_b);
             
             // Draw decay indicator
             float decay_progress = 1.0f - ((float)nodes[i].corpse_decay_timer / (float)CORPSE_DECAY_TIME);
@@ -682,51 +841,29 @@ void rendering_render(void) {
             if (fish) {
                 FishType* fish_type = fish_get_type(fish->fish_type);
                 if (fish_type && fish_type->active) {
-                    scaled_radius = (int)((NODE_RADIUS * 1.8f) * camera_get_zoom());
-                    if (scaled_radius < 1) scaled_radius = 1;
+                    scaled_radius = (NODE_RADIUS * 1.8f) * camera_get_zoom();
+                    if (scaled_radius < 1.0f) scaled_radius = 1.0f;
                     
                     fish_r = fish_type->node_r;
                     fish_g = fish_type->node_g;
                     fish_b = fish_type->node_b;
-                    SDL_SetRenderDrawColor(g_renderer, fish_r, fish_g, fish_b, 255);
                 } else {
-                    scaled_radius = (int)((NODE_RADIUS * 1.8f) * camera_get_zoom());
-                    if (scaled_radius < 1) scaled_radius = 1;
-                    SDL_SetRenderDrawColor(g_renderer, fish_r, fish_g, fish_b, 255);
+                    scaled_radius = (NODE_RADIUS * 1.8f) * camera_get_zoom();
+                    if (scaled_radius < 1.0f) scaled_radius = 1.0f;
                 }
             } else {
-                scaled_radius = (int)((NODE_RADIUS * 1.8f) * camera_get_zoom());
-                if (scaled_radius < 1) scaled_radius = 1;
+                scaled_radius = (NODE_RADIUS * 1.8f) * camera_get_zoom();
+                if (scaled_radius < 1.0f) scaled_radius = 1.0f;
                 fish_r = 255; fish_g = 0; fish_b = 255;
-                SDL_SetRenderDrawColor(g_renderer, fish_r, fish_g, fish_b, 255);
             }
             
-            // Draw fish tail FIRST
-            if (scaled_radius > 2 && fish) {
-                draw_fish_tail(g_renderer, screen_x, screen_y, fish->heading, scaled_radius, fish_r, fish_g, fish_b);
+            // Draw fish tail FIRST (anti-aliased)
+            if (scaled_radius > 2.0f && fish) {
+                draw_antialiased_fish_tail(g_renderer, screen_x, screen_y, fish->heading, (int)scaled_radius, fish_r, fish_g, fish_b);
             }
             
-            // Draw fish body
-            if (scaled_radius <= 2) {
-                SDL_RenderDrawPoint(g_renderer, screen_x, screen_y);
-                if (scaled_radius > 1) {
-                    SDL_RenderDrawPoint(g_renderer, screen_x-1, screen_y);
-                    SDL_RenderDrawPoint(g_renderer, screen_x+1, screen_y);
-                    SDL_RenderDrawPoint(g_renderer, screen_x, screen_y-1);
-                    SDL_RenderDrawPoint(g_renderer, screen_x, screen_y+1);
-                }
-            } else {
-                for (int dx = -scaled_radius; dx <= scaled_radius; dx++) {
-                    int dy_max = (int)sqrt(scaled_radius * scaled_radius - dx * dx);
-                    for (int dy = -dy_max; dy <= dy_max; dy++) {
-                        int px = screen_x + dx;
-                        int py = screen_y + dy;
-                        if (px >= 0 && px < WINDOW_WIDTH && py >= 0 && py < WINDOW_HEIGHT) {
-                            SDL_RenderDrawPoint(g_renderer, px, py);
-                        }
-                    }
-                }
-            }
+            // Draw fish body (anti-aliased)
+            draw_antialiased_circle(g_renderer, (float)screen_x, (float)screen_y, scaled_radius, fish_r, fish_g, fish_b);
             
             continue;
         } else {
@@ -736,12 +873,13 @@ void rendering_render(void) {
             
             // Apply size factor from plant configuration
             float size_factor = pt ? pt->node_size_factor : 1.0f;
-            scaled_radius = (int)(NODE_RADIUS * camera_get_zoom() * size_factor);
-            if (scaled_radius < 1) scaled_radius = 1;
+            scaled_radius = NODE_RADIUS * camera_get_zoom() * size_factor;
+            if (scaled_radius < 1.0f) scaled_radius = 1.0f;
             
             // Set color based on selection state, plant type, bleaching, and seed immunity
+            int final_r, final_g, final_b;
             if (i == selected_node && selection_mode == 1) {
-                SDL_SetRenderDrawColor(g_renderer, 255, 255, 0, 255);
+                final_r = 255; final_g = 255; final_b = 0;
             } else {
                 if (pt && pt->active) {
                     int aged_r, aged_g, aged_b;
@@ -751,7 +889,7 @@ void rendering_render(void) {
                     if (temperature_is_coral_bleached(i)) {
                         int bleached_r, bleached_g, bleached_b;
                         calculate_bleached_color(aged_r, aged_g, aged_b, &bleached_r, &bleached_g, &bleached_b);
-                        SDL_SetRenderDrawColor(g_renderer, bleached_r, bleached_g, bleached_b, 255);
+                        final_r = bleached_r; final_g = bleached_g; final_b = bleached_b;
                     } 
                     // Check if seed has immunity
                     else if (nodes[i].seed_immunity_timer > 0) {
@@ -768,41 +906,20 @@ void rendering_render(void) {
                         int immune_b = (int)(200 * pulse_factor);
                         
                         // Mix with original color based on immunity remaining
-                        int final_r = (int)(aged_r * (1.0f - immunity_ratio) + immune_r * immunity_ratio);
-                        int final_g = (int)(aged_g * (1.0f - immunity_ratio) + immune_g * immunity_ratio);
-                        int final_b = (int)(aged_b * (1.0f - immunity_ratio) + immune_b * immunity_ratio);
-                        
-                        SDL_SetRenderDrawColor(g_renderer, final_r, final_g, final_b, 255);
+                        final_r = (int)(aged_r * (1.0f - immunity_ratio) + immune_r * immunity_ratio);
+                        final_g = (int)(aged_g * (1.0f - immunity_ratio) + immune_g * immunity_ratio);
+                        final_b = (int)(aged_b * (1.0f - immunity_ratio) + immune_b * immunity_ratio);
                     } 
                     else {
-                        SDL_SetRenderDrawColor(g_renderer, aged_r, aged_g, aged_b, 255);
+                        final_r = aged_r; final_g = aged_g; final_b = aged_b;
                     }
                 } else {
-                    SDL_SetRenderDrawColor(g_renderer, 150, 255, 150, 255);
+                    final_r = 150; final_g = 255; final_b = 150;
                 }
             }
-        }
-        
-        // Draw plant node as circle
-        if (scaled_radius <= 2) {
-            SDL_RenderDrawPoint(g_renderer, screen_x, screen_y);
-            if (scaled_radius > 1) {
-                SDL_RenderDrawPoint(g_renderer, screen_x-1, screen_y);
-                SDL_RenderDrawPoint(g_renderer, screen_x+1, screen_y);
-                SDL_RenderDrawPoint(g_renderer, screen_x, screen_y-1);
-                SDL_RenderDrawPoint(g_renderer, screen_x, screen_y+1);
-            }
-        } else {
-            for (int dx = -scaled_radius; dx <= scaled_radius; dx++) {
-                int dy_max = (int)sqrt(scaled_radius * scaled_radius - dx * dx);
-                for (int dy = -dy_max; dy <= dy_max; dy++) {
-                    int px = screen_x + dx;
-                    int py = screen_y + dy;
-                    if (px >= 0 && px < WINDOW_WIDTH && py >= 0 && py < WINDOW_HEIGHT) {
-                        SDL_RenderDrawPoint(g_renderer, px, py);
-                    }
-                }
-            }
+            
+            // Draw plant node as anti-aliased circle
+            draw_antialiased_circle(g_renderer, (float)screen_x, (float)screen_y, scaled_radius, final_r, final_g, final_b);
         }
     }
     

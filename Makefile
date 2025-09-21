@@ -1,6 +1,6 @@
-# Compiler and flags
+# Compiler and flags with anti-aliasing support
 CC = gcc
-CFLAGS = -Wall -Wextra -std=c99 -O2
+CFLAGS = -Wall -Wextra -std=c99 -O2 -DSDL_HINT_RENDER_SCALE_QUALITY=2
 LIBS = -lmingw32 -lSDL2main -lSDL2 -lm
 
 # Python integration for MSYS2/MinGW64 - WORKING VERSION
@@ -42,11 +42,11 @@ check-python:
 $(OBJDIR):
 	@mkdir -p $(OBJDIR)
 
-# Build target executable
+# Build target executable with anti-aliasing
 $(TARGET): $(OBJDIR) $(OBJECTS)
-	@echo "Linking executable..."
+	@echo "Linking executable with anti-aliasing support..."
 	$(CC) $(OBJECTS) -o $(TARGET) $(ALL_LIBS)
-	@echo "✓ Build complete: $(TARGET)"
+	@echo "✓ Build complete with anti-aliasing: $(TARGET)"
 
 # Compile source files to object files
 $(OBJDIR)/%.o: $(SRCDIR)/%.c
@@ -61,7 +61,7 @@ clean:
 # Rebuild everything
 rebuild: clean all
 
-# Debug build with debug symbols
+# Debug build with debug symbols and anti-aliasing
 debug: CFLAGS += -g -DDEBUG
 debug: $(TARGET)
 
@@ -79,7 +79,7 @@ install-python-headers:
 
 # Install all dependencies
 install-deps:
-	@echo "Installing dependencies for MSYS2/MinGW64..."
+	@echo "Installing dependencies for MSYS2/MinGW64 with anti-aliasing support..."
 	pacman -S --needed --noconfirm \
 		mingw-w64-x86_64-SDL2 \
 		mingw-w64-x86_64-python \
@@ -88,9 +88,9 @@ install-deps:
 # Build without Python check (if having issues)
 build-no-check: $(TARGET)
 
-# Run the program
+# Run the program with anti-aliasing
 run: $(TARGET)
-	@echo "Starting $(TARGET) with temperature control..."
+	@echo "Starting $(TARGET) with anti-aliasing and temperature control..."
 	./$(TARGET)
 
 # Test ecosystem stats with temperature control
@@ -116,17 +116,24 @@ check-stats-deps:
 # Show help
 help:
 	@echo "Available targets:"
-	@echo "  all              - Build with Python check (default)"
+	@echo "  all              - Build with Python check and anti-aliasing (default)"
 	@echo "  build-no-check   - Build without Python check"
 	@echo "  clean            - Remove build files"
 	@echo "  rebuild          - Clean and build"
-	@echo "  debug            - Build with debug symbols"
-	@echo "  run              - Build and run the program"
+	@echo "  debug            - Build with debug symbols and anti-aliasing"
+	@echo "  run              - Build and run the program with anti-aliasing"
 	@echo "  test-stats       - Test ecosystem statistics monitor"
 	@echo "  check-stats-deps - Check statistics dependencies"
 	@echo "  install-deps     - Install dependencies"
 	@echo "  install-python-headers - Install Python development files"
 	@echo "  help             - Show this help"
+	@echo ""
+	@echo "Anti-Aliasing Features:"
+	@echo "  - 4x MSAA (Multi-Sample Anti-Aliasing) enabled by default"
+	@echo "  - Linear texture filtering for smooth scaling"
+	@echo "  - Sub-pixel accurate rendering for curves and circles"
+	@echo "  - Smooth edges on fish tails, plant chains, and nodes"
+	@echo "  - Enhanced visual quality at all zoom levels"
 	@echo ""
 	@echo "Temperature Control Features:"
 	@echo "  - Press 'TAB' in simulation to open statistics window with temperature slider"

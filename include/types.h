@@ -1,4 +1,4 @@
-// types.h - Enhanced with seed immunity system
+// types.h - Enhanced with anti-aliasing support and seed immunity system
 #ifndef TYPES_H
 #define TYPES_H
 
@@ -29,7 +29,7 @@
 #define CHAIN_FORCE 0.05f
 #define WATER_DRAG 0.95f
 
-// Rendering parameters
+// Rendering parameters with anti-aliasing support
 #define NODE_RADIUS 5
 #define CHAIN_THICKNESS 6
 
@@ -54,8 +54,12 @@
 // Corpse system constants
 #define CORPSE_DECAY_TIME 1800  
 
-// NEW: Seed immunity system
+// Seed immunity system
 #define SEED_IMMUNITY_TIME 180  // 6 seconds at 30 FPS
+
+// Anti-aliasing constants
+#define AA_SAMPLE_RADIUS 1.0f    // Subpixel sampling radius
+#define AA_ALPHA_THRESHOLD 0.01f // Minimum alpha for pixel rendering
 
 // Derived world bounds
 #define WORLD_LEFT (WORLD_CENTER_X - WORLD_WIDTH / 2.0f)
@@ -139,7 +143,7 @@ typedef struct {
     int active;
 } FishType;
 
-// ENHANCED: Node structure with seed immunity system
+// Node structure with seed immunity system
 typedef struct {
     float x, y;
     float vx, vy;
@@ -155,7 +159,7 @@ typedef struct {
     int original_fish_type;  // Fish type that became this corpse
     float corpse_heading;    // Preserved heading from when fish died
     
-    // NEW: Seed immunity system
+    // Seed immunity system
     int seed_immunity_timer;  // Frames until seed can be eaten (0 = can be eaten)
     
     // Compatibility

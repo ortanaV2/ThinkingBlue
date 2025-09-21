@@ -1,4 +1,4 @@
-// main.c - Enhanced with temperature system for coral bleaching
+// main.c - Enhanced with anti-aliasing support
 #include <SDL2/SDL.h>
 #include <stdio.h>
 #include <time.h>
@@ -42,7 +42,7 @@ static void populate_reef_randomly(void) {
     
     if (total_plant_species == 0) return;
     
-    printf("Populating reef with %d plants and %d fish (aging + model saving + temperature)...\n", 
+    printf("Populating reef with %d plants and %d fish (aging + model saving + temperature + anti-aliasing)...\n", 
            INITIAL_PLANT_COUNT, INITIAL_FISH_COUNT);
     
     // Spawn plants
@@ -72,7 +72,7 @@ static void populate_reef_randomly(void) {
         }
     }
     
-    printf("Reef populated! Temperature system active for coral bleaching.\n");
+    printf("Reef populated! Anti-aliased rendering enabled.\n");
 }
 
 static void write_stats_file(void) {
@@ -195,7 +195,7 @@ static void handle_mouse_click(int screen_x, int screen_y, int button) {
 }
 
 static void print_debug_info(void) {
-    printf("\n=== DEBUG INFO WITH NEURAL NETWORK TRAINING + TEMPERATURE ===\n");
+    printf("\n=== DEBUG INFO WITH ANTI-ALIASING + NEURAL NETWORK TRAINING + TEMPERATURE ===\n");
     printf("World size: %.0fx%.0f\n", WORLD_WIDTH, WORLD_HEIGHT);
     printf("Zoom: unlimited (current: %.6f)\n", camera_get_zoom());
     printf("Plant types: %d\n", plants_get_type_count());
@@ -206,6 +206,7 @@ static void print_debug_info(void) {
     printf("Ray rendering: %s\n", fish_is_ray_rendering_enabled() ? "ON" : "OFF");
     printf("Flow field: %s\n", flow_is_visible() ? "ON" : "OFF");
     printf("Temperature: %.1f°C\n", temperature_get_current());
+    printf("Anti-aliasing: ENABLED\n");
     printf("Statistics: Available via TAB key\n");
     
     // Count bleached corals
@@ -276,6 +277,7 @@ static void print_debug_info(void) {
     printf("Models will be saved on exit (Ctrl+C or ESC)\n");
     printf("Best herbivore and predator models will be saved to JSON files\n");
     printf("Training is ongoing - reproduction success tracked for model selection\n");
+    printf("Anti-aliasing provides smooth visuals for better observation\n");
     printf("==========================================\n\n");
 }
 
@@ -283,9 +285,10 @@ int main(int argc, char* argv[]) {
     (void)argc;
     (void)argv;
     
-    printf("Starting Great Barrier Reef Ecosystem v3 with Temperature System...\n");
+    printf("Starting Great Barrier Reef Ecosystem v3 with Anti-Aliasing + Temperature System...\n");
     printf("World dimensions: %.0fx%.0f, Initial population: %d plants, %d fish\n",
            WORLD_WIDTH, WORLD_HEIGHT, INITIAL_PLANT_COUNT, INITIAL_FISH_COUNT);
+    printf("Anti-aliasing enabled for smooth rendering\n");
     printf("Temperature system active - coral bleaching will occur at temperatures > 0°C\n");
     printf("Best models will be saved on graceful shutdown (Ctrl+C)\n");
     printf("Live statistics plotter available with temperature control (press 'TAB')\n");
@@ -296,30 +299,42 @@ int main(int argc, char* argv[]) {
     signal(SIGINT, signal_handler);   // Ctrl+C
     signal(SIGTERM, signal_handler);  // Termination request
     
-    // Initialize SDL
+    // Initialize SDL with anti-aliasing hints
     if (SDL_Init(SDL_INIT_VIDEO) < 0) {
         printf("SDL init failed: %s\n", SDL_GetError());
         return 1;
     }
     
-    // Create window and renderer
-    SDL_Window* window = SDL_CreateWindow("Great Barrier Reef Ecosystem v3 - Temperature + Coral Bleaching",
+    // Set anti-aliasing hints before creating renderer
+    SDL_GL_SetAttribute(SDL_GL_MULTISAMPLEBUFFERS, 1);
+    SDL_GL_SetAttribute(SDL_GL_MULTISAMPLESAMPLES, 4); // 4x MSAA
+    
+    // Create window and renderer with anti-aliasing support
+    SDL_Window* window = SDL_CreateWindow("Great Barrier Reef Ecosystem v3 - Anti-Aliased + Temperature + Coral Bleaching",
                                          SDL_WINDOWPOS_CENTERED, SDL_WINDOWPOS_CENTERED,
-                                         WINDOW_WIDTH, WINDOW_HEIGHT, SDL_WINDOW_SHOWN);
+                                         WINDOW_WIDTH, WINDOW_HEIGHT, SDL_WINDOW_SHOWN | SDL_WINDOW_OPENGL);
     if (!window) {
         printf("Window creation failed: %s\n", SDL_GetError());
         SDL_Quit();
         return 1;
     }
     
-    SDL_Renderer* renderer = SDL_CreateRenderer(window, -1, SDL_RENDERER_ACCELERATED);
+    // Create renderer with anti-aliasing
+    SDL_Renderer* renderer = SDL_CreateRenderer(window, -1, SDL_RENDERER_ACCELERATED | SDL_RENDERER_PRESENTVSYNC);
     if (!renderer) {
         printf("Renderer creation failed: %s\n", SDL_GetError());
         SDL_DestroyWindow(window);
         SDL_Quit();
         return 1;
     }
+    
+    // Enable blending for alpha transparency
     SDL_SetRenderDrawBlendMode(renderer, SDL_BLENDMODE_BLEND);
+    
+    // Enable render scale quality (linear filtering)
+    SDL_SetHint(SDL_HINT_RENDER_SCALE_QUALITY, "2"); // 2 = best quality
+    
+    printf("Anti-aliasing initialized: 4x MSAA + linear filtering\n");
     
     // Initialize all systems
     printf("Initializing systems...\n");
@@ -385,10 +400,11 @@ int main(int argc, char* argv[]) {
     populate_reef_randomly();
     
     // Print status
-    printf("\nSystem ready with temperature-based coral bleaching!\n");
+    printf("\nSystem ready with anti-aliased temperature-based coral bleaching!\n");
     printf("Plant types loaded: %d\n", plants_get_type_count());
     printf("Fish types loaded: %d\n", fish_get_type_count());
     printf("Temperature: %.1f°C (use stats GUI to adjust)\n", temperature_get_current());
+    printf("Anti-aliasing: 4x MSAA + linear filtering enabled\n");
     
     // Print controls
     printf("\nControls:\n");
@@ -418,7 +434,7 @@ int main(int argc, char* argv[]) {
     SDL_Event event;
     int mouse_x = 0, mouse_y = 0;
     
-    printf("Temperature system active! Coral bleaching will occur at temperatures > 0°C\n");
+    printf("Anti-aliased ecosystem active! Smooth visuals with coral bleaching at temperatures > 0°C\n");
     printf("Use the statistics GUI (TAB) to adjust temperature and watch coral health.\n\n");
     
     // Main game loop
@@ -548,7 +564,7 @@ int main(int argc, char* argv[]) {
         // Write statistics for plotter
         write_stats_file();
         
-        // Render
+        // Render with anti-aliasing
         rendering_render();
         
         // Frame rate limiting
@@ -595,7 +611,7 @@ cleanup:
     printf("Environment balance: %.2f\n", nutrition_get_balance());
     printf("Total system balance: %.2f\n", 
            fish_get_nutrition_balance() + nutrition_get_balance());
-    printf("Neural network training completed successfully\n");
+    printf("Neural network training completed successfully with smooth anti-aliased visuals\n");
     printf("Check for best_herbivore_model.json and best_predator_model.json files\n");
     printf("========================================\n");
     
@@ -612,6 +628,6 @@ cleanup:
     SDL_DestroyWindow(window);
     SDL_Quit();
     
-    printf("Training session complete! Models saved for future use.\n");
+    printf("Anti-aliased training session complete! Models saved for future use.\n");
     return 0;
 }

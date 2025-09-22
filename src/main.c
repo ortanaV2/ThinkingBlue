@@ -1,4 +1,4 @@
-// main.c - Enhanced with temperature system for coral bleaching and FPS display
+// main.c - Enhanced with critical Python error handling
 #include <SDL2/SDL.h>
 #include <stdio.h>
 #include <time.h>
@@ -328,7 +328,7 @@ int main(int argc, char* argv[]) {
     }
     
     // Create window and renderer
-    SDL_Window* window = SDL_CreateWindow("ThinkingBlue Ecosystem Simulation with FPS",
+    SDL_Window* window = SDL_CreateWindow("ThinkingBlue Ecosystem Simulation",
                                          SDL_WINDOWPOS_CENTERED, SDL_WINDOWPOS_CENTERED,
                                          WINDOW_WIDTH, WINDOW_HEIGHT, SDL_WINDOW_SHOWN);
     if (!window) {
@@ -392,14 +392,22 @@ int main(int argc, char* argv[]) {
         printf("WARNING: Failed to load fish.conf - no fish available\n");
     }
     
-    // Initialize Python API with model saving support
+    // CRITICAL: Initialize Python API with error checking
     if (!python_api_init()) {
-        printf("WARNING: Python API init failed\n");
-    } else {
-        if (!python_api_run_script("fish_controller.py")) {
-            printf("WARNING: Failed to load fish controller\n");
-        }
+        printf("CRITICAL ERROR: Python API init failed - Python installation broken\n");
+        printf("Please fix Python installation before running simulation\n");
+        return 1;
     }
+    
+    // CRITICAL: Try to load Python script with error handling
+    if (!python_api_run_script("fish_controller.py")) {
+        printf("CRITICAL ERROR: Failed to load fish controller - Neural networks disabled\n");
+        printf("Python environment is not working correctly\n");
+        printf("Please fix Python installation (missing math module)\n");
+        return 1;
+    }
+    
+    printf("Python neural network controller loaded successfully!\n");
     
     // Set renderer for layers
     nutrition_set_renderer(renderer);
@@ -469,15 +477,7 @@ int main(int argc, char* argv[]) {
                     break;
                     
                 case SDL_KEYDOWN:
-                    switch (event.key.keysym.sym) {
-                        case SDLK_ESCAPE:
-                            printf("ESC pressed - initiating graceful shutdown...\n");
-                            // Clean up stats file before exit
-                            remove("simulation_stats.tmp");
-                            printf("Cleaned up simulation_stats.tmp\n");
-                            running = 0;
-                            break;
-                            
+                    switch (event.key.keysym.sym) {   
                         case SDLK_TAB:
                             // Check if Shift is held for spawn mode toggle
                             const Uint8* keystate = SDL_GetKeyboardState(NULL);

@@ -1,4 +1,3 @@
-// fish_behaviour.c - Enhanced reward system with improved predator-prey dynamics
 #include <stdio.h>
 #include <stdlib.h>
 #include <math.h>
@@ -14,6 +13,11 @@
 // Track parent fish for neural network inheritance
 static int g_parent_fish_id = -1;
 static int g_reproduction_notification_pending = 0;
+
+// Track previous positions for movement analysis
+static float g_previous_positions_x[MAX_FISH] = {0};
+static float g_previous_positions_y[MAX_FISH] = {0};
+static int g_position_tracking_initialized = 0;
 
 // Calculate plant nutrition value
 static float calculate_plant_nutrition_value(int plant_type) {
@@ -33,13 +37,12 @@ static float calculate_plant_nutrition_value(int plant_type) {
 // Calculate corpse nutrition value based on original fish type
 static float calculate_corpse_nutrition_value(int original_fish_type) {
     if (original_fish_type < 0 || original_fish_type >= fish_get_type_count()) {
-        return 0.15f;  // Default corpse nutrition
+        return 0.15f;
     }
     
     FishType* ft = fish_get_type(original_fish_type);
     if (!ft) return 0.15f;
     
-    // Corpse nutrition based on fish size and danger level
     float nutrition_value = ft->size_radius * 0.02f + ft->danger_level * 0.1f + 0.1f;
     
     return nutrition_value;
@@ -112,7 +115,7 @@ void fish_apply_rl_outputs(int fish_id) {
     }
 }
 
-// Enhanced reward calculation with improved predator-prey dynamics and spinning penalty
+// Enhanced reward calculation with predator approach rewards
 void fish_calculate_rl_rewards(int fish_id) {
     Fish* fish = fish_get_by_id(fish_id);
     if (!fish) return;
@@ -125,14 +128,22 @@ void fish_calculate_rl_rewards(int fish_id) {
     
     fish->last_reward = 0.0f;
     
+    // Initialize position tracking on first call
+    if (!g_position_tracking_initialized) {
+        for (int i = 0; i < MAX_FISH; i++) {
+            g_previous_positions_x[i] = 0.0f;
+            g_previous_positions_y[i] = 0.0f;
+        }
+        g_position_tracking_initialized = 1;
+    }
+    
     // Basic survival reward
     fish->last_reward += 0.001f;
     
-    // ANTI-SPINNING PENALTY: Punish excessive turning
-    float turn_amount = fabs(fish->rl_outputs[0]);  // Get absolute turn direction
+    // Anti-spinning penalty
+    float turn_amount = fabs(fish->rl_outputs[0]);
     if (turn_amount > 0.6f) {
-        // Progressive penalty for strong turning
-        float spin_penalty = -0.08f * (turn_amount - 0.6f) / 0.4f;  // Scale from 0.6 to 1.0
+        float spin_penalty = -0.08f * (turn_amount - 0.6f) / 0.4f;
         fish->last_reward += spin_penalty;
     }
     
@@ -143,112 +154,174 @@ void fish_calculate_rl_rewards(int fish_id) {
     if (turn_amount > 0.7f) {
         high_turn_counters[fish_id]++;
         
-        // Additional penalty for sustained spinning (same direction)
         if (high_turn_counters[fish_id] > 3) {
             float direction_consistency = fish->rl_outputs[0] * last_turn_directions[fish_id];
-            if (direction_consistency > 0) {  // Same direction as before
+            if (direction_consistency > 0) {
                 float spin_duration_penalty = -0.05f * fminf((high_turn_counters[fish_id] - 5) / 10.0f, 1.0f);
                 fish->last_reward += spin_duration_penalty;
             }
         }
     } else {
-        high_turn_counters[fish_id] = 0;  // Reset counter when not turning hard
+        high_turn_counters[fish_id] = 0;
     }
     
     last_turn_directions[fish_id] = fish->rl_outputs[0];
     
-    // REMOVED: Movement reward - no longer reward movement itself
-    
-    // Enhanced species-specific rewards
+    // Species-specific rewards
     if (fish_type->is_predator) {
-        // ENHANCED PREDATOR REWARDS: Only reward approaching weaker fish
-        float danger_level = fish->rl_inputs[6];  // Relative danger level
-        float foreign_fish_magnitude = sqrt(fish->rl_inputs[4] * fish->rl_inputs[4] + 
-                                            fish->rl_inputs[5] * fish->rl_inputs[5]);
+        // ENHANCED PREDATOR REWARDS: Approach and distance-based rewards
         
-        if (foreign_fish_magnitude > 0.1f) {  // Fish detected in FOV
-            if (danger_level > 0.1f) {
-                // Approaching weaker prey - BIG REWARD
-                float prey_weakness = danger_level;
-                float approach_reward = 0.15f * prey_weakness * foreign_fish_magnitude;
-                fish->last_reward += approach_reward;
-            } else if (danger_level < -0.1f) {
-                // Approaching stronger predator - BIG PUNISHMENT
-                float threat_level = -danger_level;
-                float threat_punishment = -0.12f * threat_level * foreign_fish_magnitude;
-                fish->last_reward += threat_punishment;
+        // Get target info from inputs 0,1,3 (prey vector and distance)
+        float prey_vector_x = fish->rl_inputs[0];
+        float prey_vector_y = fish->rl_inputs[1];
+        float prey_distance = fish->rl_inputs[3];  // Normalized distance (0=close, 1=far)
+        
+        float prey_magnitude = sqrt(prey_vector_x * prey_vector_x + prey_vector_y * prey_vector_y);
+        
+        if (prey_magnitude > 0.1f) {  // Prey detected
+            // MASSIVE proximity reward - closer is much better
+            float proximity_factor = 1.0f - prey_distance;  // 1=very close, 0=far
+            float proximity_reward = 0.5f * proximity_factor * proximity_factor;  // Quadratic reward
+            fish->last_reward += proximity_reward;
+            
+            // MOVEMENT TOWARDS PREY REWARD
+            float current_x = fish_node->x;
+            float current_y = fish_node->y;
+            float prev_x = g_previous_positions_x[fish_id];
+            float prev_y = g_previous_positions_y[fish_id];
+            
+            // Calculate if fish moved closer to prey
+            if (prev_x != 0.0f || prev_y != 0.0f) {  // Skip first frame
+                // Current distance to prey (estimated from normalized distance)
+                float estimated_prey_distance = prey_distance * fish_type->fish_detection_range;
+                
+                // Previous distance to prey (approximate)
+                float dx_prev = current_x - prev_x;
+                float dy_prev = current_y - prev_y;
+                float movement_distance = sqrt(dx_prev * dx_prev + dy_prev * dy_prev);
+                
+                if (movement_distance > 0.5f) {  // Only if fish actually moved
+                    // Check if movement was towards prey
+                    float movement_x = dx_prev / movement_distance;
+                    float movement_y = dy_prev / movement_distance;
+                    
+                    // Dot product: positive = moving towards prey
+                    float approach_alignment = prey_vector_x * movement_x + prey_vector_y * movement_y;
+                    
+                    if (approach_alignment > 0.3f) {  // Moving towards prey
+                        float approach_reward = 0.3f * approach_alignment * proximity_factor;
+                        fish->last_reward += approach_reward;
+                    } else if (approach_alignment < -0.3f) {  // Moving away from prey
+                        float retreat_penalty = -0.12f * (-approach_alignment) * proximity_factor;
+                        fish->last_reward += retreat_penalty;
+                    }
+                }
             }
         }
         
-        // Reward for being in areas with potential prey
-        float distance_to_prey = fish_get_distance_to_nearest_foreign_fish(fish_id);
-        if (distance_to_prey < 400.0f) {
-            float proximity_factor = 1.0f - (distance_to_prey / 400.0f);
-            fish->last_reward += fish_type->proximity_reward_factor * proximity_factor;
+        // Threat avoidance (from inputs 4,5,6 - stronger predators)
+        float threat_magnitude = sqrt(fish->rl_inputs[4] * fish->rl_inputs[4] + 
+                                      fish->rl_inputs[5] * fish->rl_inputs[5]);
+        float danger_level = fish->rl_inputs[6];
+        
+        if (threat_magnitude > 0.1f && danger_level < -0.1f) {
+            float threat_level = -danger_level;
+            
+            // Movement analysis for threat avoidance
+            float current_x = fish_node->x;
+            float current_y = fish_node->y;
+            float prev_x = g_previous_positions_x[fish_id];
+            float prev_y = g_previous_positions_y[fish_id];
+            
+            if (prev_x != 0.0f || prev_y != 0.0f) {
+                float dx_prev = current_x - prev_x;
+                float dy_prev = current_y - prev_y;
+                float movement_distance = sqrt(dx_prev * dx_prev + dy_prev * dy_prev);
+                
+                if (movement_distance > 0.5f) {
+                    float movement_x = dx_prev / movement_distance;
+                    float movement_y = dy_prev / movement_distance;
+                    
+                    // Check if moving away from threat
+                    float escape_alignment = -(fish->rl_inputs[4] * movement_x + fish->rl_inputs[5] * movement_y);
+                    
+                    if (escape_alignment > 0.3f) {
+                        float escape_reward = 0.08f * threat_level * escape_alignment;
+                        fish->last_reward += escape_reward;
+                    } else if (escape_alignment < -0.3f) {
+                        float approach_threat_penalty = -0.15f * threat_level * (-escape_alignment);
+                        fish->last_reward += approach_threat_penalty;
+                    }
+                }
+            }
         }
         
     } else {
-        // ENHANCED HERBIVORE REWARDS
+        // HERBIVORE REWARDS
         
-        // MASSIVELY INCREASED plant proximity rewards
-        float distance_to_plant = fish_get_distance_to_nearest_plant(fish_id);
-        if (distance_to_plant < 500.0f) {
-            float proximity_factor = 1.0f - (distance_to_plant / 500.0f);
-            // INCREASED: 10x higher plant proximity reward
-            fish->last_reward += fish_type->proximity_reward_factor * proximity_factor * 10.0f;
+        // Plant proximity rewards (inputs 0,1,3)
+        float plant_distance = fish->rl_inputs[3];  // Normalized distance
+        if (plant_distance < 1.0f) {  // Plant detected
+            float proximity_factor = 1.0f - plant_distance;
+            // 10x multiplier for plant proximity (already very high)
+            fish->last_reward += fish_type->proximity_reward_factor * proximity_factor * 20.0f;
         }
         
         // Additional close-range plant bonus
-        if (distance_to_plant < 100.0f) {
-            float close_proximity = 1.0f - (distance_to_plant / 100.0f);
+        float estimated_plant_distance = plant_distance * 500.0f;  // Convert back to world units
+        if (estimated_plant_distance < 100.0f) {
+            float close_proximity = 1.0f - (estimated_plant_distance / 100.0f);
             fish->last_reward += 0.08f * close_proximity;
         }
         
-        // Oxygen level reward (moderate)
+        // Oxygen level reward
         float oxygen_level = gas_get_oxygen_at(fish_node->x, fish_node->y);
         fish->last_reward += oxygen_level * fish_type->oxygen_reward_factor;
         
-        // ENHANCED predator avoidance rewards
+        // Enhanced predator avoidance rewards (inputs 4,5,6)
         float danger_level = fish->rl_inputs[6];
         float foreign_fish_magnitude = sqrt(fish->rl_inputs[4] * fish->rl_inputs[4] + 
                                             fish->rl_inputs[5] * fish->rl_inputs[5]);
         
         if (foreign_fish_magnitude > 0.1f && danger_level < -0.1f) {
-            // Predator detected - reward for moving away
             float threat_level = -danger_level;
             
-            // Calculate if fish is moving away from threat
-            Node* nodes = simulation_get_nodes();
-            Node* fish_node = &nodes[fish->node_id];
-            float current_speed = sqrt(fish_node->vx * fish_node->vx + fish_node->vy * fish_node->vy);
+            // Movement analysis for escape behavior
+            float current_x = fish_node->x;
+            float current_y = fish_node->y;
+            float prev_x = g_previous_positions_x[fish_id];
+            float prev_y = g_previous_positions_y[fish_id];
             
-            // Get threat direction (from RL inputs)
-            float threat_dir_x = fish->rl_inputs[4];
-            float threat_dir_y = fish->rl_inputs[5];
-            
-            if (current_speed > 0.5f) {
-                // Calculate movement direction
-                float move_dir_x = fish_node->vx / current_speed;
-                float move_dir_y = fish_node->vy / current_speed;
+            if (prev_x != 0.0f || prev_y != 0.0f) {
+                float dx_prev = current_x - prev_x;
+                float dy_prev = current_y - prev_y;
+                float current_speed = sqrt(dx_prev * dx_prev + dy_prev * dy_prev);
                 
-                // Dot product to check if moving away from threat
-                float alignment = -(threat_dir_x * move_dir_x + threat_dir_y * move_dir_y);
-                
-                if (alignment > 0.3f) {  // Moving away from threat
-                    // MASSIVE reward for escaping predators
-                    float escape_reward = 0.25f * threat_level * alignment * (current_speed / fish_type->max_speed);
-                    fish->last_reward += escape_reward;
-                } else if (alignment < -0.3f) {  // Moving toward threat
-                    // MASSIVE punishment for approaching predators
-                    float approach_punishment = -0.20f * threat_level * (-alignment);
-                    fish->last_reward += approach_punishment;
+                if (current_speed > 0.5f) {
+                    float move_dir_x = dx_prev / current_speed;
+                    float move_dir_y = dy_prev / current_speed;
+                    
+                    // Check if moving away from threat
+                    float alignment = -(fish->rl_inputs[4] * move_dir_x + fish->rl_inputs[5] * move_dir_y);
+                    
+                    if (alignment > 0.3f) {  // Moving away from threat
+                        float escape_reward = 0.25f * threat_level * alignment * (current_speed / fish_type->max_speed);
+                        fish->last_reward += escape_reward;
+                    } else if (alignment < -0.3f) {  // Moving toward threat
+                        float approach_punishment = -0.20f * threat_level * (-alignment);
+                        fish->last_reward += approach_punishment;
+                    }
                 }
             }
             
-            // Additional reward just for detecting threats (encourages vigilance)
+            // Additional reward for detecting threats
             fish->last_reward += 0.02f * threat_level;
         }
     }
+    
+    // Store current position for next frame analysis
+    g_previous_positions_x[fish_id] = fish_node->x;
+    g_previous_positions_y[fish_id] = fish_node->y;
     
     // World boundary punishment
     if (fish_node->x <= WORLD_LEFT + 50 || fish_node->x >= WORLD_RIGHT - 50 ||
@@ -277,7 +350,7 @@ void fish_calculate_rl_rewards(int fish_id) {
     fish->total_reward += fish->last_reward;
 }
 
-// ENHANCED: Attempt to eat plants with seed immunity check
+// Attempt to eat plants with seed immunity check
 int fish_attempt_eating_plant(int fish_id) {
     Fish* fish = fish_get_by_id(fish_id);
     if (!fish) return 0;
@@ -306,9 +379,9 @@ int fish_attempt_eating_plant(int fish_id) {
             if (nodes[node_id].plant_type == -1) continue;  // Skip fish nodes
             if (nodes[node_id].is_corpse) continue;         // Skip corpses
             
-            // NEW: Skip seeds with immunity
+            // Skip seeds with immunity
             if (nodes[node_id].seed_immunity_timer > 0) {
-                continue;  // Can't eat immune seeds
+                continue;
             }
             
             float dx = nodes[node_id].x - fish_x;
@@ -461,7 +534,7 @@ int fish_attempt_eating_corpse(int fish_id) {
     return 0;
 }
 
-// ENHANCED: Defecation with immune seed creation
+// Defecation with immune seed creation
 void fish_defecate(int fish_id) {
     Fish* fish = fish_get_by_id(fish_id);
     if (!fish) return;
@@ -501,7 +574,7 @@ void fish_defecate(int fish_id) {
         fish->defecation_count = 0;
     }
     
-    // ENHANCED: Plant seeding with immunity
+    // Plant seeding with immunity
     if ((float)rand() / RAND_MAX < 0.25f) {
         int plant_type_count = plants_get_type_count();
         if (plant_type_count > 0) {

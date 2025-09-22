@@ -1,4 +1,4 @@
-// fish_vision.c - Enhanced with seed immunity filtering
+// fish_vision.c - Enhanced FOV-based vision with strict predator-prey detection
 #include <stdio.h>
 #include <stdlib.h>
 #include <math.h>
@@ -104,7 +104,7 @@ static int find_nearest_plant_in_fov(int fish_id, float* plant_vector_x, float* 
     }
 }
 
-// Find nearest foreign fish within FOV (includes corpses for predators)
+// ENHANCED: Find nearest foreign fish within FOV with strict danger level calculation
 static int find_nearest_foreign_fish_in_fov(int fish_id, float* fish_vector_x, float* fish_vector_y, float* danger_level) {
     Fish* fish = fish_get_by_id(fish_id);
     if (!fish) {
@@ -143,7 +143,7 @@ static int find_nearest_foreign_fish_in_fov(int fish_id, float* fish_vector_x, f
     float detection_range = fish_type->fish_detection_range;
     if (detection_range <= 0.0f) detection_range = 300.0f;
     
-    // Check living fish
+    // ENHANCED: Check living fish with STRICT FOV enforcement
     for (int i = 0; i < fish_count; i++) {
         if (!all_fish[i].active) continue;
         if (i == fish_id) continue;
@@ -157,25 +157,27 @@ static int find_nearest_foreign_fish_in_fov(int fish_id, float* fish_vector_x, f
         // Skip fish of same type
         if (all_fish[i].fish_type == fish->fish_type) continue;
         
-        float relative_danger = other_fish_type->danger_level - fish_type->danger_level;
-        
-        // Skip fish with same danger level
-        if (fabs(relative_danger) < 0.01f) continue;
-        
         float dx = other_fish_node->x - fish_x;
         float dy = other_fish_node->y - fish_y;
         float distance = sqrt(dx * dx + dy * dy);
         
         if (distance > detection_range) continue;
         
-        // Check FOV
+        // STRICT FOV CHECK - fish must be within field of view
         float angle_to_fish = atan2(dy, dx);
         float relative_angle = angle_to_fish - fish_heading;
         
         while (relative_angle > M_PI) relative_angle -= 2.0f * M_PI;
         while (relative_angle < -M_PI) relative_angle += 2.0f * M_PI;
         
+        // ONLY detect fish within FOV
         if (fabs(relative_angle) <= half_fov) {
+            // ENHANCED: Calculate proper relative danger level
+            float relative_danger = other_fish_type->danger_level - fish_type->danger_level;
+            
+            // Skip fish with same danger level (neutral)
+            if (fabs(relative_danger) < 0.01f) continue;
+            
             if (distance < nearest_distance) {
                 nearest_distance = distance;
                 found_target = 1;
@@ -186,7 +188,7 @@ static int find_nearest_foreign_fish_in_fov(int fish_id, float* fish_vector_x, f
         }
     }
     
-    // Check corpses (only for predators)
+    // ENHANCED: Check corpses (only for predators and only within FOV)
     if (fish_type->is_predator) {
         int node_count = simulation_get_node_count();
         for (int i = 0; i < node_count; i++) {
@@ -199,21 +201,22 @@ static int find_nearest_foreign_fish_in_fov(int fish_id, float* fish_vector_x, f
             
             if (distance > detection_range) continue;
             
-            // Check FOV
+            // STRICT FOV CHECK for corpses too
             float angle_to_corpse = atan2(dy, dx);
             float relative_angle = angle_to_corpse - fish_heading;
             
             while (relative_angle > M_PI) relative_angle -= 2.0f * M_PI;
             while (relative_angle < -M_PI) relative_angle += 2.0f * M_PI;
             
+            // ONLY detect corpses within FOV
             if (fabs(relative_angle) <= half_fov) {
                 if (distance < nearest_distance) {
                     nearest_distance = distance;
                     found_target = 1;
                     best_target_x = nodes[i].x;
                     best_target_y = nodes[i].y;
-                    // Corpses are easy prey
-                    best_danger_level = 0.5f;  // Positive value = safe to eat
+                    // Corpses are easy prey - positive danger level for predators
+                    best_danger_level = 0.5f;
                 }
             }
         }
@@ -232,6 +235,7 @@ static int find_nearest_foreign_fish_in_fov(int fish_id, float* fish_vector_x, f
             *fish_vector_y = 0.0f;
         }
         
+        // Clamp danger level to proper range
         *danger_level = fmaxf(-1.0f, fminf(1.0f, best_danger_level));
         
         return 1;
@@ -243,7 +247,7 @@ static int find_nearest_foreign_fish_in_fov(int fish_id, float* fish_vector_x, f
     }
 }
 
-// Enhanced RL inputs with seed immunity filtering
+// Enhanced RL inputs with strict FOV enforcement and proper danger level calculation
 void fish_update_rl_inputs(int fish_id) {
     Fish* fish = fish_get_by_id(fish_id);
     if (!fish) return;
@@ -262,14 +266,14 @@ void fish_update_rl_inputs(int fish_id) {
     float oxygen_level = gas_get_oxygen_at(fish_node->x, fish_node->y);
     fish->rl_inputs[2] = oxygen_level;
     
-    // Inputs 4, 5 & 6: Foreign fish/corpse vector and danger level
+    // Inputs 4, 5 & 6: Foreign fish/corpse vector and PROPER danger level (FOV enforced)
     float fish_vector_x, fish_vector_y, danger_level;
     find_nearest_foreign_fish_in_fov(fish_id, &fish_vector_x, &fish_vector_y, &danger_level);
     fish->rl_inputs[4] = fish_vector_x;
     fish->rl_inputs[5] = fish_vector_y;
-    fish->rl_inputs[6] = danger_level;
+    fish->rl_inputs[6] = danger_level;  // Proper relative danger level
     
-    // Debug output for first few fish
+    // Enhanced debug output for first few fish
     static int debug_counters[MAX_FISH] = {0};
     if (fish_id < 3 && (debug_counters[fish_id]++ % 120) == 0) {
         FishType* ft = fish_get_type(fish->fish_type);
@@ -317,7 +321,7 @@ float fish_get_distance_to_nearest_plant(int fish_id) {
     return nearest_distance;
 }
 
-// Get distance to nearest foreign fish (includes corpses for predators)
+// ENHANCED: Get distance to nearest foreign fish (includes corpses for predators, FOV enforced)
 float fish_get_distance_to_nearest_foreign_fish(int fish_id) {
     Fish* fish = fish_get_by_id(fish_id);
     if (!fish) return 99999.0f;
@@ -332,9 +336,15 @@ float fish_get_distance_to_nearest_foreign_fish(int fish_id) {
     
     float fish_x = fish_node->x;
     float fish_y = fish_node->y;
+    float fish_heading = fish->heading;
     float nearest_distance = 99999.0f;
     
-    // Check living fish
+    float fov_rad = (fish_type->fov_angle * M_PI) / 180.0f;
+    float half_fov = fov_rad * 0.5f;
+    float detection_range = fish_type->fish_detection_range;
+    if (detection_range <= 0.0f) detection_range = 300.0f;
+    
+    // Check living fish (FOV enforced)
     for (int i = 0; i < fish_count; i++) {
         if (!all_fish[i].active) continue;
         if (i == fish_id) continue;
@@ -347,12 +357,24 @@ float fish_get_distance_to_nearest_foreign_fish(int fish_id) {
         float dy = other_fish_node->y - fish_y;
         float distance = sqrt(dx * dx + dy * dy);
         
-        if (distance < nearest_distance) {
-            nearest_distance = distance;
+        if (distance > detection_range) continue;
+        
+        // STRICT FOV CHECK
+        float angle_to_fish = atan2(dy, dx);
+        float relative_angle = angle_to_fish - fish_heading;
+        
+        while (relative_angle > M_PI) relative_angle -= 2.0f * M_PI;
+        while (relative_angle < -M_PI) relative_angle += 2.0f * M_PI;
+        
+        // Only consider fish within FOV
+        if (fabs(relative_angle) <= half_fov) {
+            if (distance < nearest_distance) {
+                nearest_distance = distance;
+            }
         }
     }
     
-    // Check corpses (only for predators)
+    // Check corpses (only for predators and only within FOV)
     if (fish_type->is_predator) {
         int node_count = simulation_get_node_count();
         for (int i = 0; i < node_count; i++) {
@@ -363,8 +385,20 @@ float fish_get_distance_to_nearest_foreign_fish(int fish_id) {
             float dy = nodes[i].y - fish_y;
             float distance = sqrt(dx * dx + dy * dy);
             
-            if (distance < nearest_distance) {
-                nearest_distance = distance;
+            if (distance > detection_range) continue;
+            
+            // STRICT FOV CHECK for corpses
+            float angle_to_corpse = atan2(dy, dx);
+            float relative_angle = angle_to_corpse - fish_heading;
+            
+            while (relative_angle > M_PI) relative_angle -= 2.0f * M_PI;
+            while (relative_angle < -M_PI) relative_angle += 2.0f * M_PI;
+            
+            // Only consider corpses within FOV
+            if (fabs(relative_angle) <= half_fov) {
+                if (distance < nearest_distance) {
+                    nearest_distance = distance;
+                }
             }
         }
     }

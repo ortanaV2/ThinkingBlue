@@ -45,7 +45,7 @@
 
 // Population configuration
 #define INITIAL_PLANT_COUNT 250
-#define INITIAL_FISH_COUNT 0
+#define INITIAL_FISH_COUNT 15
 
 // Fish aging constants
 #define TARGET_FPS 30

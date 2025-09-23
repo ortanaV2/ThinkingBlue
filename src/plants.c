@@ -1,4 +1,4 @@
-// plants.c - Enhanced with simplified nutrition system
+// plants.c - Fixed to track nutrition layer balance correctly
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -15,8 +15,10 @@
 static PlantType g_plant_types[MAX_PLANT_TYPES];
 static int g_plant_type_count = 0;
 
-// Nutrition tracking for the simplified system
-static float g_total_environmental_nutrition = 0.0f;
+// Track environmental nutrition balance (what's in the ground)
+static float g_environmental_nutrition_balance = 0.0f;
+static float g_initial_environmental_nutrition = 0.0f;
+static int g_initial_nutrition_calculated = 0;
 
 static void parse_color(const char* color_str, int* r, int* g, int* b) {
     const char* hex = color_str;
@@ -26,6 +28,31 @@ static void parse_color(const char* color_str, int* r, int* g, int* b) {
     *r = (color >> 16) & 0xFF;
     *g = (color >> 8) & 0xFF;
     *b = color & 0xFF;
+}
+
+// Calculate initial nutrition in the layer (called once)
+static void calculate_initial_environmental_nutrition(void) {
+    if (g_initial_nutrition_calculated) return;
+    
+    // Sum all nutrition values in the layer
+    int grid_width = (int)ceil(WORLD_WIDTH / LAYER_GRID_SIZE);
+    int grid_height = (int)ceil(WORLD_HEIGHT / LAYER_GRID_SIZE);
+    
+    g_initial_environmental_nutrition = 0.0f;
+    for (int y = 0; y < grid_height; y++) {
+        for (int x = 0; x < grid_width; x++) {
+            float world_x = WORLD_LEFT + x * LAYER_GRID_SIZE + LAYER_GRID_SIZE * 0.5f;
+            float world_y = WORLD_TOP + y * LAYER_GRID_SIZE + LAYER_GRID_SIZE * 0.5f;
+            
+            float nutrition_value = nutrition_get_value_at(world_x, world_y);
+            g_initial_environmental_nutrition += nutrition_value;
+        }
+    }
+    
+    g_environmental_nutrition_balance = 0.0f; // Start at 0 balance
+    g_initial_nutrition_calculated = 1;
+    
+    printf("Initial environmental nutrition calculated: %.2f\n", g_initial_environmental_nutrition);
 }
 
 int plants_load_config(const char* filename) {
@@ -92,7 +119,6 @@ int plants_load_config(const char* filename) {
         while (*key == ' ' || *key == '\t') key++;
         while (*value == ' ' || *value == '\t') value++;
         
-        // Parse parameters (nutrition_depletion_radius removed)
         if (strcmp(key, "growth_probability") == 0) {
             current_plant->growth_probability = (float)atof(value);
         } else if (strcmp(key, "growth_attempts") == 0) {
@@ -132,7 +158,7 @@ int plants_load_config(const char* filename) {
     
     fclose(file);
     
-    printf("Loaded %d plant types with simplified nutrition system\n", g_plant_type_count);
+    printf("Loaded %d plant types with environmental nutrition tracking\n", g_plant_type_count);
     printf("Standard depletion range: %.1f, gradient: %.1f\n", 
            STANDARD_DEPLETION_RANGE, NUTRITION_RANGE_GRADIENT);
     
@@ -201,6 +227,9 @@ static float calculate_nutrition_growth_modifier(float nutrition_value) {
 }
 
 void plants_grow(void) {
+    // Calculate initial nutrition if not done yet
+    calculate_initial_environmental_nutrition();
+    
     Node* nodes = simulation_get_nodes();
     int current_node_count = simulation_get_node_count();
     
@@ -262,20 +291,17 @@ void plants_grow(void) {
                         nodes[i].branch_count++;
                         grown++;
                         
-                        // FIXED: CONSTANT nutrition cost regardless of available nutrition
+                        // Store nutrition cost in plant
                         float size_factor = (pt->max_branches / 3.0f) * (pt->branch_distance / OPTIMAL_DISTANCE);
                         float nutrition_cost = pt->nutrition_depletion_strength * size_factor;
                         nodes[new_node].stored_nutrition = nutrition_cost;
                         
-                        // ALWAYS deplete the same amount regardless of available nutrition
+                        // SUBTRACT from environmental balance (plant consumed nutrition from ground)
+                        g_environmental_nutrition_balance -= nutrition_cost;
+                        
+                        // Deplete from nutrition layer visually
                         nutrition_deplete_at_position(new_x, new_y, nutrition_cost, 
                                                     STANDARD_DEPLETION_RANGE);
-                        
-                        // Track total environmental nutrition
-                        g_total_environmental_nutrition += nutrition_cost;
-                        
-                        printf("Plant growth: %s depleted %.3f nutrition (available was %.2f)\n", 
-                               pt->name, nutrition_cost, nutrition_value);
                         
                         break;
                     }
@@ -283,6 +309,11 @@ void plants_grow(void) {
             }
         }
     }
+}
+
+// Function to add nutrition back to environment (when fish defecate)
+void plants_add_environmental_nutrition(float amount) {
+    g_environmental_nutrition_balance += amount;
 }
 
 int plants_get_type_count(void) {
@@ -312,9 +343,10 @@ float plants_get_nutrition_from_node(int node_id) {
     return nodes[node_id].stored_nutrition;
 }
 
-// Get total environmental nutrition
+// Get total environmental nutrition (balance from initial state)
 float plants_get_total_environmental_nutrition(void) {
-    return g_total_environmental_nutrition;
+    calculate_initial_environmental_nutrition();
+    return g_environmental_nutrition_balance;  // Return only the balance (starts at 0)
 }
 
 // Initialize plant node with nutrition cost (for manually placed plants)
@@ -330,7 +362,10 @@ void plants_initialize_nutrition_cost(int node_id, int plant_type) {
     float nutrition_cost = pt->nutrition_depletion_strength * size_factor;
     
     nodes[node_id].stored_nutrition = nutrition_cost;
-    g_total_environmental_nutrition += nutrition_cost;
+    
+    // SUBTRACT from environmental balance (manually placed plant also consumes nutrition)
+    calculate_initial_environmental_nutrition();
+    g_environmental_nutrition_balance -= nutrition_cost;
 }
 
 // Legacy compatibility functions
@@ -339,5 +374,5 @@ float plants_get_nutrition_cost_for_node(int node_id) {
 }
 
 float plants_get_total_nutrition_cost(void) {
-    return g_total_environmental_nutrition;
+    return plants_get_total_environmental_nutrition();
 }

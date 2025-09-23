@@ -1,3 +1,4 @@
+// fish_behaviour.c - Updated to properly track environmental nutrition balance
 #include <stdio.h>
 #include <stdlib.h>
 #include <math.h>
@@ -177,10 +178,6 @@ void fish_calculate_rl_rewards(int fish_id) {
             
             // Calculate if fish moved closer to prey
             if (prev_x != 0.0f || prev_y != 0.0f) {  // Skip first frame
-                // Current distance to prey (estimated from normalized distance)
-                float estimated_prey_distance = prey_distance * fish_type->fish_detection_range;
-                
-                // Previous distance to prey (approximate)
                 float dx_prev = current_x - prev_x;
                 float dy_prev = current_y - prev_y;
                 float movement_distance = sqrt(dx_prev * dx_prev + dy_prev * dy_prev);
@@ -335,18 +332,13 @@ void fish_calculate_rl_rewards(int fish_id) {
     fish->total_reward += fish->last_reward;
 }
 
-// Simplified plant eating with stored nutrition
+// Plant eating with proper nutrition tracking
 int fish_attempt_eating_plant(int fish_id) {
     Fish* fish = fish_get_by_id(fish_id);
     if (!fish) return 0;
     
     FishType* fish_type = fish_get_type(fish->fish_type);
     if (!fish_type || fish_type->is_predator) return 0;
-    
-    // Prevent eating if fish just defecated (stomach should be empty)
-    if (fish->stomach_contents < 0.001f && fish->defecation_count > 0) {
-        // This is normal after defecation
-    }
     
     Node* nodes = simulation_get_nodes();
     Node* fish_node = &nodes[fish->node_id];
@@ -382,8 +374,7 @@ int fish_attempt_eating_plant(int fish_id) {
                 // Get stored nutrition from the plant
                 float nutrition_value = nodes[node_id].stored_nutrition;
                 
-                // ADD TO STOMACH: This should accumulate
-                float old_stomach = fish->stomach_contents;
+                // Add to fish stomach
                 fish->stomach_contents += nutrition_value;
                 fish_internal_add_consumed_nutrition(nutrition_value);
                 
@@ -391,14 +382,11 @@ int fish_attempt_eating_plant(int fish_id) {
                 float eating_reward = nutrition_value * 40.0f;
                 fish->last_reward += eating_reward;
                 
+                // Remove plant from simulation
                 nodes[node_id].active = 0;
                 nodes[node_id].can_grow = 0;
                 
                 fish->last_eating_frame = simulation_get_frame_counter();
-                
-                // Debug output to track stomach contents
-                printf("Fish %d ate plant (nutrition: %.3f, stomach: %.3f -> %.3f)\n", 
-                       fish_id, nutrition_value, old_stomach, fish->stomach_contents);
                 
                 return 1;
             }
@@ -458,9 +446,6 @@ int fish_attempt_eating_fish(int fish_id) {
             
             fish->eating_cooldown = fish_type->eating_cooldown_frames;
             
-            printf("Predator fish %d caught prey fish %d (reward: %.1f)\n", 
-                   fish_id, i, predation_reward);
-            
             return 1;
         }
     }
@@ -517,11 +502,6 @@ int fish_attempt_eating_corpse(int fish_id) {
                 fish->last_eating_frame = simulation_get_frame_counter();
                 fish_increment_corpses_eaten();
                 
-                FishType* original_type = fish_get_type(original_fish_type);
-                printf("Predator fish %d ate corpse of %s (nutrition: %.2f, reward: %.1f)\n", 
-                       fish_id, original_type ? original_type->name : "Unknown", 
-                       nutrition_value, eating_reward);
-                
                 return 1;
             }
         }
@@ -530,7 +510,7 @@ int fish_attempt_eating_corpse(int fish_id) {
     return 0;
 }
 
-// Defecation with immune seed creation
+// Defecation with environmental nutrition tracking
 void fish_defecate(int fish_id) {
     Fish* fish = fish_get_by_id(fish_id);
     if (!fish) return;
@@ -554,24 +534,23 @@ void fish_defecate(int fish_id) {
     Node* nodes = simulation_get_nodes();
     Node* fish_node = &nodes[fish->node_id];
     
-    // COMPLETE STOMACH EMPTYING: Take the full stomach contents
+    // Complete stomach emptying
     float full_stomach_contents = fish->stomach_contents;
     
-    // BALANCED: Use same range as plant depletion, no efficiency loss for now
+    // ADD nutrition back to environment layer
     nutrition_add_at_position(fish_node->x, fish_node->y, full_stomach_contents, 
                               STANDARD_DEPLETION_RANGE);
     
-    // COMPLETE EMPTYING: Set stomach to exactly 0
+    // ADD to environmental nutrition balance (nutrition returned to ground)
+    plants_add_environmental_nutrition(full_stomach_contents);
+    
+    // Empty stomach completely
     fish->stomach_contents = 0.0f;
     fish_internal_add_defecated_nutrition(full_stomach_contents);
     
     fish->defecation_count++;
     
     fish->last_reward += full_stomach_contents * 3.0f;
-    
-    // Debug output to verify defecation
-    printf("Fish %d defecated %.3f nutrition (stomach now: %.3f)\n", 
-           fish_id, full_stomach_contents, fish->stomach_contents);
     
     // Reproduction after 3 defecations (herbivores only)
     if (fish->defecation_count >= 3) {
@@ -635,9 +614,6 @@ void fish_reproduce(int fish_id) {
         // Huge reproduction reward
         parent_fish->last_reward += 150.0f;
         
-        printf("Fish %d (%s) reproduced! Offspring %d will inherit neural network\n",
-               fish_id, fish_type->name, offspring_id);
-        
         // Set flag for Python to know about inheritance
         g_reproduction_notification_pending = 1;
     }
@@ -661,9 +637,6 @@ void fish_predator_reproduce(int fish_id) {
         // Just made a kill
         kill_counts[fish_id]++;
         
-        printf("Predator fish %d (%s) kill count: %d/3\n", 
-               fish_id, fish_type->name, kill_counts[fish_id]);
-        
         if (kill_counts[fish_id] >= 3) {
             kill_counts[fish_id] = 0;
             
@@ -686,9 +659,6 @@ void fish_predator_reproduce(int fish_id) {
             
             if (offspring_id >= 0) {
                 predator->last_reward += 200.0f;
-                
-                printf("Predator fish %d (%s) reproduced after 3 kills! Offspring %d inherits NN\n",
-                       fish_id, fish_type->name, offspring_id);
             }
             
             g_parent_fish_id = -1;
@@ -710,7 +680,7 @@ int fish_is_reproduction_pending(void) {
     return 0;
 }
 
-// Wrapper function for backward compatibility - now includes corpse eating
+// Wrapper function for backward compatibility
 int fish_attempt_eating(int fish_id) {
     Fish* fish = fish_get_by_id(fish_id);
     if (!fish) return 0;

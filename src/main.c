@@ -1,4 +1,4 @@
-// main.c - Enhanced with critical Python error handling
+// main.c - Enhanced with simplified nutrition tracking
 #include <SDL2/SDL.h>
 #include <stdio.h>
 #include <time.h>
@@ -65,7 +65,7 @@ static void populate_reef_randomly(void) {
     
     if (total_plant_species == 0) return;
     
-    printf("Populating reef with %d plants and %d fish (aging + model saving + temperature + FPS)...\n", 
+    printf("Populating reef with %d plants and %d fish (simplified nutrition system)...\n", 
            INITIAL_PLANT_COUNT, INITIAL_FISH_COUNT);
     
     // Spawn plants
@@ -95,7 +95,7 @@ static void populate_reef_randomly(void) {
         }
     }
     
-    printf("Reef populated! Temperature system active for coral bleaching.\n");
+    printf("Reef populated! Simplified nutrition system active.\n");
 }
 
 static void write_stats_file(void) {
@@ -137,14 +137,22 @@ static void write_stats_file(void) {
         }
     }
     
-    // Get nutrition balance
-    float env_added = nutrition_get_total_added();
-    float env_depleted = nutrition_get_total_depleted();
-    float nutrition_balance = env_added - env_depleted;
+    // Get simplified nutrition data
+    float total_environmental_nutrition = plants_get_total_environmental_nutrition();
     
-    // Write binary data: nutrition_balance, fish_count, plant_count, temperature
-    float data[4] = {nutrition_balance, (float)fish_count, (float)plant_count, temperature_get_current()};
-    fwrite(data, sizeof(float), 4, stats_file);
+    // Get temperature and bleached count
+    float current_temperature = temperature_get_current();
+    int bleached_count = 0;
+    for (int i = 0; i < node_count; i++) {
+        if (nodes[i].active && temperature_is_coral_bleached(i)) {
+            bleached_count++;
+        }
+    }
+    
+    // Write binary data: total_nutrition, fish_count, plant_count, temperature, bleached_count
+    float data[5] = {total_environmental_nutrition, (float)fish_count, (float)plant_count, 
+                     current_temperature, (float)bleached_count};
+    fwrite(data, sizeof(float), 5, stats_file);
     
     fclose(stats_file);
 }
@@ -218,7 +226,7 @@ static void handle_mouse_click(int screen_x, int screen_y, int button) {
 }
 
 static void print_debug_info(void) {
-    printf("\n=== DEBUG INFO WITH NEURAL NETWORK TRAINING + TEMPERATURE + FPS ===\n");
+    printf("\n=== DEBUG INFO WITH SIMPLIFIED NUTRITION SYSTEM ===\n");
     printf("World size: %.0fx%.0f\n", WORLD_WIDTH, WORLD_HEIGHT);
     printf("Zoom: unlimited (current: %.6f)\n", camera_get_zoom());
     printf("Plant types: %d\n", plants_get_type_count());
@@ -229,6 +237,7 @@ static void print_debug_info(void) {
     printf("Ray rendering: %s\n", fish_is_ray_rendering_enabled() ? "ON" : "OFF");
     printf("Flow field: %s\n", flow_is_visible() ? "ON" : "OFF");
     printf("Temperature: %.1f°C\n", temperature_get_current());
+    printf("Standard depletion range: %.1f\n", STANDARD_DEPLETION_RANGE);
     printf("Statistics: Available via TAB key\n");
     printf("FPS display: Enabled in top-right corner\n");
     
@@ -270,22 +279,19 @@ static void print_debug_info(void) {
     
     printf("Age distribution: %d young, %d middle-aged, %d old\n", young_fish, middle_aged_fish, old_fish);
     
-    // Enhanced nutrition cycle balance
-    printf("\n=== NUTRITION CYCLE BALANCE ===\n");
+    // Simplified nutrition cycle balance
+    printf("\n=== SIMPLIFIED NUTRITION SYSTEM (BALANCED) ===\n");
     float fish_consumed = fish_get_total_nutrition_consumed();
     float fish_defecated = fish_get_total_nutrition_defecated();
+    float total_environmental = plants_get_total_environmental_nutrition();
+    
     printf("Fish consumed: %.4f\n", fish_consumed);
     printf("Fish defecated: %.4f\n", fish_defecated);
-    printf("Fish balance: %.4f\n", fish_consumed - fish_defecated);
-    
-    float env_added = nutrition_get_total_added();
-    float env_depleted = nutrition_get_total_depleted();
-    printf("Environment depleted: %.4f\n", env_depleted);
-    printf("Environment added: %.4f\n", env_added);
-    printf("Environment balance: %.4f\n", env_added - env_depleted);
-    
-    float total_system_balance = (env_added - env_depleted) + (fish_consumed - fish_defecated);
-    printf("Total system balance: %.4f\n", total_system_balance);
+    printf("Fish balance: %.4f (should be close to 0 when balanced)\n", fish_consumed - fish_defecated);
+    printf("Total environmental nutrition: %.4f\n", total_environmental);
+    printf("Defecation threshold: 70%% stomach full\n");
+    printf("Defecation empties: 100%% of stomach\n");
+    printf("Range used: %.1f (same for depletion and defecation)\n", STANDARD_DEPLETION_RANGE);
     
     if (g_spawn_mode == 0 && plants_get_type_count() > 0) {
         PlantType* pt = plants_get_type(g_current_plant_type);
@@ -307,9 +313,11 @@ int main(int argc, char* argv[]) {
     (void)argc;
     (void)argv;
     
-    printf("Starting Great Barrier Reef Ecosystem v3 with Temperature System + FPS Display...\n");
+    printf("Starting Great Barrier Reef Ecosystem v3 with Simplified Nutrition System...\n");
     printf("World dimensions: %.0fx%.0f, Initial population: %d plants, %d fish\n",
            WORLD_WIDTH, WORLD_HEIGHT, INITIAL_PLANT_COUNT, INITIAL_FISH_COUNT);
+    printf("Simplified nutrition system: Plants store nutrition values, standard range %.1f\n", 
+           STANDARD_DEPLETION_RANGE);
     printf("Temperature system active - coral bleaching will occur at temperatures > 0°C\n");
     printf("FPS display enabled in top-right corner\n");
     printf("Best models will be saved on graceful shutdown (Ctrl+C)\n");
@@ -418,10 +426,11 @@ int main(int argc, char* argv[]) {
     populate_reef_randomly();
     
     // Print status
-    printf("\nSystem ready with temperature-based coral bleaching and FPS display!\n");
+    printf("\nSystem ready with simplified nutrition system and temperature control!\n");
     printf("Plant types loaded: %d\n", plants_get_type_count());
     printf("Fish types loaded: %d\n", fish_get_type_count());
     printf("Temperature: %.1f°C (use stats GUI to adjust)\n", temperature_get_current());
+    printf("Standard nutrition depletion range: %.1f\n", STANDARD_DEPLETION_RANGE);
     
     // Print controls
     printf("\nControls:\n");
@@ -438,7 +447,7 @@ int main(int argc, char* argv[]) {
     printf("  G: Toggle gas layer\n");
     printf("  F: Toggle flow field\n");
     printf("  R: Toggle fish vision rays\n");
-    printf("  P: Print debug info (includes temperature and FPS stats)\n");
+    printf("  P: Print debug info (includes simplified nutrition stats)\n");
     printf("  ESC or Ctrl+C: Save best models and exit (cleans temp files)\n\n");
     
     // Set initial mode
@@ -451,9 +460,9 @@ int main(int argc, char* argv[]) {
     SDL_Event event;
     int mouse_x = 0, mouse_y = 0;
     
-    printf("Temperature system active! Coral bleaching will occur at temperatures > 0°C\n");
+    printf("Simplified nutrition system active! Plants store their nutrition values.\n");
     printf("FPS display visible in top-right corner\n");
-    printf("Use the statistics GUI (TAB) to adjust temperature and watch coral health.\n\n");
+    printf("Use the statistics GUI (TAB) to monitor total environmental nutrition and temperature.\n\n");
     
     // Main game loop
     while (running && !g_graceful_shutdown_requested) {
@@ -599,8 +608,8 @@ cleanup:
         // Python signal handler should have already saved models
     }
     
-    // Final report with aging and training stats
-    printf("\n=== FINAL TRAINING AND TEMPERATURE REPORT ===\n");
+    // Final report with simplified nutrition stats
+    printf("\n=== FINAL TRAINING AND SIMPLIFIED NUTRITION REPORT ===\n");
     printf("Total deaths from aging: %d\n", fish_get_total_deaths_from_age());
     printf("Final temperature: %.1f°C\n", temperature_get_current());
     
@@ -619,12 +628,8 @@ cleanup:
     printf("Fish consumed: %.2f\n", fish_get_total_nutrition_consumed());
     printf("Fish defecated: %.2f\n", fish_get_total_nutrition_defecated());
     printf("Fish balance: %.2f\n", fish_get_nutrition_balance());
-    printf("Environment added: %.2f\n", nutrition_get_total_added());
-    printf("Environment depleted: %.2f\n", nutrition_get_total_depleted());
-    printf("Environment balance: %.2f\n", nutrition_get_balance());
-    printf("Total system balance: %.2f\n", 
-           fish_get_nutrition_balance() + nutrition_get_balance());
-    printf("Neural network training completed successfully with FPS display\n");
+    printf("Total environmental nutrition: %.2f\n", plants_get_total_environmental_nutrition());
+    printf("Neural network training completed successfully with simplified nutrition system\n");
     printf("Check for best_herbivore_model.json and best_predator_model.json files\n");
     printf("========================================\n");
     
@@ -641,6 +646,6 @@ cleanup:
     SDL_DestroyWindow(window);
     SDL_Quit();
     
-    printf("Training session complete with FPS display! Models saved for future use.\n");
+    printf("Training session complete with simplified nutrition system! Models saved for future use.\n");
     return 0;
 }

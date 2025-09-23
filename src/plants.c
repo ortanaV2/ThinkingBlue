@@ -1,4 +1,4 @@
-// plants.c - Enhanced with configurable visualization and coral bleaching effects
+// plants.c - Enhanced with simplified nutrition system
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -14,6 +14,9 @@
 
 static PlantType g_plant_types[MAX_PLANT_TYPES];
 static int g_plant_type_count = 0;
+
+// Nutrition tracking for the simplified system
+static float g_total_environmental_nutrition = 0.0f;
 
 static void parse_color(const char* color_str, int* r, int* g, int* b) {
     const char* hex = color_str;
@@ -49,19 +52,18 @@ int plants_load_config(const char* filename) {
             current_plant->name[strlen(line) - 2] = '\0';
             current_plant->active = 1;
             
-            // Default biological values
-            current_plant->growth_probability = 0.02f;
+            // Default values
+            current_plant->growth_probability = 0.002f;
             current_plant->growth_attempts = 5;
             current_plant->max_branches = 3;
             current_plant->branch_distance = OPTIMAL_DISTANCE;
             current_plant->mobility_factor = 1.0f;
             current_plant->age_mature = 1800;
             current_plant->nutrition_depletion_strength = 0.08f;
-            current_plant->nutrition_depletion_radius = 120.0f;
             current_plant->oxygen_production_factor = 0.2f;
             current_plant->oxygen_production_radius = 80.0f;
             
-            // NEW: Default visual values
+            // Visual defaults
             current_plant->node_size_factor = 1.0f;
             current_plant->chain_thickness_factor = 1.0f;
             current_plant->chain_curvature_factor = 1.0f;
@@ -90,7 +92,7 @@ int plants_load_config(const char* filename) {
         while (*key == ' ' || *key == '\t') key++;
         while (*value == ' ' || *value == '\t') value++;
         
-        // Parse biological parameters
+        // Parse parameters (nutrition_depletion_radius removed)
         if (strcmp(key, "growth_probability") == 0) {
             current_plant->growth_probability = (float)atof(value);
         } else if (strcmp(key, "growth_attempts") == 0) {
@@ -105,15 +107,11 @@ int plants_load_config(const char* filename) {
             current_plant->age_mature = atoi(value);
         } else if (strcmp(key, "nutrition_depletion_strength") == 0) {
             current_plant->nutrition_depletion_strength = (float)atof(value);
-        } else if (strcmp(key, "nutrition_depletion_radius") == 0) {
-            current_plant->nutrition_depletion_radius = (float)atof(value);
         } else if (strcmp(key, "oxygen_production_factor") == 0) {
             current_plant->oxygen_production_factor = (float)atof(value);
         } else if (strcmp(key, "oxygen_production_radius") == 0) {
             current_plant->oxygen_production_radius = (float)atof(value);
-        } 
-        // NEW: Visual parameters
-        else if (strcmp(key, "node_size_factor") == 0) {
+        } else if (strcmp(key, "node_size_factor") == 0) {
             current_plant->node_size_factor = (float)atof(value);
             if (current_plant->node_size_factor < 0.1f) current_plant->node_size_factor = 0.1f;
             if (current_plant->node_size_factor > 5.0f) current_plant->node_size_factor = 5.0f;
@@ -125,28 +123,26 @@ int plants_load_config(const char* filename) {
             current_plant->chain_curvature_factor = (float)atof(value);
             if (current_plant->chain_curvature_factor < 0.0f) current_plant->chain_curvature_factor = 0.0f;
             if (current_plant->chain_curvature_factor > 3.0f) current_plant->chain_curvature_factor = 3.0f;
-        }
-        // Color parameters
-        else if (strcmp(key, "node_color") == 0) {
+        } else if (strcmp(key, "node_color") == 0) {
             parse_color(value, &current_plant->node_r, &current_plant->node_g, &current_plant->node_b);
         } else if (strcmp(key, "chain_color") == 0) {
             parse_color(value, &current_plant->chain_r, &current_plant->chain_g, &current_plant->chain_b);
-        } else if (strcmp(key, "nutrition_value") == 0) {
-            // Ignored - nutrition_value is obsolete
-            printf("Warning: nutrition_value is obsolete and ignored for %s\n", current_plant->name);
         }
     }
     
     fclose(file);
     
-    printf("Loaded %d plant types with enhanced visualization\n", g_plant_type_count);
+    printf("Loaded %d plant types with simplified nutrition system\n", g_plant_type_count);
+    printf("Standard depletion range: %.1f, gradient: %.1f\n", 
+           STANDARD_DEPLETION_RANGE, NUTRITION_RANGE_GRADIENT);
+    
     for (int i = 0; i < g_plant_type_count; i++) {
         PlantType* pt = &g_plant_types[i];
         float size_factor = (pt->max_branches / 3.0f) * (pt->branch_distance / OPTIMAL_DISTANCE);
-        float unified_nutrition_cost = pt->nutrition_depletion_strength * size_factor;
+        float nutrition_cost = pt->nutrition_depletion_strength * size_factor;
         int is_coral = strstr(pt->name, "Coral") != NULL ? 1 : 0;
-        printf("  %s: nutrition=%.3f, visual(size=%.1f, thick=%.1f, curve=%.1f), %s\n",
-               pt->name, unified_nutrition_cost, 
+        printf("  %s: nutrition=%.3f, visual(%.1f,%.1f,%.1f), %s\n",
+               pt->name, nutrition_cost, 
                pt->node_size_factor, pt->chain_thickness_factor, pt->chain_curvature_factor,
                is_coral ? "CORAL" : "NON-CORAL");
     }
@@ -227,7 +223,7 @@ void plants_grow(void) {
         if (nodes[i].branch_count >= pt->max_branches) continue;
         if (nodes[i].age > pt->age_mature) continue;
         
-        // Check if coral is bleached - bleached corals cannot grow
+        // Skip bleached corals
         if (temperature_is_coral_bleached(i)) {
             continue;
         }
@@ -266,13 +262,20 @@ void plants_grow(void) {
                         nodes[i].branch_count++;
                         grown++;
                         
-                        float depletion_strength = pt->nutrition_depletion_strength;
-                        float depletion_radius = pt->nutrition_depletion_radius;
-                        
+                        // FIXED: CONSTANT nutrition cost regardless of available nutrition
                         float size_factor = (pt->max_branches / 3.0f) * (pt->branch_distance / OPTIMAL_DISTANCE);
-                        float actual_depletion = depletion_strength * size_factor;
+                        float nutrition_cost = pt->nutrition_depletion_strength * size_factor;
+                        nodes[new_node].stored_nutrition = nutrition_cost;
                         
-                        nutrition_deplete_at_position(new_x, new_y, actual_depletion, depletion_radius);
+                        // ALWAYS deplete the same amount regardless of available nutrition
+                        nutrition_deplete_at_position(new_x, new_y, nutrition_cost, 
+                                                    STANDARD_DEPLETION_RANGE);
+                        
+                        // Track total environmental nutrition
+                        g_total_environmental_nutrition += nutrition_cost;
+                        
+                        printf("Plant growth: %s depleted %.3f nutrition (available was %.2f)\n", 
+                               pt->name, nutrition_cost, nutrition_value);
                         
                         break;
                     }
@@ -293,12 +296,48 @@ PlantType* plants_get_type(int index) {
     return &g_plant_types[index];
 }
 
-// Compatibility functions
+// Get stored nutrition from a plant node
+float plants_get_nutrition_from_node(int node_id) {
+    Node* nodes = simulation_get_nodes();
+    int node_count = simulation_get_node_count();
+    
+    if (node_id < 0 || node_id >= node_count) {
+        return 0.0f;
+    }
+    
+    if (!nodes[node_id].active || nodes[node_id].plant_type < 0) {
+        return 0.0f;
+    }
+    
+    return nodes[node_id].stored_nutrition;
+}
+
+// Get total environmental nutrition
+float plants_get_total_environmental_nutrition(void) {
+    return g_total_environmental_nutrition;
+}
+
+// Initialize plant node with nutrition cost (for manually placed plants)
+void plants_initialize_nutrition_cost(int node_id, int plant_type) {
+    Node* nodes = simulation_get_nodes();
+    int node_count = simulation_get_node_count();
+    
+    if (node_id < 0 || node_id >= node_count) return;
+    if (plant_type < 0 || plant_type >= g_plant_type_count) return;
+    
+    PlantType* pt = &g_plant_types[plant_type];
+    float size_factor = (pt->max_branches / 3.0f) * (pt->branch_distance / OPTIMAL_DISTANCE);
+    float nutrition_cost = pt->nutrition_depletion_strength * size_factor;
+    
+    nodes[node_id].stored_nutrition = nutrition_cost;
+    g_total_environmental_nutrition += nutrition_cost;
+}
+
+// Legacy compatibility functions
 float plants_get_nutrition_cost_for_node(int node_id) {
-    (void)node_id;
-    return 0.0f;
+    return plants_get_nutrition_from_node(node_id);
 }
 
 float plants_get_total_nutrition_cost(void) {
-    return 0.0f;
+    return g_total_environmental_nutrition;
 }

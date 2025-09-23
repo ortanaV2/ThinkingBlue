@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
 Marine Ecosystem Live Statistics Monitor with Temperature Control
-Combined version: Beautiful plots + Temperature slider
+Simplified version: Total environmental nutrition + Temperature with bleached count
 """
 
 import tkinter as tk
@@ -19,7 +19,7 @@ class EcosystemStats:
         
         # Data storage
         self.time_points = deque(maxlen=self.max_data_points)
-        self.nutrition_balance = deque(maxlen=self.max_data_points)
+        self.total_environmental_nutrition = deque(maxlen=self.max_data_points)
         self.fish_count = deque(maxlen=self.max_data_points)
         self.plant_count = deque(maxlen=self.max_data_points)
         self.temperature_data = deque(maxlen=self.max_data_points)
@@ -38,9 +38,9 @@ class EcosystemStats:
         self.auto_start()
     
     def setup_gui(self):
-        """Setup beautiful GUI with plots and temperature control"""
+        """Setup GUI with simplified nutrition tracking"""
         self.root = tk.Tk()
-        self.root.title("Ecosystem Stats - Temperature Control")
+        self.root.title("Ecosystem Stats - Simplified Nutrition + Temperature")
         self.root.geometry("1200x750")
         
         # Main frame
@@ -51,7 +51,7 @@ class EcosystemStats:
         status_frame = ttk.Frame(main_frame)
         status_frame.pack(fill=tk.X, pady=(0, 5))
         
-        ttk.Label(status_frame, text="Marine Ecosystem Stats - Temperature Control", 
+        ttk.Label(status_frame, text="Marine Ecosystem Stats - Simplified Nutrition System", 
                  font=("Arial", 14, "bold")).pack(side=tk.LEFT)
         
         self.status_label = ttk.Label(status_frame, text="Connecting...")
@@ -94,8 +94,8 @@ class EcosystemStats:
         top_frame = ttk.Frame(plot_frame)
         top_frame.pack(fill=tk.BOTH, expand=True)
         
-        # Nutrition Plot
-        nutr_frame = ttk.LabelFrame(top_frame, text="Nutrition Balance")
+        # Total Environmental Nutrition Plot
+        nutr_frame = ttk.LabelFrame(top_frame, text="Total Environmental Nutrition")
         nutr_frame.pack(side=tk.LEFT, fill=tk.BOTH, expand=True, padx=(0, 3))
         
         self.nutrition_canvas = tk.Canvas(nutr_frame, width=self.canvas_width, height=self.canvas_height,
@@ -122,7 +122,7 @@ class EcosystemStats:
                                      bg='white', bd=1, relief=tk.SOLID)
         self.plant_canvas.pack(padx=5, pady=5)
         
-        # Temperature & Bleaching Plot
+        # Temperature & Bleached Count Plot (single graph)
         temp_plot_frame = ttk.LabelFrame(bottom_frame, text="Temperature & Bleached Corals")
         temp_plot_frame.pack(side=tk.LEFT, fill=tk.BOTH, expand=True, padx=3)
         
@@ -150,8 +150,9 @@ class EcosystemStats:
         ttk.Button(btn_frame, text="Close", command=self.close_window).pack(fill=tk.X, pady=1)
         
         # Initial message
-        self.log("Ecosystem Statistics Monitor with Temperature Control")
+        self.log("Ecosystem Statistics Monitor with Simplified Nutrition System")
         self.log("Reading data from simulation_stats.tmp")
+        self.log("Tracking total environmental nutrition (plants store their values)")
         self.log("Use temperature slider to induce coral bleaching")
         
         self.root.protocol("WM_DELETE_WINDOW", self.close_window)
@@ -200,7 +201,7 @@ class EcosystemStats:
         """Read current stats from C simulation"""
         try:
             if not os.path.exists(self.stats_file):
-                return None, None, None, None
+                return None, None, None, None, None
             
             # Check if file is recent (simulation running)
             file_age = time.time() - os.path.getmtime(self.stats_file)
@@ -208,74 +209,82 @@ class EcosystemStats:
                 if self.simulation_connected:
                     self.log("Lost connection to simulation")
                     self.simulation_connected = False
-                return None, None, None, None
+                return None, None, None, None, None
             
             # Read binary data
             with open(self.stats_file, 'rb') as f:
                 data = f.read()
                 
-                if len(data) == 16:  # New format: nutrition, fish, plants, temperature
-                    nutrition, fish_f, plant_f, temp = struct.unpack('ffff', data)
+                # Debug: print data length
+                if len(data) != 20:
+                    self.log(f"Warning: Expected 20 bytes, got {len(data)} bytes")
+                
+                if len(data) == 20:  # New format: total_nutrition, fish, plants, temperature, bleached_count
+                    total_nutrition, fish_f, plant_f, temp, bleached_f = struct.unpack('fffff', data)
                     fish_count = int(fish_f)
                     plant_count = int(plant_f)
+                    bleached_count = int(bleached_f)
                     
                     if not self.simulation_connected:
                         self.log(f"Connected: {fish_count} fish, {plant_count} plants, temp {temp:.1f}°C")
+                        self.log(f"Total environmental nutrition: {total_nutrition:.2f}")
                         self.simulation_connected = True
                     
-                    return fish_count, plant_count, nutrition, temp
+                    return fish_count, plant_count, total_nutrition, temp, bleached_count
                     
-                elif len(data) == 12:  # Old format: nutrition, fish, plants
-                    nutrition, fish_f, plant_f = struct.unpack('fff', data)
+                elif len(data) == 16:  # Old format without bleached count
+                    total_nutrition, fish_f, plant_f, temp = struct.unpack('ffff', data)
                     fish_count = int(fish_f)
                     plant_count = int(plant_f)
-                    temp = 0.0  # Default temperature
+                    bleached_count = 0  # Default
                     
                     if not self.simulation_connected:
                         self.log(f"Connected (old format): {fish_count} fish, {plant_count} plants")
                         self.simulation_connected = True
                     
-                    return fish_count, plant_count, nutrition, temp
+                    return fish_count, plant_count, total_nutrition, temp, bleached_count
+                else:
+                    self.log(f"Unknown data format: {len(data)} bytes")
+                    return None, None, None, None, None
                     
         except (IOError, struct.error) as e:
             if self.simulation_connected:
                 self.log(f"Read error: {e}")
                 self.simulation_connected = False
-            return None, None, None, None
+            return None, None, None, None, None
         
-        return None, None, None, None
+        return None, None, None, None, None
     
     def update_data(self):
         """Update data collections"""
-        fish_count, plant_count, nutrition_balance, temperature = self.read_stats_file()
+        fish_count, plant_count, total_nutrition, temperature, bleached_count = self.read_stats_file()
         
         if fish_count is None:
             # No data available - use last known or zero
             if self.fish_count:
                 fish_count = self.fish_count[-1]
                 plant_count = self.plant_count[-1] 
-                nutrition_balance = self.nutrition_balance[-1]
+                total_nutrition = self.total_environmental_nutrition[-1]
                 temperature = self.temperature_data[-1] if self.temperature_data else 0.0
+                bleached_count = self.bleached_count_data[-1] if self.bleached_count_data else 0
             else:
-                fish_count, plant_count, nutrition_balance, temperature = 0, 0, 0.0, 0.0
+                fish_count, plant_count, total_nutrition, temperature, bleached_count = 0, 0, 0.0, 0.0, 0
         
         current_time = time.time() - self.start_time
         
         self.time_points.append(current_time)
         self.fish_count.append(fish_count)
         self.plant_count.append(plant_count)
-        self.nutrition_balance.append(nutrition_balance)
+        self.total_environmental_nutrition.append(total_nutrition)
         self.temperature_data.append(temperature)
+        self.bleached_count_data.append(bleached_count)
         
-        # Estimate bleached count (will be updated from simulation later)
-        estimated_bleached = int(plant_count * max(0, temperature - 0.5) * 0.2) if temperature > 0 else 0
-        self.bleached_count_data.append(estimated_bleached)
-        self.bleached_count = estimated_bleached
+        self.bleached_count = bleached_count
         
-        return fish_count, plant_count, nutrition_balance, temperature
+        return fish_count, plant_count, total_nutrition, temperature, bleached_count
     
     def draw_plot(self, canvas, data, title, color, min_val=None, secondary_data=None, secondary_color=None):
-        """Draw a beautiful line plot with optional secondary data"""
+        """Draw a line plot with optional secondary data"""
         canvas.delete("all")
         
         if len(data) < 2:
@@ -371,8 +380,10 @@ class EcosystemStats:
                 if secondary_data and len(secondary_data) > 0:
                     bleached = secondary_data[-1]
                     text += f" B:{bleached:.0f}"
-            else:
+            elif title == "Total Environmental Nutrition":
                 text = f"{current:.1f}"
+            else:
+                text = f"{current:.0f}"
             canvas.create_text(self.canvas_width - 10, margin + 10, 
                              text=text, font=("Arial", 9, "bold"), 
                              fill=color, anchor=tk.E)
@@ -382,6 +393,8 @@ class EcosystemStats:
             val = min_val + (i * data_range / 2)
             y = margin + plot_height - (i * plot_height / 2)
             if title == "Temperature & Bleached Corals":
+                label_text = f"{val:.1f}"
+            elif title == "Total Environmental Nutrition":
                 label_text = f"{val:.1f}"
             else:
                 label_text = f"{val:.0f}"
@@ -393,7 +406,7 @@ class EcosystemStats:
             return
         
         try:
-            self.draw_plot(self.nutrition_canvas, self.nutrition_balance, "Nutrition Balance", "green")
+            self.draw_plot(self.nutrition_canvas, self.total_environmental_nutrition, "Total Environmental Nutrition", "green")
             self.draw_plot(self.fish_canvas, self.fish_count, "Fish Population", "blue", min_val=0)
             self.draw_plot(self.plant_canvas, self.plant_count, "Plant Nodes", "brown", min_val=0)
             self.draw_plot(self.temp_canvas, self.temperature_data, "Temperature & Bleached Corals", "red", 
@@ -405,7 +418,7 @@ class EcosystemStats:
         """Main monitoring loop"""
         while self.running:
             try:
-                fish_count, plant_count, nutrition_balance, temperature = self.update_data()
+                fish_count, plant_count, total_nutrition, temperature, bleached_count = self.update_data()
                 
                 # Update GUI safely
                 try:
@@ -423,7 +436,7 @@ class EcosystemStats:
                 # Update status
                 elapsed = int(time.time() - self.start_time)
                 mins, secs = divmod(elapsed, 60)
-                status_text = f"{'LIVE' if self.simulation_connected else 'NO DATA'} | {mins:02d}:{secs:02d} | Fish:{fish_count} Plants:{plant_count} Temp:{temperature:.1f}°C"
+                status_text = f"{'LIVE' if self.simulation_connected else 'NO DATA'} | {mins:02d}:{secs:02d} | Fish:{fish_count} Plants:{plant_count} Nutr:{total_nutrition:.1f} T:{temperature:.1f}°C"
                 try:
                     self.root.after_idle(lambda: self.status_label.config(text=status_text))
                 except:
@@ -443,14 +456,14 @@ class EcosystemStats:
         self.running = True
         self.update_thread = threading.Thread(target=self.monitoring_loop, daemon=True)
         self.update_thread.start()
-        self.log("Monitoring started with temperature control")
+        self.log("Monitoring started with simplified nutrition system")
     
     def clear_data(self):
         """Clear all data and restart"""
         self.time_points.clear()
         self.fish_count.clear()
         self.plant_count.clear()
-        self.nutrition_balance.clear()
+        self.total_environmental_nutrition.clear()
         self.temperature_data.clear()
         self.bleached_count_data.clear()
         self.start_time = time.time()
@@ -475,9 +488,9 @@ class EcosystemStats:
 
 def main():
     """Main entry point"""
-    print("Marine Ecosystem Statistics Monitor with Temperature Control")
+    print("Marine Ecosystem Statistics Monitor with Simplified Nutrition System")
     print("Reading live data from simulation_stats.tmp")
-    print("Beautiful plots + Temperature slider for coral bleaching")
+    print("Tracking total environmental nutrition + Temperature with bleached count")
     
     try:
         stats = EcosystemStats()

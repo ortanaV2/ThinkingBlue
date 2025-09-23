@@ -19,21 +19,6 @@ static float g_previous_positions_x[MAX_FISH] = {0};
 static float g_previous_positions_y[MAX_FISH] = {0};
 static int g_position_tracking_initialized = 0;
 
-// Calculate plant nutrition value
-static float calculate_plant_nutrition_value(int plant_type) {
-    if (plant_type < 0 || plant_type >= plants_get_type_count()) {
-        return 0.1f;
-    }
-    
-    PlantType* pt = plants_get_type(plant_type);
-    if (!pt) return 0.1f;
-    
-    float size_factor = (pt->max_branches / 3.0f) * (pt->branch_distance / OPTIMAL_DISTANCE);
-    float nutrition_value = pt->nutrition_depletion_strength * size_factor;
-    
-    return nutrition_value;
-}
-
 // Calculate corpse nutrition value based on original fish type
 static float calculate_corpse_nutrition_value(int original_fish_type) {
     if (original_fish_type < 0 || original_fish_type >= fish_get_type_count()) {
@@ -350,13 +335,18 @@ void fish_calculate_rl_rewards(int fish_id) {
     fish->total_reward += fish->last_reward;
 }
 
-// Attempt to eat plants with seed immunity check
+// Simplified plant eating with stored nutrition
 int fish_attempt_eating_plant(int fish_id) {
     Fish* fish = fish_get_by_id(fish_id);
     if (!fish) return 0;
     
     FishType* fish_type = fish_get_type(fish->fish_type);
     if (!fish_type || fish_type->is_predator) return 0;
+    
+    // Prevent eating if fish just defecated (stomach should be empty)
+    if (fish->stomach_contents < 0.001f && fish->defecation_count > 0) {
+        // This is normal after defecation
+    }
     
     Node* nodes = simulation_get_nodes();
     Node* fish_node = &nodes[fish->node_id];
@@ -389,9 +379,11 @@ int fish_attempt_eating_plant(int fish_id) {
             float distance_sq = dx * dx + dy * dy;
             
             if (distance_sq <= eating_range_sq) {
-                int plant_type = nodes[node_id].plant_type;
-                float nutrition_value = calculate_plant_nutrition_value(plant_type);
+                // Get stored nutrition from the plant
+                float nutrition_value = nodes[node_id].stored_nutrition;
                 
+                // ADD TO STOMACH: This should accumulate
+                float old_stomach = fish->stomach_contents;
                 fish->stomach_contents += nutrition_value;
                 fish_internal_add_consumed_nutrition(nutrition_value);
                 
@@ -403,6 +395,10 @@ int fish_attempt_eating_plant(int fish_id) {
                 nodes[node_id].can_grow = 0;
                 
                 fish->last_eating_frame = simulation_get_frame_counter();
+                
+                // Debug output to track stomach contents
+                printf("Fish %d ate plant (nutrition: %.3f, stomach: %.3f -> %.3f)\n", 
+                       fish_id, nutrition_value, old_stomach, fish->stomach_contents);
                 
                 return 1;
             }
@@ -545,10 +541,12 @@ void fish_defecate(int fish_id) {
     // Only herbivores defecate
     if (fish_type->is_predator) return;
     
-    if (fish->stomach_contents < 0.6f) {
+    // Check if stomach is 70% full
+    if (fish->stomach_contents < 0.7f) {
         return;
     }
     
+    // 1% chance per frame to defecate when stomach is full enough
     if ((float)rand() / RAND_MAX > 0.01f) {
         return;
     }
@@ -556,16 +554,24 @@ void fish_defecate(int fish_id) {
     Node* nodes = simulation_get_nodes();
     Node* fish_node = &nodes[fish->node_id];
     
-    float defecation_amount = fish->stomach_contents;
+    // COMPLETE STOMACH EMPTYING: Take the full stomach contents
+    float full_stomach_contents = fish->stomach_contents;
     
-    nutrition_add_at_position(fish_node->x, fish_node->y, defecation_amount, 80.0f);
+    // BALANCED: Use same range as plant depletion, no efficiency loss for now
+    nutrition_add_at_position(fish_node->x, fish_node->y, full_stomach_contents, 
+                              STANDARD_DEPLETION_RANGE);
     
+    // COMPLETE EMPTYING: Set stomach to exactly 0
     fish->stomach_contents = 0.0f;
-    fish_internal_add_defecated_nutrition(defecation_amount);
+    fish_internal_add_defecated_nutrition(full_stomach_contents);
     
     fish->defecation_count++;
     
-    fish->last_reward += defecation_amount * 3.0f;
+    fish->last_reward += full_stomach_contents * 3.0f;
+    
+    // Debug output to verify defecation
+    printf("Fish %d defecated %.3f nutrition (stomach now: %.3f)\n", 
+           fish_id, full_stomach_contents, fish->stomach_contents);
     
     // Reproduction after 3 defecations (herbivores only)
     if (fish->defecation_count >= 3) {

@@ -1,4 +1,4 @@
-// python_api.c - Enhanced Python interface with simplified nutrition tracking
+// python_api.c - Enhanced Python interface with fixed fish count
 #include <Python.h>
 #include <stdio.h>
 
@@ -69,7 +69,7 @@ static PyObject* py_get_plant_node_count(PyObject* self, PyObject* args) {
     return PyLong_FromLong(plant_count);
 }
 
-// Get total environmental nutrition (simplified system)
+// Get total environmental nutrition
 static PyObject* py_get_total_environmental_nutrition(PyObject* self, PyObject* args) {
     (void)self;
     (void)args;
@@ -131,10 +131,22 @@ static PyObject* py_fish_add(PyObject* self, PyObject* args) {
     return PyLong_FromLong(fish_id);
 }
 
+// FIXED: Count only currently active fish
 static PyObject* py_fish_get_count(PyObject* self, PyObject* args) {
     (void)self;
     (void)args;
-    return PyLong_FromLong(fish_get_count());
+    
+    Fish* all_fish = fish_get_all();
+    int total_fish = fish_get_count();
+    int active_count = 0;
+    
+    for (int i = 0; i < total_fish; i++) {
+        if (all_fish[i].active) {
+            active_count++;
+        }
+    }
+    
+    return PyLong_FromLong(active_count);
 }
 
 static PyObject* py_fish_get_position(PyObject* self, PyObject* args) {
@@ -342,7 +354,7 @@ static PyObject* py_get_world_bounds(PyObject* self, PyObject* args) {
     return Py_BuildValue("(ffff)", WORLD_LEFT, WORLD_TOP, WORLD_RIGHT, WORLD_BOTTOM);
 }
 
-// Simplified nutrition balance data
+// Nutrition balance data
 static PyObject* py_get_nutrition_balance(PyObject* self, PyObject* args) {
     (void)self;
     (void)args;
@@ -479,10 +491,10 @@ static PyObject* py_get_vision_info(PyObject* self, PyObject* args) {
     return Py_BuildValue("(ii)", 12, 12);
 }
 
-// Method definitions with simplified nutrition system
+// Method definitions
 static PyMethodDef SimulationMethods[] = {
     {"fish_add", py_fish_add, METH_VARARGS, "Add a fish to the simulation"},
-    {"fish_get_count", py_fish_get_count, METH_NOARGS, "Get total fish count"},
+    {"fish_get_count", py_fish_get_count, METH_NOARGS, "Get current active fish count"},
     {"fish_get_position", py_fish_get_position, METH_VARARGS, "Get fish position"},
     {"fish_get_heading", py_fish_get_heading, METH_VARARGS, "Get fish heading in radians"},
     {"fish_get_rl_inputs", py_fish_get_rl_inputs, METH_VARARGS, "Get RL inputs (7 inputs)"},
@@ -507,12 +519,12 @@ static PyMethodDef SimulationMethods[] = {
     {"temperature_set_current", py_temperature_set_current, METH_VARARGS, "Set current temperature in Celsius"},
     {"temperature_get_bleached_count", py_temperature_get_bleached_count, METH_NOARGS, "Get count of bleached coral nodes"},
     
-    // Simplified statistics functions
+    // Statistics functions
     {"get_plant_node_count", py_get_plant_node_count, METH_NOARGS, "Get total active plant nodes"},
     {"get_total_environmental_nutrition", py_get_total_environmental_nutrition, METH_NOARGS, "Get total environmental nutrition"},
     
     {"get_world_bounds", py_get_world_bounds, METH_NOARGS, "Get world boundaries"},
-    {"get_nutrition_balance", py_get_nutrition_balance, METH_NOARGS, "Get simplified nutrition cycle balance"},
+    {"get_nutrition_balance", py_get_nutrition_balance, METH_NOARGS, "Get nutrition cycle balance"},
     {"get_rl_info", py_get_rl_info, METH_NOARGS, "Get RL system info (7 inputs, 3 outputs)"},
     
     // Legacy compatibility functions
@@ -536,7 +548,7 @@ static PyMethodDef SimulationMethods[] = {
 static struct PyModuleDef simulation_module = {
     PyModuleDef_HEAD_INIT,
     "simulation",
-    "Marine ecosystem simulation API with simplified nutrition system",
+    "Marine ecosystem simulation API with fixed fish count",
     -1,
     SimulationMethods,
     NULL,
@@ -562,7 +574,7 @@ int python_api_init(void) {
         return 0;
     }
     
-    printf("Python API initialized with simplified nutrition system\n");
+    printf("Python API initialized with fixed fish counting\n");
     return 1;
 }
 
@@ -607,7 +619,7 @@ int python_api_run_script(const char* script_path) {
             }
             printf("Warning: No callable 'update_fish' function found in Python script\n");
         } else {
-            printf("Neural network script with simplified nutrition system loaded successfully\n");
+            printf("Neural network script with fixed fish counting loaded successfully\n");
         }
     }
     

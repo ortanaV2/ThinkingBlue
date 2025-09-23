@@ -165,6 +165,30 @@ static void apply_chain_forces(void) {
     }
 }
 
+// Helper function to turn fish 180 degrees and face inward
+static void turn_fish_180_inward(int node_id) {
+    Fish* all_fish = fish_get_all();
+    int fish_count = fish_get_count();
+    
+    // Find the fish that owns this node
+    for (int i = 0; i < fish_count; i++) {
+        if (all_fish[i].active && all_fish[i].node_id == node_id) {
+            // Turn fish 180 degrees
+            all_fish[i].heading += M_PI;
+            
+            // Normalize heading to [0, 2π]
+            while (all_fish[i].heading >= 2.0f * M_PI) {
+                all_fish[i].heading -= 2.0f * M_PI;
+            }
+            while (all_fish[i].heading < 0.0f) {
+                all_fish[i].heading += 2.0f * M_PI;
+            }
+            
+            break;
+        }
+    }
+}
+
 void physics_update(void) {
     simulation_update_frame_counter();
     
@@ -200,22 +224,53 @@ void physics_update(void) {
         nodes[i].x += nodes[i].vx;
         nodes[i].y += nodes[i].vy;
         
-        // World bounds collision
-        if (nodes[i].x < WORLD_LEFT) {
-            nodes[i].x = WORLD_LEFT;
-            nodes[i].vx = 0;
-        }
-        if (nodes[i].x > WORLD_RIGHT) {
-            nodes[i].x = WORLD_RIGHT;
-            nodes[i].vx = 0;
-        }
-        if (nodes[i].y < WORLD_TOP) {
-            nodes[i].y = WORLD_TOP;
-            nodes[i].vy = 0;
-        }
-        if (nodes[i].y > WORLD_BOTTOM) {
-            nodes[i].y = WORLD_BOTTOM;
-            nodes[i].vy = 0;
+        // Enhanced world bounds collision for fish - turn 180° and face inward
+        if (nodes[i].plant_type == -1) { // Fish node
+            int collision_occurred = 0;
+            
+            if (nodes[i].x < WORLD_LEFT) {
+                nodes[i].x = WORLD_LEFT;
+                nodes[i].vx = 0;
+                collision_occurred = 1;
+            }
+            if (nodes[i].x > WORLD_RIGHT) {
+                nodes[i].x = WORLD_RIGHT;
+                nodes[i].vx = 0;
+                collision_occurred = 1;
+            }
+            if (nodes[i].y < WORLD_TOP) {
+                nodes[i].y = WORLD_TOP;
+                nodes[i].vy = 0;
+                collision_occurred = 1;
+            }
+            if (nodes[i].y > WORLD_BOTTOM) {
+                nodes[i].y = WORLD_BOTTOM;
+                nodes[i].vy = 0;
+                collision_occurred = 1;
+            }
+            
+            // If collision occurred, turn fish 180° to face inward
+            if (collision_occurred) {
+                turn_fish_180_inward(i);
+            }
+        } else {
+            // Standard collision for plants and corpses
+            if (nodes[i].x < WORLD_LEFT) {
+                nodes[i].x = WORLD_LEFT;
+                nodes[i].vx = 0;
+            }
+            if (nodes[i].x > WORLD_RIGHT) {
+                nodes[i].x = WORLD_RIGHT;
+                nodes[i].vx = 0;
+            }
+            if (nodes[i].y < WORLD_TOP) {
+                nodes[i].y = WORLD_TOP;
+                nodes[i].vy = 0;
+            }
+            if (nodes[i].y > WORLD_BOTTOM) {
+                nodes[i].y = WORLD_BOTTOM;
+                nodes[i].vy = 0;
+            }
         }
     }
     

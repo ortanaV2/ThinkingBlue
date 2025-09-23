@@ -1,4 +1,4 @@
-// plants.c - Enhanced growth probability for nutrient-low areas
+// plants.c - Fixed to track nutrition layer balance correctly
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -15,7 +15,7 @@
 static PlantType g_plant_types[MAX_PLANT_TYPES];
 static int g_plant_type_count = 0;
 
-// Track environmental nutrition balance
+// Track environmental nutrition balance (what's in the ground)
 static float g_environmental_nutrition_balance = 0.0f;
 static float g_initial_environmental_nutrition = 0.0f;
 static int g_initial_nutrition_calculated = 0;
@@ -30,10 +30,11 @@ static void parse_color(const char* color_str, int* r, int* g, int* b) {
     *b = color & 0xFF;
 }
 
-// Calculate initial nutrition in the layer
+// Calculate initial nutrition in the layer (called once)
 static void calculate_initial_environmental_nutrition(void) {
     if (g_initial_nutrition_calculated) return;
     
+    // Sum all nutrition values in the layer
     int grid_width = (int)ceil(WORLD_WIDTH / LAYER_GRID_SIZE);
     int grid_height = (int)ceil(WORLD_HEIGHT / LAYER_GRID_SIZE);
     
@@ -48,7 +49,7 @@ static void calculate_initial_environmental_nutrition(void) {
         }
     }
     
-    g_environmental_nutrition_balance = 0.0f;
+    g_environmental_nutrition_balance = 0.0f; // Start at 0 balance
     g_initial_nutrition_calculated = 1;
     
     printf("Initial environmental nutrition calculated: %.2f\n", g_initial_environmental_nutrition);
@@ -157,7 +158,7 @@ int plants_load_config(const char* filename) {
     
     fclose(file);
     
-    printf("Loaded %d plant types with enhanced growth probability\n", g_plant_type_count);
+    printf("Loaded %d plant types with environmental nutrition tracking\n", g_plant_type_count);
     printf("Standard depletion range: %.1f, gradient: %.1f\n", 
            STANDARD_DEPLETION_RANGE, NUTRITION_RANGE_GRADIENT);
     
@@ -205,29 +206,28 @@ static int is_position_free(float x, float y, float min_distance) {
     return 1;
 }
 
-// Enhanced nutrition growth modifier with higher probability in low-nutrient areas
 static float calculate_nutrition_growth_modifier(float nutrition_value) {
-    // Enhanced growth probability especially for low-nutrient areas
     if (nutrition_value < 0.2f) {
-        return 0.4f + (0.2f - nutrition_value) * 2.0f;  // 0.4-0.8 range
+        return 0.05f;
     } else if (nutrition_value < 0.3f) {
-        return 0.3f + (nutrition_value - 0.2f) / 0.1f * 0.1f;  // 0.3-0.4
+        return 0.05f + (nutrition_value - 0.2f) / 0.1f * 0.05f;
     } else if (nutrition_value < 0.4f) {
-        return 0.4f + (nutrition_value - 0.3f) / 0.1f * 0.2f;  // 0.4-0.6
+        return 0.1f + (nutrition_value - 0.3f) / 0.1f * 0.15f;
     } else if (nutrition_value < 0.5f) {
-        return 0.6f + (nutrition_value - 0.4f) / 0.1f * 0.4f;  // 0.6-1.0
+        return 0.25f + (nutrition_value - 0.4f) / 0.1f * 0.25f;
     } else if (nutrition_value < 0.6f) {
-        return 1.0f + (nutrition_value - 0.5f) / 0.1f * 0.5f;  // 1.0-1.5
+        return 0.5f + (nutrition_value - 0.5f) / 0.1f * 0.5f;
     } else if (nutrition_value < 0.7f) {
-        return 1.5f + (nutrition_value - 0.6f) / 0.1f * 0.8f;  // 1.5-2.3
+        return 1.0f + (nutrition_value - 0.6f) / 0.1f * 0.8f;
     } else if (nutrition_value < 0.8f) {
-        return 2.3f + (nutrition_value - 0.7f) / 0.1f * 0.7f;  // 2.3-3.0
+        return 1.8f + (nutrition_value - 0.7f) / 0.1f * 0.7f;
     } else {
-        return 3.0f + (nutrition_value - 0.8f) / 0.2f * 1.0f;  // 3.0-4.0
+        return 2.5f + (nutrition_value - 0.8f) / 0.2f * 1.0f;
     }
 }
 
 void plants_grow(void) {
+    // Calculate initial nutrition if not done yet
     calculate_initial_environmental_nutrition();
     
     Node* nodes = simulation_get_nodes();
@@ -236,9 +236,8 @@ void plants_grow(void) {
     nutrition_regenerate();
     gas_update_heatmap();
     
-    // Increased growth limit for more active growth
-    int growth_limit = (current_node_count / 80) + 5;  // Increased from /100 + 3
-    if (growth_limit > 80) growth_limit = 80;  // Increased from 50
+    int growth_limit = (current_node_count / 100) + 3;
+    if (growth_limit > 50) growth_limit = 50;
     
     int grown = 0;
     
@@ -261,23 +260,19 @@ void plants_grow(void) {
         float nutrition_value = nutrition_get_value_at(nodes[i].x, nodes[i].y);
         float nutrition_modifier = calculate_nutrition_growth_modifier(nutrition_value);
         
-        // Base growth probability increased by 3x for more active growth
-        float enhanced_base_probability = pt->growth_probability * 3.0f;
-        float modified_growth_prob = enhanced_base_probability * nutrition_modifier;
+        float modified_growth_prob = pt->growth_probability * nutrition_modifier;
         
         if ((float)rand() / RAND_MAX < modified_growth_prob) {
             float attempt_modifier = nutrition_modifier;
-            
-            // Enhanced attempt scaling especially for low nutrition
             if (nutrition_value < 0.3f) {
-                attempt_modifier *= 1.2f;  // More attempts in low-nutrient areas
+                attempt_modifier *= 0.3f;
             } else if (nutrition_value > 0.7f) {
-                attempt_modifier *= 2.0f;  // Even more attempts in high-nutrient areas
+                attempt_modifier *= 1.8f;
             }
             
             int modified_attempts = (int)(pt->growth_attempts * attempt_modifier);
             if (modified_attempts < 1) modified_attempts = 1;
-            if (modified_attempts > pt->growth_attempts * 4) modified_attempts = pt->growth_attempts * 4;
+            if (modified_attempts > pt->growth_attempts * 3) modified_attempts = pt->growth_attempts * 3;
             
             for (int attempt = 0; attempt < modified_attempts; attempt++) {
                 float angle = ((float)rand() / RAND_MAX) * 2.0f * M_PI;
@@ -301,7 +296,7 @@ void plants_grow(void) {
                         float nutrition_cost = pt->nutrition_depletion_strength * size_factor;
                         nodes[new_node].stored_nutrition = nutrition_cost;
                         
-                        // Subtract from environmental balance
+                        // SUBTRACT from environmental balance (plant consumed nutrition from ground)
                         g_environmental_nutrition_balance -= nutrition_cost;
                         
                         // Deplete from nutrition layer visually
@@ -316,6 +311,7 @@ void plants_grow(void) {
     }
 }
 
+// Function to add nutrition back to environment (when fish defecate)
 void plants_add_environmental_nutrition(float amount) {
     g_environmental_nutrition_balance += amount;
 }
@@ -331,6 +327,7 @@ PlantType* plants_get_type(int index) {
     return &g_plant_types[index];
 }
 
+// Get stored nutrition from a plant node
 float plants_get_nutrition_from_node(int node_id) {
     Node* nodes = simulation_get_nodes();
     int node_count = simulation_get_node_count();
@@ -346,11 +343,13 @@ float plants_get_nutrition_from_node(int node_id) {
     return nodes[node_id].stored_nutrition;
 }
 
+// Get total environmental nutrition (balance from initial state)
 float plants_get_total_environmental_nutrition(void) {
     calculate_initial_environmental_nutrition();
-    return g_environmental_nutrition_balance;
+    return g_environmental_nutrition_balance;  // Return only the balance (starts at 0)
 }
 
+// Initialize plant node with nutrition cost (for manually placed plants)
 void plants_initialize_nutrition_cost(int node_id, int plant_type) {
     Node* nodes = simulation_get_nodes();
     int node_count = simulation_get_node_count();
@@ -364,6 +363,7 @@ void plants_initialize_nutrition_cost(int node_id, int plant_type) {
     
     nodes[node_id].stored_nutrition = nutrition_cost;
     
+    // SUBTRACT from environmental balance (manually placed plant also consumes nutrition)
     calculate_initial_environmental_nutrition();
     g_environmental_nutrition_balance -= nutrition_cost;
 }

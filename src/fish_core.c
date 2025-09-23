@@ -1,4 +1,4 @@
-// fish_core.c - Enhanced core fish system with aging, death, and corpse creation
+// fish_core.c - Fixed fish_get_count to return only ACTIVE fish
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -387,9 +387,15 @@ void fish_increment_corpses_eaten(void) {
     g_total_corpses_eaten++;
 }
 
-// Accessor functions
+// FIXED: Return count of ACTIVE fish only
 int fish_get_count(void) {
-    return g_fish_count;
+    int active_count = 0;
+    for (int i = 0; i < g_fish_count; i++) {
+        if (g_fish[i].active) {
+            active_count++;
+        }
+    }
+    return active_count;
 }
 
 Fish* fish_get_by_id(int fish_id) {

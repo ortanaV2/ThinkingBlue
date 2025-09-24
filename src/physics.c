@@ -224,27 +224,30 @@ void physics_update(void) {
         nodes[i].x += nodes[i].vx;
         nodes[i].y += nodes[i].vy;
         
-        // Enhanced world bounds collision for fish - turn 180° and face inward
+        // ENLARGED HITBOX: Enhanced world bounds collision for fish - larger detection zone
         if (nodes[i].plant_type == -1) { // Fish node
             int collision_occurred = 0;
             
-            if (nodes[i].x < WORLD_LEFT) {
-                nodes[i].x = WORLD_LEFT;
+            // INCREASED collision detection margin from 0 to 100 units
+            float collision_margin = 100.0f;
+            
+            if (nodes[i].x < WORLD_LEFT + collision_margin) {
+                nodes[i].x = WORLD_LEFT + collision_margin;
                 nodes[i].vx = 0;
                 collision_occurred = 1;
             }
-            if (nodes[i].x > WORLD_RIGHT) {
-                nodes[i].x = WORLD_RIGHT;
+            if (nodes[i].x > WORLD_RIGHT - collision_margin) {
+                nodes[i].x = WORLD_RIGHT - collision_margin;
                 nodes[i].vx = 0;
                 collision_occurred = 1;
             }
-            if (nodes[i].y < WORLD_TOP) {
-                nodes[i].y = WORLD_TOP;
+            if (nodes[i].y < WORLD_TOP + collision_margin) {
+                nodes[i].y = WORLD_TOP + collision_margin;
                 nodes[i].vy = 0;
                 collision_occurred = 1;
             }
-            if (nodes[i].y > WORLD_BOTTOM) {
-                nodes[i].y = WORLD_BOTTOM;
+            if (nodes[i].y > WORLD_BOTTOM - collision_margin) {
+                nodes[i].y = WORLD_BOTTOM - collision_margin;
                 nodes[i].vy = 0;
                 collision_occurred = 1;
             }
@@ -254,21 +257,23 @@ void physics_update(void) {
                 turn_fish_180_inward(i);
             }
         } else {
-            // Standard collision for plants and corpses
-            if (nodes[i].x < WORLD_LEFT) {
-                nodes[i].x = WORLD_LEFT;
+            // Standard collision for plants and corpses with smaller margin
+            float plant_margin = 20.0f;
+            
+            if (nodes[i].x < WORLD_LEFT + plant_margin) {
+                nodes[i].x = WORLD_LEFT + plant_margin;
                 nodes[i].vx = 0;
             }
-            if (nodes[i].x > WORLD_RIGHT) {
-                nodes[i].x = WORLD_RIGHT;
+            if (nodes[i].x > WORLD_RIGHT - plant_margin) {
+                nodes[i].x = WORLD_RIGHT - plant_margin;
                 nodes[i].vx = 0;
             }
-            if (nodes[i].y < WORLD_TOP) {
-                nodes[i].y = WORLD_TOP;
+            if (nodes[i].y < WORLD_TOP + plant_margin) {
+                nodes[i].y = WORLD_TOP + plant_margin;
                 nodes[i].vy = 0;
             }
-            if (nodes[i].y > WORLD_BOTTOM) {
-                nodes[i].y = WORLD_BOTTOM;
+            if (nodes[i].y > WORLD_BOTTOM - plant_margin) {
+                nodes[i].y = WORLD_BOTTOM - plant_margin;
                 nodes[i].vy = 0;
             }
         }

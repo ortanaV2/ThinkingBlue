@@ -1,4 +1,4 @@
-// fish_behaviour.c - Updated to properly track environmental nutrition balance
+// fish_behaviour.c - Improved predator approach learning with stronger proximity rewards
 #include <stdio.h>
 #include <stdlib.h>
 #include <math.h>
@@ -11,7 +11,7 @@
 #include "nutrition.h"
 #include "gas.h"
 
-// Track parent fish for neural network inheritance
+// Parent tracking for neural network inheritance
 static int g_parent_fish_id = -1;
 static int g_reproduction_notification_pending = 0;
 
@@ -101,7 +101,7 @@ void fish_apply_rl_outputs(int fish_id) {
     }
 }
 
-// Enhanced reward calculation with predator approach rewards
+// Enhanced reward calculation with improved predator approach learning
 void fish_calculate_rl_rewards(int fish_id) {
     Fish* fish = fish_get_by_id(fish_id);
     if (!fish) return;
@@ -125,6 +125,10 @@ void fish_calculate_rl_rewards(int fish_id) {
     
     // Basic survival reward
     fish->last_reward += 0.001f;
+    
+    // OXYGEN REWARD FOR ALL FISH (INCLUDING PREDATORS)
+    float oxygen_level = gas_get_oxygen_at(fish_node->x, fish_node->y);
+    fish->last_reward += oxygen_level * fish_type->oxygen_reward_factor;
     
     // Anti-spinning penalty
     float turn_amount = fabs(fish->rl_outputs[0]);
@@ -155,7 +159,7 @@ void fish_calculate_rl_rewards(int fish_id) {
     
     // Species-specific rewards
     if (fish_type->is_predator) {
-        // ENHANCED PREDATOR REWARDS: Approach and distance-based rewards
+        // IMPROVED PREDATOR REWARDS: Focus on approach learning
         
         // Get target info from inputs 0,1,3 (prey vector and distance)
         float prey_vector_x = fish->rl_inputs[0];
@@ -165,12 +169,20 @@ void fish_calculate_rl_rewards(int fish_id) {
         float prey_magnitude = sqrt(prey_vector_x * prey_vector_x + prey_vector_y * prey_vector_y);
         
         if (prey_magnitude > 0.1f) {  // Prey detected
-            // MASSIVE proximity reward - closer is much better
+            // STRONGER PROXIMITY REWARD - increased from 0.5f to 1.2f
             float proximity_factor = 1.0f - prey_distance;  // 1=very close, 0=far
-            float proximity_reward = 0.5f * proximity_factor * proximity_factor;  // Quadratic reward
+            float proximity_reward = 1.2f * proximity_factor * proximity_factor;  // Quadratic reward
             fish->last_reward += proximity_reward;
             
-            // MOVEMENT TOWARDS PREY REWARD
+            // HUNTING INSTINCT REWARD - reward for orienting toward prey
+            float target_angle = atan2(prey_vector_y, prey_vector_x);
+            float heading_alignment = cos(fish->heading - target_angle);
+            if (heading_alignment > 0.3f) {  // Looking roughly toward prey
+                float hunting_reward = 0.15f * heading_alignment * proximity_factor;
+                fish->last_reward += hunting_reward;
+            }
+            
+            // ENHANCED DYNAMIC APPROACH REWARD
             float current_x = fish_node->x;
             float current_y = fish_node->y;
             float prev_x = g_previous_positions_x[fish_id];
@@ -190,14 +202,20 @@ void fish_calculate_rl_rewards(int fish_id) {
                     // Dot product: positive = moving towards prey
                     float approach_alignment = prey_vector_x * movement_x + prey_vector_y * movement_y;
                     
-                    if (approach_alignment > 0.3f) {  // Moving towards prey
-                        float approach_reward = 0.3f * approach_alignment * proximity_factor;
-                        fish->last_reward += approach_reward;
-                    } else if (approach_alignment < -0.3f) {  // Moving away from prey
-                        float retreat_penalty = -0.12f * (-approach_alignment) * proximity_factor;
-                        fish->last_reward += retreat_penalty;
+                    if (approach_alignment > 0.1f) {  // Moving towards prey (lowered threshold)
+                        // DYNAMIC APPROACH REWARD - scales with speed and alignment
+                        float speed_factor = movement_distance / fish_type->max_speed;  // 0-1 based on max speed
+                        float dynamic_approach_reward = 0.8f * approach_alignment * proximity_factor * (1.0f + speed_factor);
+                        fish->last_reward += dynamic_approach_reward;
                     }
+                    // REMOVED: No penalty for moving away from prey
                 }
+            }
+        } else {
+            // EXPLORATION REWARD - reward for moving when no prey is visible
+            if (fish->rl_outputs[1] > 0.3f) {  // Movement strength > 30%
+                float exploration_reward = fish->rl_outputs[1] * 0.08f;  // Up to 0.08 reward
+                fish->last_reward += exploration_reward;
             }
         }
         
@@ -245,7 +263,7 @@ void fish_calculate_rl_rewards(int fish_id) {
         float plant_distance = fish->rl_inputs[3];  // Normalized distance
         if (plant_distance < 1.0f) {  // Plant detected
             float proximity_factor = 1.0f - plant_distance;
-            // 10x multiplier for plant proximity (already very high)
+            // High multiplier for plant proximity
             fish->last_reward += fish_type->proximity_reward_factor * proximity_factor * 20.0f;
         }
         
@@ -255,10 +273,6 @@ void fish_calculate_rl_rewards(int fish_id) {
             float close_proximity = 1.0f - (estimated_plant_distance / 100.0f);
             fish->last_reward += 0.08f * close_proximity;
         }
-        
-        // Oxygen level reward
-        float oxygen_level = gas_get_oxygen_at(fish_node->x, fish_node->y);
-        fish->last_reward += oxygen_level * fish_type->oxygen_reward_factor;
         
         // Enhanced predator avoidance rewards (inputs 4,5,6)
         float danger_level = fish->rl_inputs[6];
@@ -436,8 +450,8 @@ int fish_attempt_eating_fish(int fish_id) {
         float distance_sq = dx * dx + dy * dy;
         
         if (distance_sq <= eating_range_sq) {
-            // Successfully caught prey
-            float predation_reward = 60.0f + (fish_type->danger_level * 30.0f);
+            // Successfully caught prey - REDUCED kill reward to emphasize approach learning
+            float predation_reward = 35.0f + (fish_type->danger_level * 15.0f);  // Reduced from 60+30
             fish->last_reward += predation_reward;
             
             // Remove prey fish

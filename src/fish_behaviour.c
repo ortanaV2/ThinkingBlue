@@ -169,20 +169,20 @@ void fish_calculate_rl_rewards(int fish_id) {
         float prey_magnitude = sqrt(prey_vector_x * prey_vector_x + prey_vector_y * prey_vector_y);
         
         if (prey_magnitude > 0.1f) {  // Prey detected
-            // STRONGER PROXIMITY REWARD - increased from 0.5f to 1.2f
+            // REDUCED PROXIMITY REWARD - reduced from 1.2f to 0.4f to avoid "freezing"
             float proximity_factor = 1.0f - prey_distance;  // 1=very close, 0=far
-            float proximity_reward = 1.2f * proximity_factor * proximity_factor;  // Quadratic reward
+            float proximity_reward = 0.4f * proximity_factor * proximity_factor;  // Quadratic reward
             fish->last_reward += proximity_reward;
             
             // HUNTING INSTINCT REWARD - reward for orienting toward prey
             float target_angle = atan2(prey_vector_y, prey_vector_x);
             float heading_alignment = cos(fish->heading - target_angle);
             if (heading_alignment > 0.3f) {  // Looking roughly toward prey
-                float hunting_reward = 0.15f * heading_alignment * proximity_factor;
+                float hunting_reward = 0.1f * heading_alignment * proximity_factor;
                 fish->last_reward += hunting_reward;
             }
             
-            // ENHANCED DYNAMIC APPROACH REWARD
+            // ENHANCED DYNAMIC APPROACH REWARD - INCREASED to encourage movement
             float current_x = fish_node->x;
             float current_y = fish_node->y;
             float prev_x = g_previous_positions_x[fish_id];
@@ -203,12 +203,16 @@ void fish_calculate_rl_rewards(int fish_id) {
                     float approach_alignment = prey_vector_x * movement_x + prey_vector_y * movement_y;
                     
                     if (approach_alignment > 0.1f) {  // Moving towards prey (lowered threshold)
-                        // DYNAMIC APPROACH REWARD - scales with speed and alignment
+                        // INCREASED APPROACH REWARD - from 0.8f to 1.5f to encourage movement
                         float speed_factor = movement_distance / fish_type->max_speed;  // 0-1 based on max speed
-                        float dynamic_approach_reward = 0.8f * approach_alignment * proximity_factor * (1.0f + speed_factor);
+                        float dynamic_approach_reward = 1.5f * approach_alignment * proximity_factor * (1.0f + speed_factor);
                         fish->last_reward += dynamic_approach_reward;
                     }
                     // REMOVED: No penalty for moving away from prey
+                } else {
+                    // STILLNESS PENALTY - punish for not moving when prey is visible
+                    float stillness_penalty = -0.05f * proximity_factor;
+                    fish->last_reward += stillness_penalty;
                 }
             }
         } else {
@@ -346,7 +350,7 @@ void fish_calculate_rl_rewards(int fish_id) {
     fish->total_reward += fish->last_reward;
 }
 
-// Plant eating with proper nutrition tracking
+// Plant eating with FOV-restricted eating (45° cone in front of fish)
 int fish_attempt_eating_plant(int fish_id) {
     Fish* fish = fish_get_by_id(fish_id);
     if (!fish) return 0;
@@ -359,7 +363,12 @@ int fish_attempt_eating_plant(int fish_id) {
     
     float fish_x = fish_node->x;
     float fish_y = fish_node->y;
+    float fish_heading = fish->heading;
     float eating_range_sq = fish_type->eating_range * fish_type->eating_range;
+    
+    // GLOBAL EATING FOV - 45° cone in front of fish
+    const float EATING_FOV_ANGLE = 90.0f * M_PI / 180.0f;  // 45 degrees in radians
+    float half_eating_fov = EATING_FOV_ANGLE * 0.5f;       // 22.5 degrees each side
     
     GridCell* cells[9];
     int cell_count = grid_get_cells_at_position(fish_x, fish_y, cells, 9);
@@ -384,26 +393,40 @@ int fish_attempt_eating_plant(int fish_id) {
             float dy = nodes[node_id].y - fish_y;
             float distance_sq = dx * dx + dy * dy;
             
-            if (distance_sq <= eating_range_sq) {
-                // Get stored nutrition from the plant
-                float nutrition_value = nodes[node_id].stored_nutrition;
-                
-                // Add to fish stomach
-                fish->stomach_contents += nutrition_value;
-                fish_internal_add_consumed_nutrition(nutrition_value);
-                
-                // Large eating reward for NN learning
-                float eating_reward = nutrition_value * 40.0f;
-                fish->last_reward += eating_reward;
-                
-                // Remove plant from simulation
-                nodes[node_id].active = 0;
-                nodes[node_id].can_grow = 0;
-                
-                fish->last_eating_frame = simulation_get_frame_counter();
-                
-                return 1;
+            // Check distance first (optimization)
+            if (distance_sq > eating_range_sq) continue;
+            
+            // CHECK EATING FOV - plant must be in 45° cone in front of fish
+            float angle_to_plant = atan2(dy, dx);
+            float relative_angle = angle_to_plant - fish_heading;
+            
+            // Normalize angle to [-PI, PI]
+            while (relative_angle > M_PI) relative_angle -= 2.0f * M_PI;
+            while (relative_angle < -M_PI) relative_angle += 2.0f * M_PI;
+            
+            // Check if plant is within eating FOV
+            if (fabs(relative_angle) > half_eating_fov) {
+                continue;  // Plant is not in front of fish
             }
+            
+            // Plant is in range AND in eating FOV - can eat it
+            float nutrition_value = nodes[node_id].stored_nutrition;
+            
+            // Add to fish stomach
+            fish->stomach_contents += nutrition_value;
+            fish_internal_add_consumed_nutrition(nutrition_value);
+            
+            // Large eating reward for NN learning
+            float eating_reward = nutrition_value * 40.0f;
+            fish->last_reward += eating_reward;
+            
+            // Remove plant from simulation
+            nodes[node_id].active = 0;
+            nodes[node_id].can_grow = 0;
+            
+            fish->last_eating_frame = simulation_get_frame_counter();
+            
+            return 1;
         }
     }
     

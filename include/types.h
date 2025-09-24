@@ -44,8 +44,8 @@
 #define WORLD_CENTER_Y 0.0f
 
 // Population configuration
-#define INITIAL_PLANT_COUNT 250
-#define INITIAL_FISH_COUNT 15
+#define INITIAL_PLANT_COUNT 300
+#define INITIAL_FISH_COUNT 30
 
 // Fish aging constants
 #define TARGET_FPS 30

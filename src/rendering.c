@@ -1,4 +1,4 @@
-// rendering.c - Enhanced with flow-based water background coloring and FPS display
+// rendering.c - Enhanced with flow-based water background and fixed fish rendering
 #include <SDL2/SDL.h>
 #include <math.h>
 #include <stdio.h>
@@ -26,6 +26,19 @@ static void draw_thick_line(SDL_Renderer* renderer, int x1, int y1, int x2, int 
 static void draw_curved_line(SDL_Renderer* renderer, int x1, int y1, int x2, int y2, float curve_strength, float curve_offset, int thickness);
 static void draw_fish_tail(SDL_Renderer* renderer, int screen_x, int screen_y, float heading, int fish_radius, int r, int g, int b);
 static void draw_fish_rl_vision(SDL_Renderer* renderer, int fish_id);
+
+// Helper function to find fish by node ID
+static Fish* find_fish_by_node_id(int node_id) {
+    Fish* all_fish = fish_get_all();
+    int highest_slot = fish_get_highest_slot();
+    
+    for (int i = 0; i <= highest_slot && i < MAX_FISH; i++) {
+        if (all_fish[i].active && all_fish[i].node_id == node_id) {
+            return &all_fish[i];
+        }
+    }
+    return NULL;
+}
 
 // Simple bitmap font for FPS display
 static void draw_simple_char(SDL_Renderer* renderer, char c, int x, int y, int size);
@@ -682,14 +695,13 @@ void rendering_render(void) {
                         final_curve_strength, chains[i].curve_offset, thickness);
     }
     
-    // Get fish data for rendering
-    Fish* fish_list = fish_get_all();
-    int fish_count = fish_get_count();
-    
     // Render fish RL vision rays FIRST (behind fish)
     if (fish_is_ray_rendering_enabled()) {
-        for (int i = 0; i < fish_count; i++) {
-            if (fish_list[i].active) {
+        Fish* all_fish = fish_get_all();
+        int highest_slot = fish_get_highest_slot();
+        
+        for (int i = 0; i <= highest_slot && i < MAX_FISH; i++) {
+            if (all_fish[i].active) {
                 draw_fish_rl_vision(g_renderer, i);
             }
         }
@@ -765,43 +777,35 @@ void rendering_render(void) {
             continue;
         }
         
-        // Check if this is a fish node
+        // FIXED: Check if this is a fish node - only render if fish exists
         if (nodes[i].plant_type == -1) {
-            // Fish node rendering
-            Fish* fish = NULL;
-            for (int f = 0; f < fish_count; f++) {
-                if (fish_list[f].active && fish_list[f].node_id == i) {
-                    fish = &fish_list[f];
-                    break;
-                }
+            // Fish node rendering - FIXED: Only render if fish actually exists
+            Fish* fish = find_fish_by_node_id(i);
+            
+            if (!fish) {
+                // FIXED: Skip rendering if no fish found (no more pink nodes!)
+                continue;
             }
             
+            FishType* fish_type = fish_get_type(fish->fish_type);
             int fish_r = 255, fish_g = 165, fish_b = 0;
             
-            if (fish) {
-                FishType* fish_type = fish_get_type(fish->fish_type);
-                if (fish_type && fish_type->active) {
-                    scaled_radius = (int)((NODE_RADIUS * 1.8f) * camera_get_zoom());
-                    if (scaled_radius < 1) scaled_radius = 1;
-                    
-                    fish_r = fish_type->node_r;
-                    fish_g = fish_type->node_g;
-                    fish_b = fish_type->node_b;
-                    SDL_SetRenderDrawColor(g_renderer, fish_r, fish_g, fish_b, 255);
-                } else {
-                    scaled_radius = (int)((NODE_RADIUS * 1.8f) * camera_get_zoom());
-                    if (scaled_radius < 1) scaled_radius = 1;
-                    SDL_SetRenderDrawColor(g_renderer, fish_r, fish_g, fish_b, 255);
-                }
+            if (fish_type && fish_type->active) {
+                scaled_radius = (int)((NODE_RADIUS * 1.8f) * camera_get_zoom());
+                if (scaled_radius < 1) scaled_radius = 1;
+                
+                fish_r = fish_type->node_r;
+                fish_g = fish_type->node_g;
+                fish_b = fish_type->node_b;
+                SDL_SetRenderDrawColor(g_renderer, fish_r, fish_g, fish_b, 255);
             } else {
                 scaled_radius = (int)((NODE_RADIUS * 1.8f) * camera_get_zoom());
                 if (scaled_radius < 1) scaled_radius = 1;
-                fish_r = 255; fish_g = 0; fish_b = 255;
                 SDL_SetRenderDrawColor(g_renderer, fish_r, fish_g, fish_b, 255);
             }
             
             // Draw fish tail FIRST
-            if (scaled_radius > 2 && fish) {
+            if (scaled_radius > 2) {
                 draw_fish_tail(g_renderer, screen_x, screen_y, fish->heading, scaled_radius, fish_r, fish_g, fish_b);
             }
             

@@ -1,4 +1,4 @@
-// fish_core.c - Enhanced core fish system with aging, death, and corpse creation
+// fish_core.c - Completely fixed fish ID system with robust tracking
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -8,12 +8,15 @@
 #include "fish.h"
 #include "simulation.h"
 
-// Global fish state
+// Global fish state with improved tracking
 static Fish* g_fish = NULL;
 static FishType g_fish_types[MAX_FISH_TYPES];
-static int g_fish_count = 0;
 static int g_fish_type_count = 0;
 static int g_ray_rendering_enabled = 0;
+
+// Robust ID tracking
+static int g_highest_used_slot = -1;  // Track highest used slot for efficient iteration
+static int g_active_fish_count = 0;   // Cached count, updated on add/remove
 
 // Nutrition tracking
 static float g_total_nutrition_consumed = 0.0f;
@@ -35,6 +38,30 @@ static void parse_color(const char* color_str, int* r, int* g, int* b) {
     *b = color & 0xFF;
 }
 
+// Update cached count and highest slot tracker
+static void update_fish_tracking(void) {
+    g_active_fish_count = 0;
+    g_highest_used_slot = -1;
+    
+    for (int i = 0; i < MAX_FISH; i++) {
+        if (g_fish[i].active) {
+            g_active_fish_count++;
+            g_highest_used_slot = i;
+        }
+    }
+}
+
+// Validate fish ID and return fish pointer if valid
+static Fish* get_validated_fish(int fish_id) {
+    if (fish_id < 0 || fish_id >= MAX_FISH) {
+        return NULL;
+    }
+    if (!g_fish[fish_id].active) {
+        return NULL;
+    }
+    return &g_fish[fish_id];
+}
+
 // Create corpse from dead fish
 static int create_corpse(int fish_id, float x, float y, int fish_type, float heading) {
     int corpse_node = simulation_add_node(x, y, -2);  // -2 indicates corpse
@@ -48,8 +75,8 @@ static int create_corpse(int fish_id, float x, float y, int fish_type, float hea
     corpse->is_corpse = 1;
     corpse->corpse_decay_timer = CORPSE_DECAY_TIME;
     corpse->original_fish_type = fish_type;
-    corpse->corpse_heading = heading;  // Preserve fish heading for tail rendering
-    corpse->vx = 0.0f;  // Corpses don't move
+    corpse->corpse_heading = heading;
+    corpse->vx = 0.0f;
     corpse->vy = 0.0f;
     
     g_total_corpses_created++;
@@ -69,16 +96,27 @@ int fish_init(void) {
         return 0;
     }
     
-    g_fish_count = 0;
+    // Initialize all fish as inactive with clear IDs
+    for (int i = 0; i < MAX_FISH; i++) {
+        g_fish[i].active = 0;
+        g_fish[i].node_id = -1;
+        g_fish[i].fish_type = -1;
+    }
+    
+    // Reset tracking
     g_fish_type_count = 0;
     g_ray_rendering_enabled = 0;
+    g_active_fish_count = 0;
+    g_highest_used_slot = -1;
+    
+    // Reset statistics
     g_total_nutrition_consumed = 0.0f;
     g_total_nutrition_defecated = 0.0f;
     g_total_deaths_from_age = 0;
     g_total_corpses_created = 0;
     g_total_corpses_eaten = 0;
     
-    printf("Fish system initialized with aging mechanics and corpse system\n");
+    printf("Fish system initialized with robust ID tracking (max %d fish)\n", MAX_FISH);
     return 1;
 }
 
@@ -87,12 +125,16 @@ void fish_cleanup(void) {
         free(g_fish);
         g_fish = NULL;
     }
-    g_fish_count = 0;
-    g_fish_type_count = 0;
     
-    printf("Fish cleanup - Deaths: %d, Corpses created: %d, Corpses eaten: %d, Consumed: %.2f, Defecated: %.2f\n",
-           g_total_deaths_from_age, g_total_corpses_created, g_total_corpses_eaten,
-           g_total_nutrition_consumed, g_total_nutrition_defecated);
+    printf("Fish cleanup - Active: %d, Deaths: %d, Corpses created: %d, Corpses eaten: %d\n",
+           g_active_fish_count, g_total_deaths_from_age, g_total_corpses_created, g_total_corpses_eaten);
+    printf("Nutrition - Consumed: %.2f, Defecated: %.2f, Balance: %.2f\n",
+           g_total_nutrition_consumed, g_total_nutrition_defecated, 
+           g_total_nutrition_consumed - g_total_nutrition_defecated);
+    
+    g_active_fish_count = 0;
+    g_highest_used_slot = -1;
+    g_fish_type_count = 0;
 }
 
 void fish_toggle_ray_rendering(void) {
@@ -111,7 +153,7 @@ int fish_load_config(const char* filename) {
         return 0;
     }
     
-    printf("Loading fish config with aging system and corpse mechanics from '%s'\n", filename);
+    printf("Loading fish config with robust ID tracking from '%s'\n", filename);
     
     char line[256];
     FishType* current_fish = NULL;
@@ -155,7 +197,7 @@ int fish_load_config(const char* filename) {
                 current_fish->is_predator = 0;
                 current_fish->eating_cooldown_frames = 0;
                 current_fish->fish_detection_range = 300.0f;
-                current_fish->max_age = 18000;  // Default: 10 minutes at 30 FPS
+                current_fish->max_age = 18000;
                 current_fish->node_r = 255;
                 current_fish->node_g = 165;
                 current_fish->node_b = 0;
@@ -229,7 +271,7 @@ int fish_load_config(const char* filename) {
     
     fclose(file);
     
-    printf("Loaded %d fish types with aging system and corpse mechanics\n", g_fish_type_count);
+    printf("Loaded %d fish types with robust ID tracking\n", g_fish_type_count);
     
     for (int i = 0; i < g_fish_type_count; i++) {
         FishType* ft = &g_fish_types[i];
@@ -242,24 +284,41 @@ int fish_load_config(const char* filename) {
     return g_fish_type_count > 0;
 }
 
+// ROBUST: Find first available slot with validation
 int fish_add(float x, float y, int fish_type) {
-    if (g_fish_count >= MAX_FISH) {
-        printf("Error: Maximum fish count reached (%d)\n", MAX_FISH);
-        return -1;
-    }
-    
+    // Validate fish type first
     if (fish_type < 0 || fish_type >= g_fish_type_count) {
-        printf("Error: Invalid fish type %d\n", fish_type);
+        printf("Error: Invalid fish type %d (available: 0-%d)\n", fish_type, g_fish_type_count - 1);
         return -1;
     }
     
+    // Find first available slot
+    int fish_id = -1;
+    for (int i = 0; i < MAX_FISH; i++) {
+        if (!g_fish[i].active) {
+            fish_id = i;
+            break;
+        }
+    }
+    
+    if (fish_id == -1) {
+        printf("Error: Maximum fish count reached (%d active of %d max)\n", g_active_fish_count, MAX_FISH);
+        return -1;
+    }
+    
+    // Create simulation node
     int node_id = simulation_add_node(x, y, -1);
     if (node_id < 0) {
-        printf("Error: Failed to create simulation node for fish\n");
+        printf("Error: Failed to create simulation node for fish %d\n", fish_id);
         return -1;
     }
     
-    Fish* fish = &g_fish[g_fish_count];
+    // Initialize fish in found slot
+    Fish* fish = &g_fish[fish_id];
+    memset(fish, 0, sizeof(Fish));  // Clear all data first
+    
+    // Set core data
+    fish->active = 1;               // CRITICAL: Activate immediately
     fish->node_id = node_id;
     fish->fish_type = fish_type;
     
@@ -278,40 +337,56 @@ int fish_add(float x, float y, int fish_type) {
     fish->consumed_nutrition = 0.0f;
     fish->last_eating_frame = 0;
     fish->age = 0;
-    fish->active = 1;
     fish->eating_mode = 0;
     fish->total_reward = 0.0f;
     fish->last_reward = 0.0f;
     fish->defecation_count = 0;
     fish->eating_cooldown = 0;
     fish->target_fish_id = -1;
-    
-    // Initialize aging system
     fish->birth_frame = simulation_get_frame_counter();
     
-    int fish_id = g_fish_count;
-    g_fish_count++;
+    // Update tracking
+    update_fish_tracking();
     
     FishType* ft = &g_fish_types[fish_type];
     float lifespan_minutes = ft->max_age / (TARGET_FPS * 60.0f);
-    printf("Created %s fish %d (max age: %.1f min)\n", 
-           ft->name, fish_id, lifespan_minutes);
+    printf("Created %s fish ID=%d at (%.0f,%.0f) - Active:%d/%d, Max age: %.1f min\n", 
+           ft->name, fish_id, x, y, g_active_fish_count, MAX_FISH, lifespan_minutes);
     
     return fish_id;
 }
 
+// ROBUST: Remove fish with proper cleanup
 void fish_remove(int fish_id) {
-    if (fish_id < 0 || fish_id >= g_fish_count) return;
+    Fish* fish = get_validated_fish(fish_id);
+    if (!fish) {
+        printf("Warning: Attempted to remove invalid fish ID %d\n", fish_id);
+        return;
+    }
     
-    FishType* ft = fish_get_type(g_fish[fish_id].fish_type);
-    printf("Removed fish %d (%s)\n", fish_id, ft ? ft->name : "?");
+    FishType* ft = fish_get_type(fish->fish_type);
+    printf("Removing fish %d (%s)\n", fish_id, ft ? ft->name : "Unknown");
     
-    g_fish[fish_id].active = 0;
+    // Deactivate simulation node if it exists
+    Node* nodes = simulation_get_nodes();
+    if (fish->node_id >= 0 && fish->node_id < simulation_get_node_count()) {
+        nodes[fish->node_id].active = 0;
+    }
+    
+    // Clear fish data
+    fish->active = 0;
+    fish->node_id = -1;
+    fish->fish_type = -1;
+    
+    // Update tracking
+    update_fish_tracking();
+    
+    printf("Fish %d removed - Active fish remaining: %d\n", fish_id, g_active_fish_count);
 }
 
 // Check if fish should die from age
 int fish_should_die_from_age(int fish_id) {
-    Fish* fish = fish_get_by_id(fish_id);
+    Fish* fish = get_validated_fish(fish_id);
     if (!fish) return 0;
     
     FishType* fish_type = fish_get_type(fish->fish_type);
@@ -331,14 +406,11 @@ int fish_should_die_from_age(int fish_id) {
     float death_probability;
     
     if (age_ratio <= 0.5f) {
-        // Young fish: very low probability (0% to 2%)
         death_probability = age_ratio * age_ratio * 0.08f;
     } else if (age_ratio <= 1.0f) {
-        // Middle age: probability increases to 50% at max_age
         float x = (age_ratio - 0.5f) * 2.0f;
         death_probability = 0.02f + x * x * 0.48f;
     } else {
-        // Old fish: rapidly increasing probability
         float excess = age_ratio - 1.0f;
         death_probability = 0.5f + excess * 0.8f;
         if (death_probability > 0.95f) death_probability = 0.95f;
@@ -350,16 +422,17 @@ int fish_should_die_from_age(int fish_id) {
     if (roll < death_probability) {
         // Create corpse before marking fish as dead
         Node* nodes = simulation_get_nodes();
-        Node* fish_node = &nodes[fish->node_id];
-        
-        create_corpse(fish_id, fish_node->x, fish_node->y, fish->fish_type, fish->heading);
+        if (fish->node_id >= 0 && fish->node_id < simulation_get_node_count()) {
+            Node* fish_node = &nodes[fish->node_id];
+            create_corpse(fish_id, fish_node->x, fish_node->y, fish->fish_type, fish->heading);
+        }
         
         g_total_deaths_from_age++;
         
         float age_minutes = age / (TARGET_FPS * 60.0f);
         float max_age_minutes = fish_type->max_age / (TARGET_FPS * 60.0f);
         
-        printf("Fish %d (%s) died from age: %.1f/%.1f min (%.0f%% probability) - corpse created\n",
+        printf("Fish %d (%s) died from age: %.1f/%.1f min (%.0f%% probability)\n",
                fish_id, fish_type->name, age_minutes, max_age_minutes, 
                death_probability * 100.0f);
         
@@ -369,33 +442,19 @@ int fish_should_die_from_age(int fish_id) {
     return 0;
 }
 
-// Get death statistics
-int fish_get_total_deaths_from_age(void) {
-    return g_total_deaths_from_age;
-}
-
-// Get corpse statistics
-int fish_get_total_corpses_created(void) {
-    return g_total_corpses_created;
-}
-
-int fish_get_total_corpses_eaten(void) {
-    return g_total_corpses_eaten;
-}
-
-void fish_increment_corpses_eaten(void) {
-    g_total_corpses_eaten++;
-}
-
-// Accessor functions
+// ROBUST: Get active fish count (cached for performance)
 int fish_get_count(void) {
-    return g_fish_count;
+    return g_active_fish_count;
 }
 
+// ROBUST: Get highest used slot for efficient iteration
+int fish_get_highest_slot(void) {
+    return g_highest_used_slot;
+}
+
+// ROBUST: Validated fish access
 Fish* fish_get_by_id(int fish_id) {
-    if (fish_id < 0 || fish_id >= g_fish_count) return NULL;
-    if (!g_fish[fish_id].active) return NULL;
-    return &g_fish[fish_id];
+    return get_validated_fish(fish_id);
 }
 
 Fish* fish_get_all(void) {
@@ -413,7 +472,23 @@ FishType* fish_get_type(int index) {
     return &g_fish_types[index];
 }
 
-// Nutrition tracking
+// Statistics accessors
+int fish_get_total_deaths_from_age(void) {
+    return g_total_deaths_from_age;
+}
+
+int fish_get_total_corpses_created(void) {
+    return g_total_corpses_created;
+}
+
+int fish_get_total_corpses_eaten(void) {
+    return g_total_corpses_eaten;
+}
+
+void fish_increment_corpses_eaten(void) {
+    g_total_corpses_eaten++;
+}
+
 float fish_get_total_nutrition_consumed(void) {
     return g_total_nutrition_consumed;
 }
@@ -441,4 +516,38 @@ void fish_internal_add_consumed_nutrition(float amount) {
 
 void fish_internal_add_defecated_nutrition(float amount) {
     g_total_nutrition_defecated += amount;
+}
+
+// DEBUG: Print fish system status
+void fish_debug_print_status(void) {
+    printf("\n=== FISH ID SYSTEM DEBUG STATUS ===\n");
+    printf("Active fish count: %d\n", g_active_fish_count);
+    printf("Highest used slot: %d\n", g_highest_used_slot);
+    printf("Fish types loaded: %d\n", g_fish_type_count);
+    
+    int active_count = 0;
+    int highest_active = -1;
+    
+    for (int i = 0; i <= g_highest_used_slot && i < MAX_FISH; i++) {
+        if (g_fish[i].active) {
+            active_count++;
+            highest_active = i;
+            printf("  Slot %d: %s (node=%d, type=%d)\n", 
+                   i, 
+                   (g_fish[i].fish_type >= 0 && g_fish[i].fish_type < g_fish_type_count) ? 
+                   g_fish_types[g_fish[i].fish_type].name : "INVALID_TYPE",
+                   g_fish[i].node_id, 
+                   g_fish[i].fish_type);
+        }
+    }
+    
+    printf("Verification: Found %d active fish, highest at slot %d\n", active_count, highest_active);
+    
+    if (active_count != g_active_fish_count) {
+        printf("ERROR: Count mismatch! Cached=%d, Actual=%d\n", g_active_fish_count, active_count);
+        update_fish_tracking();  // Fix it
+        printf("Fixed: Cached count now = %d\n", g_active_fish_count);
+    }
+    
+    printf("====================================\n\n");
 }

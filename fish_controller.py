@@ -4,6 +4,7 @@ Neural Network Fish Controller with Model Saving
 - Tracks reproduction success for each fish
 - Saves best herbivore and predator models on shutdown
 - Models can be loaded later for inference
+- Updated input system: predators use inputs 0,1,3 for prey targeting
 """
 
 import simulation
@@ -52,7 +53,7 @@ class PureNeuralFishBrain:
         self.total_reward = 0.0
         self.frames_alive = 0
         self.generation = parent_brain.generation + 1 if parent_brain else 0
-        self.reproduction_count = 0  # Track reproductions
+        self.reproduction_count = 0  
         self.species_type = None  # Will be set when we know fish type
         self.is_predator = False
         
@@ -118,7 +119,7 @@ class PureNeuralFishBrain:
         # Inherit performance stats
         self.learning_rate = parent_brain.learning_rate * random.uniform(0.8, 1.2)
         self.exploration_rate = parent_brain.exploration_rate * random.uniform(0.9, 1.1)
-        self.reproduction_count = parent_brain.reproduction_count + 1  # Track parent's reproduction
+        self.reproduction_count = parent_brain.reproduction_count + 1
     
     def sigmoid(self, x):
         x = max(-500, min(500, x))
@@ -509,6 +510,7 @@ def print_evolution_progress():
                       f"Reward={brain.total_reward:.1f}, "
                       f"Gen={brain.generation}")
     
+    print("Updated input system: predators use inputs 0,1,3 for prey targeting")
     print("Models will be saved on shutdown (Ctrl+C)")
     print("=" * 80)
 
@@ -529,6 +531,7 @@ def update_fish():
             create_brain_for_fish(fish_id)
         
         print("Neural Network Controller with Model Saving initialized!")
+        print("Updated input system: predators use inputs 0,1,3 for prey targeting")
         print("Press Ctrl+C to save best models and exit gracefully")
     
     # Handle shutdown request
@@ -554,3 +557,4 @@ def update_fish():
 if __name__ == "__main__":
     print("Neural Network Fish Controller with Model Saving loaded!")
     print("Features: Live training + Best model saving + Reproduction tracking")
+    print("Updated: Predators use inputs 0,1,3 for prey targeting")

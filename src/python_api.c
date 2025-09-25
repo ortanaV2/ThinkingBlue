@@ -1,4 +1,4 @@
-// python_api.c - Enhanced Python interface with temperature control
+// python_api.c - Enhanced Python interface with fixed fish count
 #include <Python.h>
 #include <stdio.h>
 
@@ -8,6 +8,7 @@
 #include "simulation.h"
 #include "nutrition.h"
 #include "temperature.h"
+#include "plants.h"
 
 static PyObject* g_python_module = NULL;
 static PyObject* g_update_function = NULL;
@@ -68,19 +69,16 @@ static PyObject* py_get_plant_node_count(PyObject* self, PyObject* args) {
     return PyLong_FromLong(plant_count);
 }
 
-// Get total nutrition in environment
-static PyObject* py_get_total_environment_nutrition(PyObject* self, PyObject* args) {
+// Get total environmental nutrition
+static PyObject* py_get_total_environmental_nutrition(PyObject* self, PyObject* args) {
     (void)self;
     (void)args;
     
-    float env_added = nutrition_get_total_added();
-    float env_depleted = nutrition_get_total_depleted();
-    float balance = env_added - env_depleted;
-    
-    return PyFloat_FromDouble(balance);
+    float total_nutrition = plants_get_total_environmental_nutrition();
+    return PyFloat_FromDouble(total_nutrition);
 }
 
-// Get fish age info
+// Fish age info
 static PyObject* py_fish_get_age_info(PyObject* self, PyObject* args) {
     (void)self;
     int fish_id;
@@ -120,7 +118,6 @@ static PyObject* py_fish_get_aging_stats(PyObject* self, PyObject* args) {
 }
 
 // Python C API functions for enhanced RL system with inheritance
-
 static PyObject* py_fish_add(PyObject* self, PyObject* args) {
     (void)self;
     float x, y;
@@ -134,10 +131,22 @@ static PyObject* py_fish_add(PyObject* self, PyObject* args) {
     return PyLong_FromLong(fish_id);
 }
 
+// FIXED: Count only currently active fish
 static PyObject* py_fish_get_count(PyObject* self, PyObject* args) {
     (void)self;
     (void)args;
-    return PyLong_FromLong(fish_get_count());
+    
+    Fish* all_fish = fish_get_all();
+    int total_fish = fish_get_count();
+    int active_count = 0;
+    
+    for (int i = 0; i < total_fish; i++) {
+        if (all_fish[i].active) {
+            active_count++;
+        }
+    }
+    
+    return PyLong_FromLong(active_count);
 }
 
 static PyObject* py_fish_get_position(PyObject* self, PyObject* args) {
@@ -345,16 +354,15 @@ static PyObject* py_get_world_bounds(PyObject* self, PyObject* args) {
     return Py_BuildValue("(ffff)", WORLD_LEFT, WORLD_TOP, WORLD_RIGHT, WORLD_BOTTOM);
 }
 
-// Get comprehensive nutrition balance data
+// Nutrition balance data
 static PyObject* py_get_nutrition_balance(PyObject* self, PyObject* args) {
     (void)self;
     (void)args;
     float fish_consumed = fish_get_total_nutrition_consumed();
     float fish_defecated = fish_get_total_nutrition_defecated();
-    float env_added = nutrition_get_total_added();
-    float env_depleted = nutrition_get_total_depleted();
+    float env_total = plants_get_total_environmental_nutrition();
     
-    return Py_BuildValue("(ffff)", fish_consumed, fish_defecated, env_added, env_depleted);
+    return Py_BuildValue("(fff)", fish_consumed, fish_defecated, env_total);
 }
 
 // Get RL info with new input size
@@ -483,10 +491,10 @@ static PyObject* py_get_vision_info(PyObject* self, PyObject* args) {
     return Py_BuildValue("(ii)", 12, 12);
 }
 
-// Method definitions with temperature control
+// Method definitions
 static PyMethodDef SimulationMethods[] = {
     {"fish_add", py_fish_add, METH_VARARGS, "Add a fish to the simulation"},
-    {"fish_get_count", py_fish_get_count, METH_NOARGS, "Get total fish count"},
+    {"fish_get_count", py_fish_get_count, METH_NOARGS, "Get current active fish count"},
     {"fish_get_position", py_fish_get_position, METH_VARARGS, "Get fish position"},
     {"fish_get_heading", py_fish_get_heading, METH_VARARGS, "Get fish heading in radians"},
     {"fish_get_rl_inputs", py_fish_get_rl_inputs, METH_VARARGS, "Get RL inputs (7 inputs)"},
@@ -511,9 +519,9 @@ static PyMethodDef SimulationMethods[] = {
     {"temperature_set_current", py_temperature_set_current, METH_VARARGS, "Set current temperature in Celsius"},
     {"temperature_get_bleached_count", py_temperature_get_bleached_count, METH_NOARGS, "Get count of bleached coral nodes"},
     
-    // Statistics functions for live plotting
+    // Statistics functions
     {"get_plant_node_count", py_get_plant_node_count, METH_NOARGS, "Get total active plant nodes"},
-    {"get_total_environment_nutrition", py_get_total_environment_nutrition, METH_NOARGS, "Get total nutrition balance in environment"},
+    {"get_total_environmental_nutrition", py_get_total_environmental_nutrition, METH_NOARGS, "Get total environmental nutrition"},
     
     {"get_world_bounds", py_get_world_bounds, METH_NOARGS, "Get world boundaries"},
     {"get_nutrition_balance", py_get_nutrition_balance, METH_NOARGS, "Get nutrition cycle balance"},
@@ -540,7 +548,7 @@ static PyMethodDef SimulationMethods[] = {
 static struct PyModuleDef simulation_module = {
     PyModuleDef_HEAD_INIT,
     "simulation",
-    "Marine ecosystem simulation API with temperature control for coral bleaching",
+    "Marine ecosystem simulation API with fixed fish count",
     -1,
     SimulationMethods,
     NULL,
@@ -566,7 +574,7 @@ int python_api_init(void) {
         return 0;
     }
     
-    printf("Python API initialized with temperature control for coral bleaching\n");
+    printf("Python API initialized with fixed fish counting\n");
     return 1;
 }
 
@@ -611,7 +619,7 @@ int python_api_run_script(const char* script_path) {
             }
             printf("Warning: No callable 'update_fish' function found in Python script\n");
         } else {
-            printf("Neural network script with temperature control loaded successfully\n");
+            printf("Neural network script with fixed fish counting loaded successfully\n");
         }
     }
     

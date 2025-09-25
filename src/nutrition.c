@@ -1,4 +1,4 @@
-// File: src/nutrition.c - Enhanced with balanced Perlin noise and blur filter
+// File: src/nutrition.c - Enhanced with balanced color distribution
 #include <stdio.h>
 #include <stdlib.h>
 #include <math.h>
@@ -210,7 +210,6 @@ static void generate_perlin_terrain(void) {
         sum += val;
     }
     
-    float mean = sum / count;
     float range = max_val - min_val;
     
     if (range > 0.0f) {
@@ -346,8 +345,8 @@ int nutrition_init(void) {
     g_total_nutrition_added = 0.0f;
     g_total_nutrition_depleted = 0.0f;
     
-    printf("Nutrition layer with blur filter initialized: %dx%d grid (blur radius: %d, strength: %.1f)\n", 
-           g_grid_width, g_grid_height, BLUR_RADIUS, BLUR_STRENGTH);
+    printf("Nutrition layer with balanced color distribution initialized: %dx%d grid\n", 
+           g_grid_width, g_grid_height);
     return 1;
 }
 
@@ -503,52 +502,69 @@ void nutrition_regenerate(void) {
     }
 }
 
+// BALANCED COLOR DISTRIBUTION: Equally spaced color transitions
 static void value_to_nutrition_color(float value, int* r, int* g, int* b) {
+    // Clamp value to valid range
     if (value < 0.0f) value = 0.0f;
     if (value > 2.0f) value = 2.0f;
     
-    if (value > 1.0f) {
-        float excess = value - 1.0f;
-        *r = 255;
-        *g = 255 - (int)(excess * 127);
-        *b = 0;
-    } else {
-        float h = (1.0f - value) * 5.0f;
-        int i = (int)floor(h);
-        float f = h - i;
-        
-        switch (i) {
-            case 0:
-                *r = 255;
-                *g = (int)(255 * f);
-                *b = 0;
-                break;
-            case 1:
-                *r = (int)(255 * (1.0f - f));
-                *g = 255;
-                *b = 0;
-                break;
-            case 2:
-                *r = 0;
-                *g = 255;
-                *b = (int)(255 * f);
-                break;
-            case 3:
-                *r = 0;
-                *g = (int)(255 * (1.0f - f));
-                *b = 255;
-                break;
-            case 4:
-                *r = (int)(255 * f);
-                *g = 0;
-                *b = 255;
-                break;
-            default:
-                *r = 255;
-                *g = 0;
-                *b = 255;
-                break;
-        }
+    // BALANCED: 6 equally spaced color zones from 0.0 to 2.0
+    // Zone 0: 0.0 - 0.33 (Deep Blue to Cyan)
+    // Zone 1: 0.33 - 0.67 (Cyan to Green) 
+    // Zone 2: 0.67 - 1.0 (Green to Yellow)
+    // Zone 3: 1.0 - 1.33 (Yellow to Orange)
+    // Zone 4: 1.33 - 1.67 (Orange to Red)
+    // Zone 5: 1.67 - 2.0 (Red to Magenta)
+    
+    const float zone_size = 2.0f / 6.0f;  // 0.333... per zone
+    int zone = (int)(value / zone_size);
+    if (zone >= 6) zone = 5;  // Cap at last zone
+    
+    float zone_progress = (value - zone * zone_size) / zone_size;
+    if (zone_progress > 1.0f) zone_progress = 1.0f;
+    
+    switch (zone) {
+        case 0: // Deep Blue (0,0,255) to Cyan (0,255,255)
+            *r = 0;
+            *g = (int)(255 * zone_progress);
+            *b = 255;
+            break;
+            
+        case 1: // Cyan (0,255,255) to Green (0,255,0)
+            *r = 0;
+            *g = 255;
+            *b = (int)(255 * (1.0f - zone_progress));
+            break;
+            
+        case 2: // Green (0,255,0) to Yellow (255,255,0)
+            *r = (int)(255 * zone_progress);
+            *g = 255;
+            *b = 0;
+            break;
+            
+        case 3: // Yellow (255,255,0) to Orange (255,128,0)
+            *r = 255;
+            *g = (int)(255 - 127 * zone_progress);
+            *b = 0;
+            break;
+            
+        case 4: // Orange (255,128,0) to Red (255,0,0)
+            *r = 255;
+            *g = (int)(128 * (1.0f - zone_progress));
+            *b = 0;
+            break;
+            
+        case 5: // Red (255,0,0) to Magenta (255,0,255)
+            *r = 255;
+            *g = 0;
+            *b = (int)(255 * zone_progress);
+            break;
+            
+        default:
+            *r = 255;
+            *g = 0;
+            *b = 255;
+            break;
     }
 }
 

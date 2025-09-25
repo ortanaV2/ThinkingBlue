@@ -1,4 +1,4 @@
-// fish_update.c - Main fish update loop with aging and corpse decay system
+// fish_update.c - Robust fish update with optimized ID system
 #include <stdio.h>
 #include <stdlib.h>
 #include <math.h>
@@ -7,6 +7,9 @@
 #include "fish.h"
 #include "simulation.h"
 #include "flow.h"
+
+// Forward declaration for efficient iteration
+int fish_get_highest_slot(void);
 
 // Update corpse decay system
 void fish_update_corpses(void) {
@@ -37,7 +40,7 @@ void fish_update_corpses(void) {
     }
 }
 
-// Main fish update function with aging and corpse system
+// OPTIMIZED: Main fish update function with efficient iteration
 void fish_update(void) {
     Node* nodes = simulation_get_nodes();
     int node_count = simulation_get_node_count();
@@ -45,33 +48,63 @@ void fish_update(void) {
     
     Fish* fish_array = fish_internal_get_array();
     FishType* fish_types = fish_internal_get_types();
-    int fish_count = fish_get_count();
     
     // Update corpse decay system
     fish_update_corpses();
     
-    // Track deaths for this frame
+    // Track deaths and validation errors
     int deaths_this_frame = 0;
+    int validation_errors = 0;
+    int fish_updated = 0;
     
-    for (int i = 0; i < fish_count; i++) {
+    // OPTIMIZED: Only iterate up to highest used slot + 1
+    int highest_slot = fish_get_highest_slot();
+    int iteration_limit = (highest_slot >= 0) ? (highest_slot + 1) : 0;
+    
+    for (int i = 0; i < iteration_limit; i++) {
+        // Skip inactive fish
         if (!fish_array[i].active) continue;
         
         Fish* fish = &fish_array[i];
         int node_id = fish->node_id;
         
-        if (node_id < 0 || node_id >= node_count) continue;
-        if (!nodes[node_id].active) continue;
+        // ROBUST: Validate node ID
+        if (node_id < 0 || node_id >= node_count) {
+            printf("ERROR: Fish %d has invalid node_id %d (max=%d), deactivating\n", 
+                   i, node_id, node_count - 1);
+            fish->active = 0;
+            validation_errors++;
+            continue;
+        }
+        
+        if (!nodes[node_id].active) {
+            printf("ERROR: Fish %d node %d is inactive, deactivating fish\n", i, node_id);
+            fish->active = 0;
+            validation_errors++;
+            continue;
+        }
+        
+        // ROBUST: Validate fish type
+        if (fish->fish_type < 0 || fish->fish_type >= fish_get_type_count()) {
+            printf("ERROR: Fish %d has invalid fish_type %d (max=%d), deactivating\n", 
+                   i, fish->fish_type, fish_get_type_count() - 1);
+            fish->active = 0;
+            validation_errors++;
+            continue;
+        }
         
         FishType* fish_type = &fish_types[fish->fish_type];
         Node* node = &nodes[node_id];
         
-        // Check for death from aging (every 30 frames based on birth frame)
+        // Check for death from aging
         if (fish_should_die_from_age(i)) {
             fish->active = 0;
             node->active = 0;
             deaths_this_frame++;
             continue;
         }
+        
+        // CORE FISH UPDATES
         
         // Reset frame reward
         fish->last_reward = 0.0f;
@@ -140,9 +173,16 @@ void fish_update(void) {
         
         // Age tracking (increment age every frame)
         fish->age++;
+        
+        fish_updated++;
     }
     
-    // Debug output every 15 seconds with aging and corpse stats
+    // Error reporting
+    if (validation_errors > 0) {
+        printf("WARNING: Fixed %d fish validation errors this frame\n", validation_errors);
+    }
+    
+    // Debug output every 15 seconds with robust statistics
     static int last_debug_frame = 0;
     if (current_frame - last_debug_frame >= 450) {
         last_debug_frame = current_frame;
@@ -164,29 +204,34 @@ void fish_update(void) {
             }
         }
         
-        for (int i = 0; i < fish_count; i++) {
+        // ROBUST: Count fish with validation
+        for (int i = 0; i <= highest_slot && i < MAX_FISH; i++) {
             if (fish_array[i].active) {
-                FishType* ft = &fish_types[fish_array[i].fish_type];
-                if (ft->is_predator) {
-                    predator_count++;
-                } else {
-                    herbivore_count++;
+                // Validate before accessing fish_type
+                if (fish_array[i].fish_type >= 0 && fish_array[i].fish_type < fish_get_type_count()) {
+                    FishType* ft = &fish_types[fish_array[i].fish_type];
+                    if (ft->is_predator) {
+                        predator_count++;
+                    } else {
+                        herbivore_count++;
+                    }
+                    
+                    if (fish_array[i].eating_mode) eating_mode_fish++;
+                    
+                    // Check if fish is old (past 75% of max age)
+                    int age = current_frame - fish_array[i].birth_frame;
+                    if (age > ft->max_age * 0.75f) {
+                        old_fish_count++;
+                    }
                 }
-                
-                if (fish_array[i].eating_mode) eating_mode_fish++;
-                
-                // Check if fish is old (past 75% of max age)
-                int age = current_frame - fish_array[i].birth_frame;
-                if (age > ft->max_age * 0.75f) {
-                    old_fish_count++;
-                }
-                
                 active_fish++;
             }
         }
         
-        printf("\n=== FISH ECOSYSTEM STATUS WITH CORPSE SYSTEM Frame %d ===\n", current_frame);
-        printf("Active fish: %d (%d herbivores, %d predators)\n", active_fish, herbivore_count, predator_count);
+        printf("\n=== FISH ECOSYSTEM STATUS (ROBUST ID SYSTEM) Frame %d ===\n", current_frame);
+        printf("Active fish: %d (%d herbivores, %d predators) - Updated: %d\n", 
+               active_fish, herbivore_count, predator_count, fish_updated);
+        printf("Fish slots used: 0-%d (highest slot: %d)\n", highest_slot, highest_slot);
         printf("Fish in eating mode: %d\n", eating_mode_fish);
         printf("Old fish (>75%% max age): %d\n", old_fish_count);
         printf("Active corpses: %d\n", active_corpses);
@@ -197,26 +242,38 @@ void fish_update(void) {
         printf("Nutrition defecated: %.4f\n", total_defecated);
         printf("Nutrition balance: %.4f\n", balance);
         
-        // Show sample fish with age info
+        // Show sample fish with validation - ROBUST
         int samples_shown = 0;
-        for (int i = 0; i < fish_count && samples_shown < 3; i++) {
+        for (int i = 0; i <= highest_slot && i < MAX_FISH && samples_shown < 3; i++) {
             if (fish_array[i].active) {
                 Fish* fish = &fish_array[i];
-                Node* node = &nodes[fish->node_id];
-                FishType* ft = &fish_types[fish->fish_type];
                 
-                float speed = sqrt(node->vx * node->vx + node->vy * node->vy);
-                
-                int age = current_frame - fish->birth_frame;
-                float age_minutes = age / (TARGET_FPS * 60.0f);
-                float max_age_minutes = ft->max_age / (TARGET_FPS * 60.0f);
-                float age_percentage = (float)age / (float)ft->max_age * 100.0f;
-                
-                printf("Fish %d (%s): pos(%.0f,%.0f), speed=%.1f, age=%.1f/%.1f min (%.0f%%), "
-                       "outputs=(%.2f,%.2f,%.2f), reward=%.3f\n",
-                       i, ft->name, node->x, node->y, speed, age_minutes, max_age_minutes, age_percentage,
-                       fish->rl_outputs[0], fish->rl_outputs[1], fish->rl_outputs[2], fish->last_reward);
-                samples_shown++;
+                // Validate all data before displaying
+                if (fish->node_id >= 0 && fish->node_id < node_count && 
+                    fish->fish_type >= 0 && fish->fish_type < fish_get_type_count()) {
+                    
+                    Node* node = &nodes[fish->node_id];
+                    FishType* ft = &fish_types[fish->fish_type];
+                    
+                    if (node->active) {
+                        float speed = sqrt(node->vx * node->vx + node->vy * node->vy);
+                        
+                        int age = current_frame - fish->birth_frame;
+                        float age_minutes = age / (TARGET_FPS * 60.0f);
+                        float max_age_minutes = ft->max_age / (TARGET_FPS * 60.0f);
+                        float age_percentage = (float)age / (float)ft->max_age * 100.0f;
+                        
+                        printf("Fish %d (%s): pos(%.0f,%.0f), speed=%.1f, age=%.1f/%.1f min (%.0f%%), "
+                               "outputs=(%.2f,%.2f,%.2f), reward=%.3f\n",
+                               i, ft->name, node->x, node->y, speed, age_minutes, max_age_minutes, age_percentage,
+                               fish->rl_outputs[0], fish->rl_outputs[1], fish->rl_outputs[2], fish->last_reward);
+                        samples_shown++;
+                    }
+                } else {
+                    printf("Fish %d: VALIDATION ERROR (node=%d, type=%d)\n", 
+                           i, fish->node_id, fish->fish_type);
+                    samples_shown++;
+                }
             }
         }
         
@@ -224,7 +281,11 @@ void fish_update(void) {
             printf("Deaths this frame: %d\n", deaths_this_frame);
         }
         
-        printf("Neural networks learning with natural aging and corpse system...\n");
+        if (validation_errors > 0) {
+            printf("Validation errors fixed: %d\n", validation_errors);
+        }
+        
+        printf("Neural networks learning with robust ID tracking...\n");
         printf("==========================================\n\n");
     }
 }

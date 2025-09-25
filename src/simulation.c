@@ -1,4 +1,4 @@
-// simulation.c - Enhanced with seed immunity system
+// simulation.c - Enhanced with simplified nutrition system
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -41,7 +41,7 @@ int simulation_init(void) {
         return 0;
     }
     
-    printf("Simulation initialized with seed immunity system\n");
+    printf("Simulation initialized with simplified nutrition system\n");
     return 1;
 }
 
@@ -87,24 +87,28 @@ int simulation_add_node(float x, float y, int plant_type) {
     node->original_fish_type = -1;
     node->corpse_heading = 0.0f;
     
-    // NEW: Initialize seed immunity system
-    node->seed_immunity_timer = 0;  // Default: no immunity
+    // Initialize seed immunity system
+    node->seed_immunity_timer = 0;
+    
+    // Initialize nutrition storage
+    node->stored_nutrition = 0.0f;
     
     // Handle special node types
     if (plant_type == -2) {
-        // This is being created as a corpse node (will be set up by caller)
+        // Corpse node
         node->can_grow = 0;
     } else if (plant_type == -1) {
-        // This is a fish node
+        // Fish node
         node->can_grow = 0;
+    } else if (plant_type >= 0) {
+        // Plant node - initialize nutrition cost for manually placed plants
+        plants_initialize_nutrition_cost(g_node_count, plant_type);
     }
-    
-    node->nutrition_cost = 0.0f;
     
     return g_node_count++;
 }
 
-// NEW: Add node as seed with immunity
+// Add node as seed with immunity
 int simulation_add_seed_node(float x, float y, int plant_type) {
     int node_id = simulation_add_node(x, y, plant_type);
     if (node_id >= 0) {
@@ -161,7 +165,7 @@ int simulation_add_chain(int node1, int node2) {
     return g_chain_count++;
 }
 
-// NEW: Update seed immunity timers
+// Update seed immunity timers
 void simulation_update_seed_timers(void) {
     int seeds_matured = 0;
     

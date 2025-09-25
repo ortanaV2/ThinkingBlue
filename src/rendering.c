@@ -1,4 +1,4 @@
-// rendering.c - Enhanced with flow-based water background and fixed fish rendering
+// rendering.c - Enhanced fish rendering with scaled corpse sizes
 #include <SDL2/SDL.h>
 #include <math.h>
 #include <stdio.h>
@@ -21,13 +21,14 @@ static SDL_Renderer* g_renderer = NULL;
 static float g_current_fps = 0.0f;
 static char g_fps_text[32] = "FPS: 0.0";
 
-// Forward declarations
+// Forward declarations for rendering functions
 static void draw_thick_line(SDL_Renderer* renderer, int x1, int y1, int x2, int y2, int thickness);
 static void draw_curved_line(SDL_Renderer* renderer, int x1, int y1, int x2, int y2, float curve_strength, float curve_offset, int thickness);
-static void draw_fish_tail(SDL_Renderer* renderer, int screen_x, int screen_y, float heading, int fish_radius, int r, int g, int b);
+static void draw_enhanced_fish_tail(SDL_Renderer* renderer, int screen_x, int screen_y, float heading, FishType* fish_type, float base_radius, int r, int g, int b);
 static void draw_fish_rl_vision(SDL_Renderer* renderer, int fish_id);
+static void render_flow_based_water_background(void);
 
-// Helper function to find fish by node ID
+// Helper function to find fish by node ID for rendering
 static Fish* find_fish_by_node_id(int node_id) {
     Fish* all_fish = fish_get_all();
     int highest_slot = fish_get_highest_slot();
@@ -44,7 +45,7 @@ static Fish* find_fish_by_node_id(int node_id) {
 static void draw_simple_char(SDL_Renderer* renderer, char c, int x, int y, int size);
 static void draw_simple_text(SDL_Renderer* renderer, const char* text, int x, int y, int size);
 
-// Simple bitmap font character rendering
+// Simple bitmap font character rendering for FPS display
 static void draw_simple_char(SDL_Renderer* renderer, char c, int x, int y, int size) {
     SDL_SetRenderDrawColor(renderer, 255, 255, 255, 255);
     
@@ -67,14 +68,14 @@ static void draw_simple_char(SDL_Renderer* renderer, char c, int x, int y, int s
             {0x1E, 0x21, 0x21, 0x1F, 0x01, 0x02, 0x1C}  // 9
         };
         
-        // Letters F, P, S
+        // Letters F, P, S and symbols
         int let_F[7] = {0x3E, 0x20, 0x20, 0x3C, 0x20, 0x20, 0x20};
         int let_P[7] = {0x3E, 0x21, 0x21, 0x3E, 0x20, 0x20, 0x20};
         int let_S[7] = {0x1F, 0x20, 0x20, 0x1E, 0x01, 0x01, 0x3E};
         int colon[7] = {0x00, 0x18, 0x18, 0x00, 0x18, 0x18, 0x00};
         int dot[7] = {0x00, 0x00, 0x00, 0x00, 0x00, 0x18, 0x18};
         
-        // Copy patterns
+        // Copy patterns to lookup table
         for (int i = 0; i < 10; i++) {
             for (int j = 0; j < 7; j++) {
                 patterns['0' + i][j] = nums[i][j];
@@ -90,7 +91,7 @@ static void draw_simple_char(SDL_Renderer* renderer, char c, int x, int y, int s
         initialized = 1;
     }
     
-    // Draw character
+    // Draw character pixel by pixel
     unsigned char uc = (unsigned char)c;
     for (int row = 0; row < 7; row++) {
         for (int col = 0; col < 6; col++) {
@@ -102,7 +103,7 @@ static void draw_simple_char(SDL_Renderer* renderer, char c, int x, int y, int s
     }
 }
 
-// Draw simple text string
+// Draw simple text string for FPS display
 static void draw_simple_text(SDL_Renderer* renderer, const char* text, int x, int y, int size) {
     int len = strlen(text);
     for (int i = 0; i < len; i++) {
@@ -110,89 +111,56 @@ static void draw_simple_text(SDL_Renderer* renderer, const char* text, int x, in
     }
 }
 
-// Enhanced flow-based water background rendering with higher resolution and smoothing
+// Enhanced flow-based water background with adaptive quality
 static void render_flow_based_water_background(void) {
-    // Get viewport bounds
     float world_left, world_top, world_right, world_bottom;
     camera_get_viewport_bounds(&world_left, &world_top, &world_right, &world_bottom);
     
-    // Base water color (original blue)
+    // Base ocean water color
     int base_r = 22;
     int base_g = 117; 
     int base_b = 158;
     
-    // Very early scaling resolution: starts improving quality at zoom 0.3+
+    // Adaptive grid size based on zoom level for performance
     float zoom = camera_get_zoom();
     int grid_size;
     
     if (zoom >= 0.3f) {
-        // Start high quality very early: from zoom 0.3 onwards
-        float quality_factor = 0.8f + (zoom - 0.3f) * 6.0f;  // Very aggressive scaling from 0.3+
+        // High quality when zoomed in
+        float quality_factor = 0.8f + (zoom - 0.3f) * 6.0f;
         grid_size = (int)(LAYER_GRID_SIZE / quality_factor);
-        if (grid_size < 2) grid_size = 2;    // Ultra high detail when zoomed in
-        if (grid_size > 25) grid_size = 25;  // Reasonable maximum
+        if (grid_size < 2) grid_size = 2;
+        if (grid_size > 25) grid_size = 25;
     } else {
-        // Very zoomed out: reduce quality significantly for performance
-        grid_size = (int)(LAYER_GRID_SIZE * (3.0f - zoom * 5.0f));  // Very aggressive reduction
-        if (grid_size < 25) grid_size = 25;   // Minimum when zoomed out
-        if (grid_size > 40) grid_size = 40; // Maximum for very far zoom
+        // Lower quality when zoomed out for performance
+        grid_size = (int)(LAYER_GRID_SIZE * (3.0f - zoom * 5.0f));
+        if (grid_size < 25) grid_size = 25;
+        if (grid_size > 40) grid_size = 40;
     }
     
-    // Calculate grid dimensions for smoothing buffer
+    // Calculate grid dimensions for smoothing
     int grid_width = (int)ceil((world_right - world_left) / grid_size) + 2;
     int grid_height = (int)ceil((world_bottom - world_top) / grid_size) + 2;
     
-    // Allocate temporary buffers for flow values and smoothed colors
+    // Allocate temporary buffers for flow-based water colors
     float* flow_magnitudes = malloc(grid_width * grid_height * sizeof(float));
     int* smoothed_r = malloc(grid_width * grid_height * sizeof(int));
     int* smoothed_g = malloc(grid_width * grid_height * sizeof(int));
     int* smoothed_b = malloc(grid_width * grid_height * sizeof(int));
     
     if (!flow_magnitudes || !smoothed_r || !smoothed_g || !smoothed_b) {
-        // Fallback to original method if allocation fails
+        // Fallback to simple background if allocation fails
+        SDL_SetRenderDrawColor(g_renderer, base_r, base_g, base_b, 255);
+        SDL_RenderClear(g_renderer);
+        
         free(flow_magnitudes);
         free(smoothed_r);
         free(smoothed_g);
         free(smoothed_b);
-        
-        // Fallback rendering with very early scaling quality
-        int fallback_grid_size;
-        if (zoom >= 0.3f) {
-            float quality_factor = 0.8f + (zoom - 0.3f) * 3.0f;
-            fallback_grid_size = (int)(LAYER_GRID_SIZE / quality_factor);
-            if (fallback_grid_size < 6) fallback_grid_size = 6;
-            if (fallback_grid_size > 50) fallback_grid_size = 50;
-        } else {
-            fallback_grid_size = (int)(LAYER_GRID_SIZE * (4.0f - zoom * 8.0f));
-            if (fallback_grid_size < 50) fallback_grid_size = 50;
-            if (fallback_grid_size > 200) fallback_grid_size = 200;
-        }
-        
-        for (float world_y = world_top; world_y < world_bottom; world_y += fallback_grid_size) {
-            for (float world_x = world_left; world_x < world_right; world_x += fallback_grid_size) {
-                float flow_x, flow_y;
-                flow_get_vector_at(world_x, world_y, &flow_x, &flow_y);
-                float flow_magnitude = sqrt(flow_x * flow_x + flow_y * flow_y);
-                float normalized_flow = flow_magnitude / 0.4f;
-                if (normalized_flow > 1.0f) normalized_flow = 1.0f;
-                
-                int water_r = base_r, water_g = base_g, water_b = base_b;
-                
-                int screen_x1, screen_y1, screen_x2, screen_y2;
-                camera_world_to_screen(world_x, world_y, &screen_x1, &screen_y1);
-                camera_world_to_screen(world_x + fallback_grid_size, world_y + fallback_grid_size, &screen_x2, &screen_y2);
-                
-                if (screen_x2 > 0 && screen_x1 < WINDOW_WIDTH && screen_y2 > 0 && screen_y1 < WINDOW_HEIGHT) {
-                    SDL_SetRenderDrawColor(g_renderer, water_r, water_g, water_b, 255);
-                    SDL_Rect water_rect = {screen_x1, screen_y1, screen_x2 - screen_x1, screen_y2 - screen_y1};
-                    SDL_RenderFillRect(g_renderer, &water_rect);
-                }
-            }
-        }
         return;
     }
     
-    // Sample flow field at higher resolution and store values
+    // Sample flow field and calculate water colors
     int grid_idx = 0;
     for (int gy = 0; gy < grid_height; gy++) {
         for (int gx = 0; gx < grid_width; gx++) {
@@ -210,13 +178,8 @@ static void render_flow_based_water_background(void) {
         }
     }
     
-    // Apply adaptive smoothing based on zoom level (starts very early)
-    float smoothness;
-    if (zoom >= 0.3f) {
-        smoothness = 0.6f + (zoom - 0.3f) * 1.5f;  // Smoothing starts at zoom 0.3
-    } else {
-        smoothness = 0.2f + zoom * 1.3f;  // Minimal smoothing when very zoomed out
-    }
+    // Apply smoothing based on zoom level
+    float smoothness = (zoom >= 0.3f) ? (0.6f + (zoom - 0.3f) * 1.5f) : (0.2f + zoom * 1.3f);
     grid_idx = 0;
     
     for (int gy = 0; gy < grid_height; gy++) {
@@ -242,34 +205,34 @@ static void render_flow_based_water_background(void) {
             
             float smoothed_flow = (weight_sum > 0.0f) ? (sum_flow / weight_sum) : flow_magnitudes[grid_idx];
             
-            // Calculate smoothed color based on flow
+            // Calculate water color based on flow intensity
             int water_r, water_g, water_b;
             
             if (smoothed_flow < 0.1f) {
-                // Very weak flow: slightly lighter blue (clear water)
+                // Very weak flow: clearer water
                 water_r = base_r + (int)(8 * (0.1f - smoothed_flow) / 0.1f);
                 water_g = base_g + (int)(12 * (0.1f - smoothed_flow) / 0.1f);
                 water_b = base_b + (int)(15 * (0.1f - smoothed_flow) / 0.1f);
             } else if (smoothed_flow < 0.3f) {
-                // Weak flow: normal water color
+                // Normal flow: base water color
                 water_r = base_r;
                 water_g = base_g;
                 water_b = base_b;
             } else if (smoothed_flow < 0.6f) {
-                // Medium flow: slightly darker, more greenish
+                // Medium flow: slightly darker
                 float factor = (smoothed_flow - 0.3f) / 0.3f;
                 water_r = base_r - (int)(6 * factor);
                 water_g = base_g - (int)(5 * factor);
                 water_b = base_b - (int)(8 * factor);
             } else {
-                // Strong flow: darker, more greenish-brown
+                // Strong flow: much darker water
                 float factor = (smoothed_flow - 0.6f) / 0.4f;
                 water_r = base_r - 6 - (int)(8 * factor);
                 water_g = base_g - 5 - (int)(3 * factor);
                 water_b = base_b - 8 - (int)(12 * factor);
             }
             
-            // Clamp colors
+            // Clamp colors to valid range
             if (water_r < 10) water_r = 10;
             if (water_g < 90) water_g = 90;
             if (water_b < 120) water_b = 120;
@@ -285,53 +248,45 @@ static void render_flow_based_water_background(void) {
         }
     }
     
-    // Render smoothed water tiles
-    grid_idx = 0;
-    for (int gy = 1; gy < grid_height - 1; gy++) {  // Skip border cells
+    // Render water tiles with flow-based colors
+    for (int gy = 1; gy < grid_height - 1; gy++) {
         for (int gx = 1; gx < grid_width - 1; gx++) {
             float world_x = world_left + (gx - 1) * grid_size;
             float world_y = world_top + (gy - 1) * grid_size;
             
             int idx = gy * grid_width + gx;
             
-            // Convert world coordinates to screen coordinates
             int screen_x1, screen_y1, screen_x2, screen_y2;
             camera_world_to_screen(world_x, world_y, &screen_x1, &screen_y1);
             camera_world_to_screen(world_x + grid_size, world_y + grid_size, &screen_x2, &screen_y2);
             
-            // Only render if on screen
+            // Only render if visible on screen
             if (screen_x2 > 0 && screen_x1 < WINDOW_WIDTH && 
                 screen_y2 > 0 && screen_y1 < WINDOW_HEIGHT) {
                 
                 SDL_SetRenderDrawColor(g_renderer, smoothed_r[idx], smoothed_g[idx], smoothed_b[idx], 255);
                 
-                SDL_Rect water_rect;
-                water_rect.x = screen_x1;
-                water_rect.y = screen_y1;
-                water_rect.w = screen_x2 - screen_x1;
-                water_rect.h = screen_y2 - screen_y1;
-                
+                SDL_Rect water_rect = {screen_x1, screen_y1, screen_x2 - screen_x1, screen_y2 - screen_y1};
                 SDL_RenderFillRect(g_renderer, &water_rect);
             }
         }
     }
     
-    // Clean up temporary buffers
+    // Clean up memory
     free(flow_magnitudes);
     free(smoothed_r);
     free(smoothed_g);
     free(smoothed_b);
 }
 
+// Calculate aged color for plants based on maturity
 static void calculate_aged_color(int base_r, int base_g, int base_b, int age, int age_mature, int* aged_r, int* aged_g, int* aged_b) {
     if (age_mature <= 0) age_mature = 1800;
     
     float age_factor = fminf((float)age / (float)age_mature, 1.0f);
     
-    int brown_r = 101;
-    int brown_g = 67;
-    int brown_b = 33;
-    
+    // Mix with brown color as plant ages
+    int brown_r = 101, brown_g = 67, brown_b = 33;
     float brown_influence = age_factor * 0.20f;
     float original_influence = 1.0f - brown_influence;
     float darkness_factor = 1.0f - (age_factor * 0.08f);
@@ -340,6 +295,7 @@ static void calculate_aged_color(int base_r, int base_g, int base_b, int age, in
     *aged_g = (int)((base_g * original_influence + brown_g * brown_influence) * darkness_factor);
     *aged_b = (int)((base_b * original_influence + brown_b * brown_influence) * darkness_factor);
     
+    // Ensure minimum visibility
     if (*aged_r < 20) *aged_r = 20;
     if (*aged_g < 15) *aged_g = 15;
     if (*aged_b < 10) *aged_b = 10;
@@ -349,35 +305,32 @@ static void calculate_aged_color(int base_r, int base_g, int base_b, int age, in
     if (*aged_b > 255) *aged_b = 255;
 }
 
+// Calculate bleached color for temperature-affected corals
 static void calculate_bleached_color(int base_r, int base_g, int base_b, int* bleached_r, int* bleached_g, int* bleached_b) {
-    // Convert to grayscale and make it very light (bleached appearance)
+    // Convert to grayscale and make very light for bleached appearance
     int gray_value = (int)(0.299f * base_r + 0.587f * base_g + 0.114f * base_b);
     
-    // Make it very light gray/white for bleached effect
     *bleached_r = (gray_value + 255) / 2;
     *bleached_g = (gray_value + 255) / 2;
     *bleached_b = (gray_value + 255) / 2;
     
-    // Ensure minimum whiteness
+    // Ensure high brightness for bleached effect
     if (*bleached_r < 200) *bleached_r = 200;
     if (*bleached_g < 200) *bleached_g = 200;
     if (*bleached_b < 200) *bleached_b = 200;
 }
 
+// Calculate corpse color based on original fish type and decay
 static void calculate_corpse_color(int original_fish_type, int decay_timer, int* corpse_r, int* corpse_g, int* corpse_b) {
-    // Base corpse color is white/gray
     int base_gray = 220;
     
     // Darken based on decay progress
     float decay_factor = (float)decay_timer / (float)CORPSE_DECAY_TIME;
-    
-    // Fresh corpse is lighter, old corpse is darker
     int gray_value = (int)(base_gray * (0.5f + decay_factor * 0.5f));
     
-    // Slight color tint based on original fish type
+    // Apply subtle tint from original fish colors
     FishType* original_type = fish_get_type(original_fish_type);
     if (original_type) {
-        // Very subtle tint from original colors
         *corpse_r = (gray_value * 9 + original_type->node_r) / 10;
         *corpse_g = (gray_value * 9 + original_type->node_g) / 10;
         *corpse_b = (gray_value * 9 + original_type->node_b) / 10;
@@ -387,62 +340,61 @@ static void calculate_corpse_color(int original_fish_type, int decay_timer, int*
         *corpse_b = gray_value;
     }
     
-    // Ensure minimum brightness for visibility
+    // Ensure visibility
     if (*corpse_r < 150) *corpse_r = 150;
     if (*corpse_g < 150) *corpse_g = 150;
     if (*corpse_b < 150) *corpse_b = 150;
 }
 
+// Draw thick line for rendering
 static void draw_thick_line(SDL_Renderer* renderer, int x1, int y1, int x2, int y2, int thickness) {
     if (thickness <= 1) {
         SDL_RenderDrawLine(renderer, x1, y1, x2, y2);
         return;
     }
     
+    // Draw multiple parallel lines for thickness
     for (int i = -thickness/2; i <= thickness/2; i++) {
         SDL_RenderDrawLine(renderer, x1 + i, y1, x2 + i, y2);
         SDL_RenderDrawLine(renderer, x1, y1 + i, x2, y2 + i);
     }
 }
 
-static void draw_fish_tail(SDL_Renderer* renderer, int screen_x, int screen_y, float heading, int fish_radius, int r, int g, int b) {
-    // Draw tail based on fish heading
-    float tail_offset_distance = fish_radius * 3.0f;
+// Enhanced fish tail rendering with configurable size
+static void draw_enhanced_fish_tail(SDL_Renderer* renderer, int screen_x, int screen_y, float heading, FishType* fish_type, float base_radius, int r, int g, int b) {
+    if (!fish_type) return;
     
-    // Calculate tail base position (opposite to heading direction)
+    // Apply visual configuration factors
+    float tail_length = base_radius * 2.5f * fish_type->tail_length_factor;
+    float tail_width = base_radius * 3.0f * fish_type->tail_width_factor;
+    
+    // Calculate tail position (opposite to heading direction)
+    float tail_offset_distance = base_radius * 3.0f;
     int tail_base_x = screen_x - (int)(cos(heading) * tail_offset_distance);
     int tail_base_y = screen_y - (int)(sin(heading) * tail_offset_distance);
-    
-    float tail_length = fish_radius * 2.5f;
-    float tail_width = fish_radius * 3.0f;
     
     // Perpendicular vector for triangle width
     float perp_x = -sin(heading);
     float perp_y = cos(heading);
     
-    // Two tail corners
+    // Calculate tail triangle points
     int tail_corner1_x = tail_base_x + (int)(perp_x * tail_width * 0.5f);
     int tail_corner1_y = tail_base_y + (int)(perp_y * tail_width * 0.5f);
     int tail_corner2_x = tail_base_x - (int)(perp_x * tail_width * 0.5f);
     int tail_corner2_y = tail_base_y - (int)(perp_y * tail_width * 0.5f);
-    
-    // Third corner (tip of tail)
     int tail_tip_x = tail_base_x + (int)(cos(heading) * tail_length);
     int tail_tip_y = tail_base_y + (int)(sin(heading) * tail_length);
     
-    // Make tail color slightly darker
-    int tail_r = (r * 3) / 4;
-    int tail_g = (g * 3) / 4;
-    int tail_b = (b * 3) / 4;
-    SDL_SetRenderDrawColor(renderer, tail_r, tail_g, tail_b, 255);
+    // Use same color as fish body
+    SDL_SetRenderDrawColor(renderer, r, g, b, 255);
     
-    // Draw triangle outline
+    // Draw tail triangle outline
     SDL_RenderDrawLine(renderer, tail_base_x, tail_base_y, tail_corner1_x, tail_corner1_y);
     SDL_RenderDrawLine(renderer, tail_corner1_x, tail_corner1_y, tail_tip_x, tail_tip_y);
     SDL_RenderDrawLine(renderer, tail_tip_x, tail_tip_y, tail_corner2_x, tail_corner2_y);
     SDL_RenderDrawLine(renderer, tail_corner2_x, tail_corner2_y, tail_base_x, tail_base_y);
     
-    // Simple fill
+    // Fill tail triangle for larger tails
     if (tail_width > 2.0f) {
         for (int i = 0; i <= (int)(tail_length); i++) {
             float t = (float)i / tail_length;
@@ -459,6 +411,7 @@ static void draw_fish_tail(SDL_Renderer* renderer, int screen_x, int screen_y, f
     }
 }
 
+// Draw fish RL vision rays for debugging
 static void draw_fish_rl_vision(SDL_Renderer* renderer, int fish_id) {
     if (!fish_is_ray_rendering_enabled()) return;
     
@@ -471,7 +424,6 @@ static void draw_fish_rl_vision(SDL_Renderer* renderer, int fish_id) {
     Node* nodes = simulation_get_nodes();
     Node* fish_node = &nodes[fish->node_id];
     
-    // Get fish position on screen
     int fish_screen_x, fish_screen_y;
     camera_world_to_screen(fish_node->x, fish_node->y, &fish_screen_x, &fish_screen_y);
     
@@ -494,37 +446,37 @@ static void draw_fish_rl_vision(SDL_Renderer* renderer, int fish_id) {
     SDL_RenderDrawLine(renderer, fish_screen_x, fish_screen_y, left_end_x, left_end_y);
     SDL_RenderDrawLine(renderer, fish_screen_x, fish_screen_y, right_end_x, right_end_y);
     
-    // Draw plant detection vector if present
-    float plant_vec_x = fish->rl_inputs[0];
-    float plant_vec_y = fish->rl_inputs[1];
+    // Draw target detection vector if present
+    float target_vec_x = fish->rl_inputs[0];
+    float target_vec_y = fish->rl_inputs[1];
     
-    if (plant_vec_x != 0.0f || plant_vec_y != 0.0f) {
+    if (target_vec_x != 0.0f || target_vec_y != 0.0f) {
         SDL_SetRenderDrawColor(renderer, 255, 100, 100, 200);
         
-        float plant_range = 150.0f;
-        int plant_end_x = fish_screen_x + (int)(plant_vec_x * plant_range * camera_get_zoom());
-        int plant_end_y = fish_screen_y + (int)(plant_vec_y * plant_range * camera_get_zoom());
+        float target_range = 150.0f;
+        int target_end_x = fish_screen_x + (int)(target_vec_x * target_range * camera_get_zoom());
+        int target_end_y = fish_screen_y + (int)(target_vec_y * target_range * camera_get_zoom());
         
-        // Draw thick arrow to plant
+        // Draw thick arrow to target
         for (int i = -2; i <= 2; i++) {
-            SDL_RenderDrawLine(renderer, fish_screen_x + i, fish_screen_y, plant_end_x + i, plant_end_y);
-            SDL_RenderDrawLine(renderer, fish_screen_x, fish_screen_y + i, plant_end_x, plant_end_y + i);
+            SDL_RenderDrawLine(renderer, fish_screen_x + i, fish_screen_y, target_end_x + i, target_end_y);
+            SDL_RenderDrawLine(renderer, fish_screen_x, fish_screen_y + i, target_end_x, target_end_y + i);
         }
         
         // Draw arrowhead
-        float arrow_angle = atan2(plant_vec_y, plant_vec_x);
+        float arrow_angle = atan2(target_vec_y, target_vec_x);
         float arrow_size = 10.0f * camera_get_zoom();
         
-        int arrow1_x = plant_end_x - (int)(cos(arrow_angle - 0.5f) * arrow_size);
-        int arrow1_y = plant_end_y - (int)(sin(arrow_angle - 0.5f) * arrow_size);
-        int arrow2_x = plant_end_x - (int)(cos(arrow_angle + 0.5f) * arrow_size);
-        int arrow2_y = plant_end_y - (int)(sin(arrow_angle + 0.5f) * arrow_size);
+        int arrow1_x = target_end_x - (int)(cos(arrow_angle - 0.5f) * arrow_size);
+        int arrow1_y = target_end_y - (int)(sin(arrow_angle - 0.5f) * arrow_size);
+        int arrow2_x = target_end_x - (int)(cos(arrow_angle + 0.5f) * arrow_size);
+        int arrow2_y = target_end_y - (int)(sin(arrow_angle + 0.5f) * arrow_size);
         
-        SDL_RenderDrawLine(renderer, plant_end_x, plant_end_y, arrow1_x, arrow1_y);
-        SDL_RenderDrawLine(renderer, plant_end_x, plant_end_y, arrow2_x, arrow2_y);
+        SDL_RenderDrawLine(renderer, target_end_x, target_end_y, arrow1_x, arrow1_y);
+        SDL_RenderDrawLine(renderer, target_end_x, target_end_y, arrow2_x, arrow2_y);
     }
     
-    // Draw heading direction
+    // Draw heading direction indicator
     SDL_SetRenderDrawColor(renderer, 255, 255, 100, 150);
     
     int heading_end_x = fish_screen_x + (int)(cos(fish->heading) * 50.0f * camera_get_zoom());
@@ -533,7 +485,7 @@ static void draw_fish_rl_vision(SDL_Renderer* renderer, int fish_id) {
     draw_thick_line(renderer, fish_screen_x, fish_screen_y, heading_end_x, heading_end_y, 3);
 }
 
-// Enhanced curved line drawing with configurable curvature
+// Enhanced curved line drawing for plant chains
 static void draw_curved_line(SDL_Renderer* renderer, int x1, int y1, int x2, int y2, float curve_strength, float curve_offset, int thickness) {
     float mid_x = (x1 + x2) * 0.5f;
     float mid_y = (y1 + y2) * 0.5f;
@@ -550,6 +502,7 @@ static void draw_curved_line(SDL_Renderer* renderer, int x1, int y1, int x2, int
     dx /= length;
     dy /= length;
     
+    // Perpendicular vector for curve
     float perp_x = -dy;
     float perp_y = dx;
     
@@ -557,6 +510,7 @@ static void draw_curved_line(SDL_Renderer* renderer, int x1, int y1, int x2, int
     float ctrl_x = mid_x + perp_x * curve_amount;
     float ctrl_y = mid_y + perp_y * curve_amount;
     
+    // Draw curved line using segments
     int segments = (int)(length / 8.0f) + 3;
     if (segments > 20) segments = 20;
     
@@ -567,6 +521,7 @@ static void draw_curved_line(SDL_Renderer* renderer, int x1, int y1, int x2, int
         float t = (float)i / segments;
         float inv_t = 1.0f - t;
         
+        // Quadratic Bezier curve
         float curr_x = inv_t * inv_t * x1 + 2 * inv_t * t * ctrl_x + t * t * x2;
         float curr_y = inv_t * inv_t * y1 + 2 * inv_t * t * ctrl_y + t * t * y2;
         
@@ -586,17 +541,19 @@ void rendering_update_fps(float fps) {
 void rendering_draw_fps(void) {
     if (!g_renderer) return;
     
-    // Draw semi-transparent background (smaller)
+    // Draw semi-transparent background
     SDL_SetRenderDrawColor(g_renderer, 0, 0, 0, 128);
     SDL_Rect bg_rect = {WINDOW_WIDTH - 45, 10, 35, 12};
     SDL_RenderFillRect(g_renderer, &bg_rect);
     
-    // Draw FPS number centered in background (smaller font)
+    // Draw FPS text
     draw_simple_text(g_renderer, g_fps_text, WINDOW_WIDTH - 42, 12, 1);
 }
 
 int rendering_init(SDL_Renderer* renderer) {
     g_renderer = renderer;
+    
+    // Set renderer for all layer systems
     nutrition_set_renderer(renderer);
     gas_set_renderer(renderer);
     flow_set_renderer(renderer);
@@ -604,25 +561,28 @@ int rendering_init(SDL_Renderer* renderer) {
     // Initialize FPS display
     strcpy(g_fps_text, "0.0");
     
+    printf("Enhanced rendering system initialized with configurable fish visuals\n");
     return 1;
 }
 
 void rendering_cleanup(void) {
     g_renderer = NULL;
+    printf("Rendering system cleaned up\n");
 }
 
+// Main rendering function with enhanced fish visualization
 void rendering_render(void) {
     if (!g_renderer) return;
     
-    // ENHANCED: Render flow-based water background instead of solid color
+    // Render flow-based water background
     render_flow_based_water_background();
     
-    // Render layers
+    // Render environmental layers
     nutrition_render();
     gas_render();
     flow_render();
     
-    // Calculate viewport bounds for culling
+    // Get viewport bounds for culling
     float world_left, world_top, world_right, world_bottom;
     camera_get_viewport_bounds(&world_left, &world_top, &world_right, &world_bottom);
     
@@ -633,7 +593,7 @@ void rendering_render(void) {
     int selected_node = simulation_get_selected_node();
     int selection_mode = simulation_get_selection_mode();
     
-    // Enhanced render chains with configurable thickness and curvature
+    // Render plant chains with enhanced visual properties
     for (int i = 0; i < chain_count; i++) {
         if (!chains[i].active) continue;
         
@@ -647,7 +607,7 @@ void rendering_render(void) {
         if (nodes[n1].plant_type == -1 || nodes[n2].plant_type == -1) continue;
         if (nodes[n1].is_corpse || nodes[n2].is_corpse) continue;
         
-        // Frustum culling
+        // Frustum culling for performance
         float min_x = fminf(nodes[n1].x, nodes[n2].x);
         float max_x = fmaxf(nodes[n1].x, nodes[n2].x);
         float min_y = fminf(nodes[n1].y, nodes[n2].y);
@@ -662,12 +622,12 @@ void rendering_render(void) {
         int plant_type = chains[i].plant_type;
         PlantType* pt = plants_get_type(plant_type);
         
-        // Set chain color - check for bleaching
+        // Calculate chain color with aging and bleaching effects
         if (pt && pt->active) {
             int aged_r, aged_g, aged_b;
             calculate_aged_color(pt->chain_r, pt->chain_g, pt->chain_b, chains[i].age, pt->age_mature, &aged_r, &aged_g, &aged_b);
             
-            // Check if either node is bleached
+            // Check for coral bleaching
             if (temperature_is_coral_bleached(n1) || temperature_is_coral_bleached(n2)) {
                 int bleached_r, bleached_g, bleached_b;
                 calculate_bleached_color(aged_r, aged_g, aged_b, &bleached_r, &bleached_g, &bleached_b);
@@ -679,23 +639,24 @@ void rendering_render(void) {
             SDL_SetRenderDrawColor(g_renderer, 100, 200, 100, 255);
         }
         
+        // Convert world coordinates to screen coordinates
         int screen_x1, screen_y1, screen_x2, screen_y2;
         camera_world_to_screen(nodes[n1].x, nodes[n1].y, &screen_x1, &screen_y1);
         camera_world_to_screen(nodes[n2].x, nodes[n2].y, &screen_x2, &screen_y2);
         
-        // Enhanced calculate thickness with plant-specific factor
+        // Calculate thickness with plant-specific factor
         float thickness_factor = pt ? pt->chain_thickness_factor : 1.0f;
         int thickness = (int)(CHAIN_THICKNESS * camera_get_zoom() * thickness_factor);
         if (thickness < 2) thickness = 2;
         
-        // Enhanced apply curvature multiplier
+        // Apply curvature with plant-specific multiplier
         float final_curve_strength = chains[i].curve_strength * chains[i].curve_multiplier;
         
         draw_curved_line(g_renderer, screen_x1, screen_y1, screen_x2, screen_y2, 
                         final_curve_strength, chains[i].curve_offset, thickness);
     }
     
-    // Render fish RL vision rays FIRST (behind fish)
+    // Render fish RL vision rays BEFORE fish bodies for proper layering
     if (fish_is_ray_rendering_enabled()) {
         Fish* all_fish = fish_get_all();
         int highest_slot = fish_get_highest_slot();
@@ -707,7 +668,7 @@ void rendering_render(void) {
         }
     }
     
-    // Enhanced render nodes with configurable sizes and seed immunity
+    // Render all nodes (plants, fish, corpses) with enhanced visual properties
     for (int i = 0; i < node_count; i++) {
         if (!nodes[i].active) continue;
         
@@ -722,23 +683,28 @@ void rendering_render(void) {
         
         int scaled_radius = (int)(NODE_RADIUS * camera_get_zoom());
         
-        // Check if this is a corpse node
+        // Render corpse nodes with SCALED SIZE based on original fish type
         if (nodes[i].is_corpse) {
-            // Render corpse with white/gray color and tail
             if (scaled_radius < 1) scaled_radius = 1;
             
             int corpse_r, corpse_g, corpse_b;
             calculate_corpse_color(nodes[i].original_fish_type, nodes[i].corpse_decay_timer, &corpse_r, &corpse_g, &corpse_b);
-            SDL_SetRenderDrawColor(g_renderer, corpse_r, corpse_g, corpse_b, 255);
             
-            // Make corpse slightly larger than regular nodes
-            scaled_radius = (int)((NODE_RADIUS * 1.5f) * camera_get_zoom());
+            // Get original fish type for scaling
+            FishType* original_fish_type = fish_get_type(nodes[i].original_fish_type);
+            float corpse_size_factor = original_fish_type ? original_fish_type->node_size_factor : 1.0f;
+            
+            // Apply fish size scaling to corpse (same as living fish size)
+            scaled_radius = (int)((NODE_RADIUS * 1.5f * corpse_size_factor) * camera_get_zoom());
             if (scaled_radius < 1) scaled_radius = 1;
             
-            // Draw corpse tail FIRST
-            if (scaled_radius > 2) {
-                draw_fish_tail(g_renderer, screen_x, screen_y, nodes[i].corpse_heading, scaled_radius, corpse_r, corpse_g, corpse_b);
+            // Draw corpse tail first with proper scaling
+            if (scaled_radius > 2 && original_fish_type) {
+                draw_enhanced_fish_tail(g_renderer, screen_x, screen_y, nodes[i].corpse_heading, 
+                                       original_fish_type, scaled_radius, corpse_r, corpse_g, corpse_b);
             }
+            
+            SDL_SetRenderDrawColor(g_renderer, corpse_r, corpse_g, corpse_b, 255);
             
             // Draw corpse body
             if (scaled_radius <= 2) {
@@ -750,6 +716,7 @@ void rendering_render(void) {
                     SDL_RenderDrawPoint(g_renderer, screen_x, screen_y+1);
                 }
             } else {
+                // Draw filled circle
                 for (int dx = -scaled_radius; dx <= scaled_radius; dx++) {
                     int dy_max = (int)sqrt(scaled_radius * scaled_radius - dx * dx);
                     for (int dy = -dy_max; dy <= dy_max; dy++) {
@@ -762,7 +729,7 @@ void rendering_render(void) {
                 }
             }
             
-            // Draw decay indicator
+            // Draw decay indicator for heavily decayed corpses
             float decay_progress = 1.0f - ((float)nodes[i].corpse_decay_timer / (float)CORPSE_DECAY_TIME);
             if (decay_progress > 0.5f) {
                 SDL_SetRenderDrawColor(g_renderer, 100, 100, 100, 255);
@@ -777,13 +744,13 @@ void rendering_render(void) {
             continue;
         }
         
-        // FIXED: Check if this is a fish node - only render if fish exists
+        // Render fish nodes with enhanced visual configuration
         if (nodes[i].plant_type == -1) {
-            // Fish node rendering - FIXED: Only render if fish actually exists
+            // Find fish that owns this node
             Fish* fish = find_fish_by_node_id(i);
             
             if (!fish) {
-                // FIXED: Skip rendering if no fish found (no more pink nodes!)
+                // Skip rendering if no fish found (prevents orphaned nodes)
                 continue;
             }
             
@@ -791,22 +758,25 @@ void rendering_render(void) {
             int fish_r = 255, fish_g = 165, fish_b = 0;
             
             if (fish_type && fish_type->active) {
-                scaled_radius = (int)((NODE_RADIUS * 1.8f) * camera_get_zoom());
+                // Apply fish visual configuration with scaling
+                scaled_radius = (int)((NODE_RADIUS * 1.8f * fish_type->node_size_factor) * camera_get_zoom());
                 if (scaled_radius < 1) scaled_radius = 1;
                 
+                // Use fish type colors
                 fish_r = fish_type->node_r;
                 fish_g = fish_type->node_g;
                 fish_b = fish_type->node_b;
-                SDL_SetRenderDrawColor(g_renderer, fish_r, fish_g, fish_b, 255);
             } else {
                 scaled_radius = (int)((NODE_RADIUS * 1.8f) * camera_get_zoom());
                 if (scaled_radius < 1) scaled_radius = 1;
-                SDL_SetRenderDrawColor(g_renderer, fish_r, fish_g, fish_b, 255);
             }
             
-            // Draw fish tail FIRST
-            if (scaled_radius > 2) {
-                draw_fish_tail(g_renderer, screen_x, screen_y, fish->heading, scaled_radius, fish_r, fish_g, fish_b);
+            SDL_SetRenderDrawColor(g_renderer, fish_r, fish_g, fish_b, 255);
+            
+            // Draw enhanced fish tail first (behind body)
+            if (scaled_radius > 2 && fish_type) {
+                draw_enhanced_fish_tail(g_renderer, screen_x, screen_y, fish->heading, 
+                                       fish_type, scaled_radius, fish_r, fish_g, fish_b);
             }
             
             // Draw fish body
@@ -819,6 +789,7 @@ void rendering_render(void) {
                     SDL_RenderDrawPoint(g_renderer, screen_x, screen_y+1);
                 }
             } else {
+                // Draw filled circle for fish body
                 for (int dx = -scaled_radius; dx <= scaled_radius; dx++) {
                     int dy_max = (int)sqrt(scaled_radius * scaled_radius - dx * dx);
                     for (int dy = -dy_max; dy <= dy_max; dy++) {
@@ -832,17 +803,19 @@ void rendering_render(void) {
             }
             
             continue;
-        } else {
-            // Enhanced plant node with configurable size and seed immunity visual
+        } 
+        
+        // Render plant nodes with enhanced visual effects
+        else {
             int plant_type = nodes[i].plant_type;
             PlantType* pt = plants_get_type(plant_type);
             
-            // Apply size factor from plant configuration
+            // Apply plant size configuration
             float size_factor = pt ? pt->node_size_factor : 1.0f;
             scaled_radius = (int)(NODE_RADIUS * camera_get_zoom() * size_factor);
             if (scaled_radius < 1) scaled_radius = 1;
             
-            // Set color based on selection state, plant type, bleaching, and seed immunity
+            // Set color based on selection, aging, bleaching, and seed immunity
             if (i == selected_node && selection_mode == 1) {
                 SDL_SetRenderDrawColor(g_renderer, 255, 255, 0, 255);
             } else {
@@ -850,22 +823,21 @@ void rendering_render(void) {
                     int aged_r, aged_g, aged_b;
                     calculate_aged_color(pt->node_r, pt->node_g, pt->node_b, nodes[i].age, pt->age_mature, &aged_r, &aged_g, &aged_b);
                     
-                    // Check if coral is bleached
+                    // Check for coral bleaching
                     if (temperature_is_coral_bleached(i)) {
                         int bleached_r, bleached_g, bleached_b;
                         calculate_bleached_color(aged_r, aged_g, aged_b, &bleached_r, &bleached_g, &bleached_b);
                         SDL_SetRenderDrawColor(g_renderer, bleached_r, bleached_g, bleached_b, 255);
                     } 
-                    // Check if seed has immunity
+                    // Check for seed immunity (pulsing effect)
                     else if (nodes[i].seed_immunity_timer > 0) {
-                        // Immune seeds get a bright, pulsing color
                         float immunity_ratio = (float)nodes[i].seed_immunity_timer / (float)SEED_IMMUNITY_TIME;
                         
                         // Pulsing effect based on frame counter
-                        int pulse_frame = simulation_get_frame_counter() % 60;  // 2 second cycle at 30 FPS
+                        int pulse_frame = simulation_get_frame_counter() % 60;
                         float pulse_factor = 0.7f + 0.3f * sin((pulse_frame / 60.0f) * 2.0f * M_PI);
                         
-                        // Bright green-white color for immune seeds
+                        // Bright pulsing color for immune seeds
                         int immune_r = (int)(255 * pulse_factor);
                         int immune_g = (int)(255 * pulse_factor);  
                         int immune_b = (int)(200 * pulse_factor);
@@ -886,7 +858,7 @@ void rendering_render(void) {
             }
         }
         
-        // Draw plant node as circle
+        // Draw plant node as filled circle
         if (scaled_radius <= 2) {
             SDL_RenderDrawPoint(g_renderer, screen_x, screen_y);
             if (scaled_radius > 1) {
@@ -896,6 +868,7 @@ void rendering_render(void) {
                 SDL_RenderDrawPoint(g_renderer, screen_x, screen_y+1);
             }
         } else {
+            // Draw filled circle
             for (int dx = -scaled_radius; dx <= scaled_radius; dx++) {
                 int dy_max = (int)sqrt(scaled_radius * scaled_radius - dx * dx);
                 for (int dy = -dy_max; dy <= dy_max; dy++) {
@@ -909,8 +882,9 @@ void rendering_render(void) {
         }
     }
     
-    // Draw FPS display
+    // Draw FPS display in top-right corner
     rendering_draw_fps();
     
+    // Present the rendered frame
     SDL_RenderPresent(g_renderer);
 }

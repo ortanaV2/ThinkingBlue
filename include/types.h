@@ -1,4 +1,4 @@
-// types.h - Enhanced with simplified nutrition system
+// types.h - Enhanced with fish visual configuration
 #ifndef TYPES_H
 #define TYPES_H
 
@@ -75,7 +75,7 @@
 #define M_PI 3.14159265358979323846
 #endif
 
-// Simplified plant type
+// Plant type configuration
 typedef struct {
     char name[MAX_NAME_LENGTH];
     float growth_probability;
@@ -104,7 +104,7 @@ typedef struct {
     int active;
 } PlantType;
 
-// Fish type configuration
+// Enhanced fish type configuration with visual settings
 typedef struct {
     char name[MAX_NAME_LENGTH];
     float max_speed;
@@ -133,6 +133,11 @@ typedef struct {
     
     // Aging system
     int max_age;
+    
+    // Enhanced visual configuration
+    float node_size_factor;      // Size multiplier for fish body
+    float tail_length_factor;    // Length multiplier for fish tail
+    float tail_width_factor;     // Width multiplier for fish tail
     
     // Colors (RGB 0-255)
     int node_r, node_g, node_b;

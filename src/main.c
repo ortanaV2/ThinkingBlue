@@ -98,7 +98,7 @@ static void populate_reef_randomly(void) {
     printf("Reef populated!\n");
 }
 
-// FIXED: Count only currently active fish
+// Count only currently active fish
 static int count_active_fish(void) {
     Fish* all_fish = fish_get_all();
     int total_fish = fish_get_count();
@@ -139,7 +139,7 @@ static void write_stats_file(void) {
         return;
     }
     
-    // Get current statistics - FIXED: Use active fish count
+    // Get current statistics
     int fish_count = count_active_fish();
     int plant_count = 0;
     
@@ -241,12 +241,12 @@ static void handle_mouse_click(int screen_x, int screen_y, int button) {
 }
 
 static void print_debug_info(void) {
-    printf("\n=== DEBUG INFO WITH FIXED FISH COUNTING ===\n");
+    printf("\n=== DEBUG INFO ===\n");
     printf("World size: %.0fx%.0f\n", WORLD_WIDTH, WORLD_HEIGHT);
     printf("Zoom: unlimited (current: %.6f)\n", camera_get_zoom());
     printf("Plant types: %d\n", plants_get_type_count());
     printf("Fish types: %d\n", fish_get_type_count());
-    printf("Active fish: %d\n", count_active_fish()); // FIXED: Use active count
+    printf("Active fish: %d\n", count_active_fish());
     printf("Total nodes: %d\n", simulation_get_node_count());
     printf("Spawn mode: %s\n", g_spawn_mode == 0 ? "PLANT" : "FISH");
     printf("Ray rendering: %s\n", fish_is_ray_rendering_enabled() ? "ON" : "OFF");
@@ -273,7 +273,7 @@ static void print_debug_info(void) {
     printf("Total deaths from aging: %d\n", fish_get_total_deaths_from_age());
     printf("Death check interval: %d frames (%.1f sec)\n", DEATH_CHECK_INTERVAL, DEATH_CHECK_INTERVAL / (float)TARGET_FPS);
     
-    // Fish age distribution - FIXED: Use only active fish
+    // Fish age distribution
     Fish* fish_list = fish_get_all();
     int total_fish = fish_get_count();
     int current_frame = simulation_get_frame_counter();
@@ -322,7 +322,6 @@ static void print_debug_info(void) {
     printf("Models will be saved on exit (Ctrl+C or ESC)\n");
     printf("Best herbivore and predator models will be saved to JSON files\n");
     printf("Training is ongoing - reproduction success tracked for model selection\n");
-    printf("Fixed fish counting: Statistics now show only currently active fish\n");
     printf("==========================================\n\n");
 }
 
@@ -330,10 +329,9 @@ int main(int argc, char* argv[]) {
     (void)argc;
     (void)argv;
     
-    printf("Starting Great Barrier Reef Ecosystem v3 with Fixed Fish Counting...\n");
+    printf("Starting Great Barrier Reef Ecosystem v3...\n");
     printf("World dimensions: %.0fx%.0f, Initial population: %d plants, %d fish\n",
            WORLD_WIDTH, WORLD_HEIGHT, INITIAL_PLANT_COUNT, INITIAL_FISH_COUNT);
-    printf("Fixed fish counting: Statistics track only currently active fish\n");
     printf("Temperature system active - coral bleaching will occur at temperatures > 0°C\n");
     printf("FPS display enabled in top-right corner\n");
     printf("Best models will be saved on graceful shutdown (Ctrl+C)\n");
@@ -416,14 +414,14 @@ int main(int argc, char* argv[]) {
         printf("WARNING: Failed to load fish.conf - no fish available\n");
     }
     
-    // CRITICAL: Initialize Python API with error checking
+    // Initialize Python API with error checking
     if (!python_api_init()) {
         printf("CRITICAL ERROR: Python API init failed - Python installation broken\n");
         printf("Please fix Python installation before running simulation\n");
         return 1;
     }
     
-    // CRITICAL: Try to load Python script with error handling
+    // Try to load Python script with error handling
     if (!python_api_run_script("fish_controller.py")) {
         printf("CRITICAL ERROR: Failed to load fish controller - Neural networks disabled\n");
         printf("Python environment is not working correctly\n");
@@ -442,7 +440,7 @@ int main(int argc, char* argv[]) {
     populate_reef_randomly();
     
     // Print status
-    printf("\nSystem ready with fixed fish counting!\n");
+    printf("\nSystem ready!\n");
     printf("Plant types loaded: %d\n", plants_get_type_count());
     printf("Fish types loaded: %d\n", fish_get_type_count());
     printf("Temperature: %.1f°C (use stats GUI to adjust)\n", temperature_get_current());
@@ -463,7 +461,7 @@ int main(int argc, char* argv[]) {
     printf("  G: Toggle gas layer\n");
     printf("  F: Toggle flow field\n");
     printf("  R: Toggle fish vision rays\n");
-    printf("  P: Print debug info (includes fixed fish stats)\n");
+    printf("  P: Print debug info\n");
     printf("  ESC or Ctrl+C: Save best models and exit (cleans temp files)\n\n");
     
     // Set initial mode
@@ -476,9 +474,7 @@ int main(int argc, char* argv[]) {
     SDL_Event event;
     int mouse_x = 0, mouse_y = 0;
     
-    printf("Fixed fish counting active! Statistics show only currently active fish.\n");
-    printf("FPS display visible in top-right corner\n");
-    printf("Use the statistics GUI (TAB) to monitor live fish population and temperature.\n\n");
+    printf("Use the statistics GUI (TAB) to monitor live population and temperature.\n\n");
     
     // Main game loop
     while (running && !g_graceful_shutdown_requested) {
@@ -502,7 +498,11 @@ int main(int argc, char* argv[]) {
                     break;
                     
                 case SDL_KEYDOWN:
-                    switch (event.key.keysym.sym) {   
+                    switch (event.key.keysym.sym) {
+                        case SDLK_ESCAPE:
+                            running = 0;
+                            break;
+                            
                         case SDLK_TAB:
                             // Check if Shift is held for spawn mode toggle
                             const Uint8* keystate = SDL_GetKeyboardState(NULL);
@@ -591,18 +591,18 @@ int main(int argc, char* argv[]) {
         
         // Update systems
         camera_update_with_sprint(movement_keys, sprint);
-        python_api_update();  // Neural network training happens here
-        fish_update();        // Includes aging checks
+        python_api_update();
+        fish_update();
         physics_update();
-        temperature_process_coral_bleaching();  // Process coral bleaching based on temperature
+        temperature_process_coral_bleaching();
         
         // Update FPS calculation
         update_fps();
         
-        // Write statistics for plotter - FIXED: Uses active fish count
+        // Write statistics for plotter
         write_stats_file();
         
-        // Render everything (including FPS display)
+        // Render everything
         rendering_render();
         
         // Frame rate limiting
@@ -621,14 +621,13 @@ cleanup:
     // Give Python time to save models if graceful shutdown was requested
     if (g_graceful_shutdown_requested) {
         printf("Allowing Python to save best models...\n");
-        // Python signal handler should have already saved models
     }
     
-    // Final report with fixed fish counting
-    printf("\n=== FINAL TRAINING REPORT WITH FIXED FISH COUNTING ===\n");
+    // Final report
+    printf("\n=== FINAL TRAINING REPORT ===\n");
     printf("Total deaths from aging: %d\n", fish_get_total_deaths_from_age());
     printf("Final temperature: %.1f°C\n", temperature_get_current());
-    printf("Final active fish count: %d\n", count_active_fish()); // FIXED: Use active count
+    printf("Final active fish count: %d\n", count_active_fish());
     
     // Count final bleached corals
     Node* nodes = simulation_get_nodes();
@@ -646,7 +645,7 @@ cleanup:
     printf("Fish defecated: %.2f\n", fish_get_total_nutrition_defecated());
     printf("Fish balance: %.2f\n", fish_get_nutrition_balance());
     printf("Total environmental nutrition: %.2f\n", plants_get_total_environmental_nutrition());
-    printf("Neural network training completed successfully with fixed fish counting\n");
+    printf("Neural network training completed successfully\n");
     printf("Check for best_herbivore_model.json and best_predator_model.json files\n");
     printf("========================================\n");
     
@@ -663,6 +662,6 @@ cleanup:
     SDL_DestroyWindow(window);
     SDL_Quit();
     
-    printf("Training session complete with fixed fish counting! Models saved for future use.\n");
+    printf("Training session complete! Models saved for future use.\n");
     return 0;
 }

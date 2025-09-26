@@ -1,4 +1,4 @@
-// fish_behaviour.c - Improved predator approach learning with stronger proximity rewards
+// fish_behaviour.c - Predator-prey behavior with neural network rewards
 #include <stdio.h>
 #include <stdlib.h>
 #include <math.h>
@@ -126,7 +126,7 @@ void fish_calculate_rl_rewards(int fish_id) {
     // Basic survival reward
     fish->last_reward += 0.001f;
     
-    // OXYGEN REWARD FOR ALL FISH (INCLUDING PREDATORS)
+    // Oxygen reward for all fish
     float oxygen_level = gas_get_oxygen_at(fish_node->x, fish_node->y);
     fish->last_reward += oxygen_level * fish_type->oxygen_reward_factor;
     
@@ -159,66 +159,61 @@ void fish_calculate_rl_rewards(int fish_id) {
     
     // Species-specific rewards
     if (fish_type->is_predator) {
-        // IMPROVED PREDATOR REWARDS: Focus on approach learning
+        // Predator rewards: Focus on approach learning
         
         // Get target info from inputs 0,1,3 (prey vector and distance)
         float prey_vector_x = fish->rl_inputs[0];
         float prey_vector_y = fish->rl_inputs[1];
-        float prey_distance = fish->rl_inputs[3];  // Normalized distance (0=close, 1=far)
+        float prey_distance = fish->rl_inputs[3];
         
         float prey_magnitude = sqrt(prey_vector_x * prey_vector_x + prey_vector_y * prey_vector_y);
         
-        if (prey_magnitude > 0.1f) {  // Prey detected
-            // REDUCED PROXIMITY REWARD - reduced from 1.2f to 0.4f to avoid "freezing"
-            float proximity_factor = 1.0f - prey_distance;  // 1=very close, 0=far
-            float proximity_reward = 0.4f * proximity_factor * proximity_factor;  // Quadratic reward
+        if (prey_magnitude > 0.1f) {
+            // Proximity reward
+            float proximity_factor = 1.0f - prey_distance;
+            float proximity_reward = 0.4f * proximity_factor * proximity_factor;
             fish->last_reward += proximity_reward;
             
-            // HUNTING INSTINCT REWARD - reward for orienting toward prey
+            // Hunting instinct reward
             float target_angle = atan2(prey_vector_y, prey_vector_x);
             float heading_alignment = cos(fish->heading - target_angle);
-            if (heading_alignment > 0.3f) {  // Looking roughly toward prey
+            if (heading_alignment > 0.3f) {
                 float hunting_reward = 0.1f * heading_alignment * proximity_factor;
                 fish->last_reward += hunting_reward;
             }
             
-            // ENHANCED DYNAMIC APPROACH REWARD - INCREASED to encourage movement
+            // Dynamic approach reward
             float current_x = fish_node->x;
             float current_y = fish_node->y;
             float prev_x = g_previous_positions_x[fish_id];
             float prev_y = g_previous_positions_y[fish_id];
             
-            // Calculate if fish moved closer to prey
-            if (prev_x != 0.0f || prev_y != 0.0f) {  // Skip first frame
+            if (prev_x != 0.0f || prev_y != 0.0f) {
                 float dx_prev = current_x - prev_x;
                 float dy_prev = current_y - prev_y;
                 float movement_distance = sqrt(dx_prev * dx_prev + dy_prev * dy_prev);
                 
-                if (movement_distance > 0.5f) {  // Only if fish actually moved
-                    // Check if movement was towards prey
+                if (movement_distance > 0.5f) {
                     float movement_x = dx_prev / movement_distance;
                     float movement_y = dy_prev / movement_distance;
                     
-                    // Dot product: positive = moving towards prey
                     float approach_alignment = prey_vector_x * movement_x + prey_vector_y * movement_y;
                     
-                    if (approach_alignment > 0.1f) {  // Moving towards prey (lowered threshold)
-                        // INCREASED APPROACH REWARD - from 0.8f to 1.5f to encourage movement
-                        float speed_factor = movement_distance / fish_type->max_speed;  // 0-1 based on max speed
+                    if (approach_alignment > 0.1f) {
+                        float speed_factor = movement_distance / fish_type->max_speed;
                         float dynamic_approach_reward = 1.5f * approach_alignment * proximity_factor * (1.0f + speed_factor);
                         fish->last_reward += dynamic_approach_reward;
                     }
-                    // REMOVED: No penalty for moving away from prey
                 } else {
-                    // STILLNESS PENALTY - punish for not moving when prey is visible
+                    // Stillness penalty
                     float stillness_penalty = -0.05f * proximity_factor;
                     fish->last_reward += stillness_penalty;
                 }
             }
         } else {
-            // EXPLORATION REWARD - reward for moving when no prey is visible
-            if (fish->rl_outputs[1] > 0.3f) {  // Movement strength > 30%
-                float exploration_reward = fish->rl_outputs[1] * 0.08f;  // Up to 0.08 reward
+            // Exploration reward
+            if (fish->rl_outputs[1] > 0.3f) {
+                float exploration_reward = fish->rl_outputs[1] * 0.08f;
                 fish->last_reward += exploration_reward;
             }
         }
@@ -246,7 +241,6 @@ void fish_calculate_rl_rewards(int fish_id) {
                     float movement_x = dx_prev / movement_distance;
                     float movement_y = dy_prev / movement_distance;
                     
-                    // Check if moving away from threat
                     float escape_alignment = -(fish->rl_inputs[4] * movement_x + fish->rl_inputs[5] * movement_y);
                     
                     if (escape_alignment > 0.3f) {
@@ -261,18 +255,17 @@ void fish_calculate_rl_rewards(int fish_id) {
         }
         
     } else {
-        // HERBIVORE REWARDS
+        // Herbivore rewards
         
         // Plant proximity rewards (inputs 0,1,3)
-        float plant_distance = fish->rl_inputs[3];  // Normalized distance
-        if (plant_distance < 1.0f) {  // Plant detected
+        float plant_distance = fish->rl_inputs[3];
+        if (plant_distance < 1.0f) {
             float proximity_factor = 1.0f - plant_distance;
-            // High multiplier for plant proximity
             fish->last_reward += fish_type->proximity_reward_factor * proximity_factor * 20.0f;
         }
         
         // Additional close-range plant bonus
-        float estimated_plant_distance = plant_distance * 500.0f;  // Convert back to world units
+        float estimated_plant_distance = plant_distance * 500.0f;
         if (estimated_plant_distance < 100.0f) {
             float close_proximity = 1.0f - (estimated_plant_distance / 100.0f);
             fish->last_reward += 0.08f * close_proximity;
@@ -301,20 +294,18 @@ void fish_calculate_rl_rewards(int fish_id) {
                     float move_dir_x = dx_prev / current_speed;
                     float move_dir_y = dy_prev / current_speed;
                     
-                    // Check if moving away from threat
                     float alignment = -(fish->rl_inputs[4] * move_dir_x + fish->rl_inputs[5] * move_dir_y);
                     
-                    if (alignment > 0.3f) {  // Moving away from threat
+                    if (alignment > 0.3f) {
                         float escape_reward = 0.25f * threat_level * alignment * (current_speed / fish_type->max_speed);
                         fish->last_reward += escape_reward;
-                    } else if (alignment < -0.3f) {  // Moving toward threat
+                    } else if (alignment < -0.3f) {
                         float approach_punishment = -0.20f * threat_level * (-alignment);
                         fish->last_reward += approach_punishment;
                     }
                 }
             }
             
-            // Additional reward for detecting threats
             fish->last_reward += 0.02f * threat_level;
         }
     }
@@ -350,7 +341,7 @@ void fish_calculate_rl_rewards(int fish_id) {
     fish->total_reward += fish->last_reward;
 }
 
-// Plant eating with FOV-restricted eating (45° cone in front of fish)
+// Plant eating with 180° eating FOV
 int fish_attempt_eating_plant(int fish_id) {
     Fish* fish = fish_get_by_id(fish_id);
     if (!fish) return 0;
@@ -366,9 +357,9 @@ int fish_attempt_eating_plant(int fish_id) {
     float fish_heading = fish->heading;
     float eating_range_sq = fish_type->eating_range * fish_type->eating_range;
     
-    // GLOBAL EATING FOV - 45° cone in front of fish
-    const float EATING_FOV_ANGLE = 90.0f * M_PI / 180.0f;  // 45 degrees in radians
-    float half_eating_fov = EATING_FOV_ANGLE * 0.5f;       // 22.5 degrees each side
+    // 180° eating FOV in front of fish
+    const float EATING_FOV_ANGLE = 180.0f * M_PI / 180.0f;
+    float half_eating_fov = EATING_FOV_ANGLE * 0.5f;
     
     GridCell* cells[9];
     int cell_count = grid_get_cells_at_position(fish_x, fish_y, cells, 9);
@@ -381,8 +372,8 @@ int fish_attempt_eating_plant(int fish_id) {
             int node_id = cell->node_indices[k];
             if (node_id < 0 || node_id >= simulation_get_node_count()) continue;
             if (!nodes[node_id].active) continue;
-            if (nodes[node_id].plant_type == -1) continue;  // Skip fish nodes
-            if (nodes[node_id].is_corpse) continue;         // Skip corpses
+            if (nodes[node_id].plant_type == -1) continue;
+            if (nodes[node_id].is_corpse) continue;
             
             // Skip seeds with immunity
             if (nodes[node_id].seed_immunity_timer > 0) {
@@ -393,10 +384,9 @@ int fish_attempt_eating_plant(int fish_id) {
             float dy = nodes[node_id].y - fish_y;
             float distance_sq = dx * dx + dy * dy;
             
-            // Check distance first (optimization)
             if (distance_sq > eating_range_sq) continue;
             
-            // CHECK EATING FOV - plant must be in 45° cone in front of fish
+            // Check eating FOV - plant must be in 180° cone in front of fish
             float angle_to_plant = atan2(dy, dx);
             float relative_angle = angle_to_plant - fish_heading;
             
@@ -404,19 +394,16 @@ int fish_attempt_eating_plant(int fish_id) {
             while (relative_angle > M_PI) relative_angle -= 2.0f * M_PI;
             while (relative_angle < -M_PI) relative_angle += 2.0f * M_PI;
             
-            // Check if plant is within eating FOV
             if (fabs(relative_angle) > half_eating_fov) {
-                continue;  // Plant is not in front of fish
+                continue;
             }
             
-            // Plant is in range AND in eating FOV - can eat it
+            // Plant is in range and in eating FOV
             float nutrition_value = nodes[node_id].stored_nutrition;
             
-            // Add to fish stomach
             fish->stomach_contents += nutrition_value;
             fish_internal_add_consumed_nutrition(nutrition_value);
             
-            // Large eating reward for NN learning
             float eating_reward = nutrition_value * 40.0f;
             fish->last_reward += eating_reward;
             
@@ -473,8 +460,8 @@ int fish_attempt_eating_fish(int fish_id) {
         float distance_sq = dx * dx + dy * dy;
         
         if (distance_sq <= eating_range_sq) {
-            // Successfully caught prey - REDUCED kill reward to emphasize approach learning
-            float predation_reward = 35.0f + (fish_type->danger_level * 15.0f);  // Reduced from 60+30
+            // Successfully caught prey
+            float predation_reward = 35.0f + (fish_type->danger_level * 15.0f);
             fish->last_reward += predation_reward;
             
             // Remove prey fish
@@ -516,7 +503,7 @@ int fish_attempt_eating_corpse(int fish_id) {
             int node_id = cell->node_indices[k];
             if (node_id < 0 || node_id >= simulation_get_node_count()) continue;
             if (!nodes[node_id].active) continue;
-            if (!nodes[node_id].is_corpse) continue;  // Only corpses
+            if (!nodes[node_id].is_corpse) continue;
             
             float dx = nodes[node_id].x - fish_x;
             float dy = nodes[node_id].y - fish_y;
@@ -529,7 +516,6 @@ int fish_attempt_eating_corpse(int fish_id) {
                 fish->stomach_contents += nutrition_value;
                 fish_internal_add_consumed_nutrition(nutrition_value);
                 
-                // Good reward for eating corpse
                 float eating_reward = nutrition_value * 35.0f;
                 fish->last_reward += eating_reward;
                 
@@ -571,17 +557,14 @@ void fish_defecate(int fish_id) {
     Node* nodes = simulation_get_nodes();
     Node* fish_node = &nodes[fish->node_id];
     
-    // Complete stomach emptying
     float full_stomach_contents = fish->stomach_contents;
     
-    // ADD nutrition back to environment layer
+    // Add nutrition back to environment layer
     nutrition_add_at_position(fish_node->x, fish_node->y, full_stomach_contents, 
                               STANDARD_DEPLETION_RANGE);
     
-    // ADD to environmental nutrition balance (nutrition returned to ground)
     plants_add_environmental_nutrition(full_stomach_contents);
     
-    // Empty stomach completely
     fish->stomach_contents = 0.0f;
     fish_internal_add_defecated_nutrition(full_stomach_contents);
     
@@ -602,7 +585,7 @@ void fish_defecate(int fish_id) {
         if (plant_type_count > 0) {
             int random_plant_type = rand() % plant_type_count;
             
-            // Enhanced seed dispersal - away from fish
+            // Enhanced seed dispersal
             float dispersal_angle = fish->heading + M_PI + ((float)rand() / RAND_MAX - 0.5f) * 1.5f;
             float dispersal_distance = 60.0f + ((float)rand() / RAND_MAX) * 40.0f;
             
@@ -612,7 +595,6 @@ void fish_defecate(int fish_id) {
             if (seed_x >= WORLD_LEFT && seed_x <= WORLD_RIGHT &&
                 seed_y >= WORLD_TOP && seed_y <= WORLD_BOTTOM) {
                 
-                // Use new immune seed creation function
                 int new_node = simulation_add_seed_node(seed_x, seed_y, random_plant_type);
                 if (new_node >= 0) {
                     fish->last_reward += 0.05f;
@@ -648,17 +630,14 @@ void fish_reproduce(int fish_id) {
     int offspring_id = fish_add(spawn_x, spawn_y, parent_fish->fish_type);
     
     if (offspring_id >= 0) {
-        // Huge reproduction reward
         parent_fish->last_reward += 150.0f;
-        
-        // Set flag for Python to know about inheritance
         g_reproduction_notification_pending = 1;
     }
     
     g_parent_fish_id = -1;
 }
 
-// Predator reproduction (separate system, based on kills)
+// Predator reproduction (reduced to 2 kills)
 void fish_predator_reproduce(int fish_id) {
     Fish* predator = fish_get_by_id(fish_id);
     if (!predator) return;
@@ -666,15 +645,14 @@ void fish_predator_reproduce(int fish_id) {
     FishType* fish_type = fish_get_type(predator->fish_type);
     if (!fish_type || !fish_type->is_predator) return;
     
-    // Track kills using a static counter
     static int kill_counts[MAX_FISH] = {0};
     
-    // Check if predator just made a kill (eating cooldown was just set)
+    // Check if predator just made a kill
     if (predator->eating_cooldown == fish_type->eating_cooldown_frames) {
-        // Just made a kill
         kill_counts[fish_id]++;
         
-        if (kill_counts[fish_id] >= 3) {
+        // Reproduce after only 2 kills
+        if (kill_counts[fish_id] >= 2) {
             kill_counts[fish_id] = 0;
             
             Node* nodes = simulation_get_nodes();
@@ -726,7 +704,6 @@ int fish_attempt_eating(int fish_id) {
     if (!fish_type) return 0;
     
     if (fish_type->is_predator) {
-        // Try fish first, then corpses
         int ate_fish = fish_attempt_eating_fish(fish_id);
         if (ate_fish) return 1;
         

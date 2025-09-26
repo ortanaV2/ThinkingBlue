@@ -22,7 +22,6 @@ static int find_nearest_plant_in_fov(int fish_id, float* plant_vector_x, float* 
     
     FishType* fish_type = fish_get_type(fish->fish_type);
     if (!fish_type || fish_type->is_predator) {
-        // Predators don't look for plants
         *plant_vector_x = 0.0f;
         *plant_vector_y = 0.0f;
         *plant_distance = 1.0f;
@@ -44,12 +43,12 @@ static int find_nearest_plant_in_fov(int fish_id, float* plant_vector_x, float* 
     float best_plant_x = 0.0f;
     float best_plant_y = 0.0f;
     
-    float search_radius = 1200.0f;  // INCREASED from 500.0f
+    float search_radius = 1200.0f;
     int node_count = simulation_get_node_count();
     
     for (int i = 0; i < node_count; i++) {
         if (!nodes[i].active) continue;
-        if (nodes[i].plant_type < 0) continue;  // Skip fish nodes and corpses
+        if (nodes[i].plant_type < 0) continue;
         if (nodes[i].is_corpse) continue;
         
         // Skip seeds with immunity
@@ -104,7 +103,7 @@ static int find_nearest_plant_in_fov(int fish_id, float* plant_vector_x, float* 
     }
 }
 
-// Find nearest prey fish within FOV for predators (uses same inputs as plant system)
+// Find nearest prey fish within FOV for predators
 static int find_nearest_prey_fish_in_fov(int fish_id, float* prey_vector_x, float* prey_vector_y, float* prey_distance) {
     Fish* fish = fish_get_by_id(fish_id);
     if (!fish) {
@@ -116,7 +115,6 @@ static int find_nearest_prey_fish_in_fov(int fish_id, float* prey_vector_x, floa
     
     FishType* fish_type = fish_get_type(fish->fish_type);
     if (!fish_type || !fish_type->is_predator) {
-        // Herbivores don't look for prey fish
         *prey_vector_x = 0.0f;
         *prey_vector_y = 0.0f;
         *prey_distance = 1.0f;
@@ -141,7 +139,7 @@ static int find_nearest_prey_fish_in_fov(int fish_id, float* prey_vector_x, floa
     float best_prey_y = 0.0f;
     
     float detection_range = fish_type->fish_detection_range;
-    if (detection_range <= 0.0f) detection_range = 1000.0f;  // INCREASED from 600.0f
+    if (detection_range <= 0.0f) detection_range = 1000.0f;
     
     // Check living fish for prey
     for (int i = 0; i < fish_count; i++) {
@@ -235,7 +233,7 @@ static int find_nearest_prey_fish_in_fov(int fish_id, float* prey_vector_x, floa
     }
 }
 
-// Find nearest foreign fish within FOV for threat detection (herbivores)
+// Find nearest foreign fish within FOV for threat detection
 static int find_nearest_foreign_fish_in_fov(int fish_id, float* fish_vector_x, float* fish_vector_y, float* danger_level) {
     Fish* fish = fish_get_by_id(fish_id);
     if (!fish) {
@@ -272,7 +270,7 @@ static int find_nearest_foreign_fish_in_fov(int fish_id, float* fish_vector_x, f
     float best_danger_level = 0.0f;
     
     float detection_range = fish_type->fish_detection_range;
-    if (detection_range <= 0.0f) detection_range = 800.0f;  // INCREASED from 300.0f
+    if (detection_range <= 0.0f) detection_range = 800.0f;
     
     // Check living fish
     for (int i = 0; i < fish_count; i++) {
@@ -359,12 +357,12 @@ void fish_update_rl_inputs(int fish_id) {
     fish->rl_inputs[2] = oxygen_level;
     
     if (fish_type->is_predator) {
-        // PREDATOR: Use inputs 0,1,3 for prey targeting
+        // Predator: Use inputs 0,1,3 for prey targeting
         float prey_vector_x, prey_vector_y, prey_distance;
         find_nearest_prey_fish_in_fov(fish_id, &prey_vector_x, &prey_vector_y, &prey_distance);
-        fish->rl_inputs[0] = prey_vector_x;   // Prey direction X
-        fish->rl_inputs[1] = prey_vector_y;   // Prey direction Y  
-        fish->rl_inputs[3] = prey_distance;   // Prey distance (normalized)
+        fish->rl_inputs[0] = prey_vector_x;
+        fish->rl_inputs[1] = prey_vector_y;
+        fish->rl_inputs[3] = prey_distance;
         
         // Inputs 4,5,6: Threat detection (stronger predators)
         float threat_vector_x, threat_vector_y, danger_level;
@@ -374,7 +372,7 @@ void fish_update_rl_inputs(int fish_id) {
         fish->rl_inputs[6] = danger_level;
         
     } else {
-        // HERBIVORE: Use inputs 0,1,3 for plant targeting
+        // Herbivore: Use inputs 0,1,3 for plant targeting
         float plant_vector_x, plant_vector_y, plant_distance;
         find_nearest_plant_in_fov(fish_id, &plant_vector_x, &plant_vector_y, &plant_distance);
         fish->rl_inputs[0] = plant_vector_x;
@@ -458,7 +456,7 @@ float fish_get_distance_to_nearest_foreign_fish(int fish_id) {
     float fov_rad = (fish_type->fov_angle * M_PI) / 180.0f;
     float half_fov = fov_rad * 0.5f;
     float detection_range = fish_type->fish_detection_range;
-    if (detection_range <= 0.0f) detection_range = 500.0f;  // INCREASED from 300.0f
+    if (detection_range <= 0.0f) detection_range = 500.0f;
     
     // Check living fish (FOV enforced)
     for (int i = 0; i < fish_count; i++) {

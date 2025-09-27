@@ -3,7 +3,7 @@ CC = gcc
 CFLAGS = -Wall -Wextra -std=c99 -O2
 LIBS = -lmingw32 -lSDL2main -lSDL2 -lm
 
-# Python integration for MSYS2/MinGW64 - WORKING VERSION
+# Python integration for MSYS2/MinGW64
 PYTHON_VERSION = 3.12
 PYTHON_INCLUDE = -I/mingw64/include/python$(PYTHON_VERSION)
 PYTHON_LIBS = -L/mingw64/lib -lpython$(PYTHON_VERSION)
@@ -23,13 +23,13 @@ OBJECTS = $(SOURCES:$(SRCDIR)/%.c=$(OBJDIR)/%.o)
 # Include path
 INCLUDES = -I$(INCDIR) $(PYTHON_INCLUDE)
 
-# Updated libs with Python
+# Complete library list
 ALL_LIBS = $(LIBS) $(PYTHON_LIBS)
 
 # Default target
 all: check-python $(TARGET)
 
-# Simplified Python check that works
+# Python environment check
 check-python:
 	@echo "Checking Python installation..."
 	@python --version
@@ -38,7 +38,7 @@ check-python:
 	@echo "Checking Python headers..."
 	@test -f /mingw64/include/python$(PYTHON_VERSION)/Python.h && echo "✓ Python headers found" || echo "⚠ Python headers missing"
 
-# Create object directory if it doesn't exist
+# Create object directory
 $(OBJDIR):
 	@mkdir -p $(OBJDIR)
 
@@ -65,13 +65,11 @@ rebuild: clean all
 debug: CFLAGS += -g -DDEBUG
 debug: $(TARGET)
 
-# Install Python development headers (correct package name)
+# Install Python development headers
 install-python-headers:
 	@echo "Installing Python development headers..."
 	@if ! test -f /mingw64/include/python$(PYTHON_VERSION)/Python.h; then \
-		echo "Python headers not found, checking available packages..."; \
-		pacman -Ss python | grep devel || echo "No python-devel package found"; \
-		echo "Trying alternative installation..."; \
+		echo "Python headers not found, installing..."; \
 		pacman -S --needed mingw-w64-x86_64-python; \
 	else \
 		echo "✓ Python headers already installed"; \
@@ -90,19 +88,19 @@ build-no-check: $(TARGET)
 
 # Run the program
 run: $(TARGET)
-	@echo "Starting $(TARGET) with temperature control..."
+	@echo "Starting marine ecosystem simulation..."
 	./$(TARGET)
 
-# Test ecosystem stats with temperature control
+# Test ecosystem statistics monitor
 test-stats:
-	@echo "Testing ecosystem statistics monitor with temperature control..."
+	@echo "Testing ecosystem statistics monitor..."
 	@if [ -f ecosystem_stats.py ]; then \
 		python ecosystem_stats.py; \
 	else \
 		echo "Error: ecosystem_stats.py not found"; \
 	fi
 
-# Check Python dependencies
+# Check Python dependencies for statistics
 check-stats-deps:
 	@echo "Checking ecosystem statistics dependencies..."
 	@python -c "import tkinter; print('✓ tkinter available')" || echo "✗ tkinter missing"
@@ -115,27 +113,33 @@ check-stats-deps:
 
 # Show help
 help:
-	@echo "Available targets:"
+	@echo "Marine Ecosystem Simulation - Build Targets:"
+	@echo ""
+	@echo "Build Targets:"
 	@echo "  all              - Build with Python check (default)"
 	@echo "  build-no-check   - Build without Python check"
 	@echo "  clean            - Remove build files"
 	@echo "  rebuild          - Clean and build"
 	@echo "  debug            - Build with debug symbols"
+	@echo ""
+	@echo "Runtime Targets:"
 	@echo "  run              - Build and run the program"
 	@echo "  test-stats       - Test ecosystem statistics monitor"
-	@echo "  check-stats-deps - Check statistics dependencies"
+	@echo ""
+	@echo "Setup Targets:"
 	@echo "  install-deps     - Install dependencies"
 	@echo "  install-python-headers - Install Python development files"
+	@echo "  check-stats-deps - Check statistics dependencies"
 	@echo "  help             - Show this help"
 	@echo ""
-	@echo "Temperature Control Features:"
-	@echo "  - Press 'TAB' in simulation to open statistics window with temperature slider"
-	@echo "  - Adjust temperature from 0.0°C to 3.0°C (0.1°C precision)"
-	@echo "  - Coral bleaching occurs at temperatures > 0°C"
-	@echo "  - Higher temperatures increase bleaching probability"
-	@echo "  - Bleached corals appear white/gray and produce no oxygen"
-	@echo "  - Temperature affects entire coral colonies (nodes + chains)"
-	@echo "  - Live monitoring shows bleached coral count in real-time"
-	@echo "  - Temperature data is plotted alongside other ecosystem metrics"
+	@echo "Simulation Features:"
+	@echo "  • Press 'TAB' in simulation to open statistics window"
+	@echo "  • Temperature control: 0.0°C to 3.0°C (0.1°C precision)"
+	@echo "  • Coral bleaching occurs at temperatures > 0°C"
+	@echo "  • Higher temperatures increase bleaching probability"
+	@echo "  • Bleached corals appear white/gray and produce no oxygen"
+	@echo "  • Temperature affects entire coral colonies (nodes + chains)"
+	@echo "  • Live monitoring shows ecosystem metrics in real-time"
+	@echo "  • Neural network integration for AI fish behavior"
 
 .PHONY: all build-no-check clean rebuild debug install-deps run test-stats check-stats-deps help check-python install-python-headers

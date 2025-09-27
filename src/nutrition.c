@@ -1,4 +1,4 @@
-// File: src/nutrition.c - Enhanced with balanced color distribution
+// nutrition.c - Perlin noise-based nutrition layer with balanced color distribution
 #include <stdio.h>
 #include <stdlib.h>
 #include <math.h>
@@ -11,10 +11,11 @@
 #include "nutrition.h"
 #include "camera.h"
 
-#define NUTRITION_SMOOTHNESS 4.0f  // Reduced smoothing to preserve fragments
-#define BLUR_RADIUS 1             // Smaller blur radius for fine details  
-#define BLUR_STRENGTH 0.3f        // Much lighter blur to keep fragmentation
+#define NUTRITION_SMOOTHNESS 4.0f
+#define BLUR_RADIUS 1
+#define BLUR_STRENGTH 0.3f
 
+// Global nutrition grid state
 static float* g_nutrition_grid = NULL;
 static float* g_original_nutrition = NULL;
 static int g_grid_width = 0;
@@ -22,10 +23,11 @@ static int g_grid_height = 0;
 static int g_visible = 0;
 static SDL_Renderer* g_renderer = NULL;
 
+// Nutrition balance tracking
 static float g_total_nutrition_added = 0.0f;
 static float g_total_nutrition_depleted = 0.0f;
 
-// Enhanced Perlin noise permutation table
+// Perlin noise implementation for natural terrain generation
 static int p[512];
 static int permutation[256] = {
     151,160,137,91,90,15,131,13,201,95,96,53,194,233,7,225,140,36,103,30,69,142,
@@ -104,7 +106,7 @@ static float octave_perlin(float x, float y, int octaves, float persistence, flo
     return value / max_value;
 }
 
-// Balanced noise generation with fine details and even distribution
+// Generate natural-looking nutrition terrain with multiple noise layers
 static void generate_perlin_terrain(void) {
     unsigned int seed = (unsigned int)time(NULL);
     seed ^= (unsigned int)clock();
@@ -112,7 +114,7 @@ static void generate_perlin_terrain(void) {
     seed += (unsigned int)((uintptr_t)&seed);
     srand(seed);
     
-    // Shuffle permutation table for unique terrain
+    // Randomize permutation table for unique terrain each run
     for (int i = 0; i < 256; i++) {
         int j = rand() % 256;
         int temp = permutation[i];
@@ -122,7 +124,7 @@ static void generate_perlin_terrain(void) {
     
     init_perlin();
     
-    // Many independent offsets for each layer
+    // Multiple offset layers for varied terrain
     float offset_x[8], offset_y[8];
     for (int i = 0; i < 8; i++) {
         offset_x[i] = ((float)rand() / RAND_MAX) * 3000.0f;
@@ -133,46 +135,45 @@ static void generate_perlin_terrain(void) {
         for (int x = 0; x < g_grid_width; x++) {
             float value = 0.0f;
             
-            // Base layer: Medium frequency for overall structure
+            // Base layer: overall structure
             float px1 = x + offset_x[0];
             float py1 = y + offset_y[0];
             value += octave_perlin(px1, py1, 4, 0.5f, 0.01f) * 0.7f;
             
-            // Detail layer 1: Higher frequency patches
+            // Detail layer 1: medium frequency patches
             float px2 = x + offset_x[1];
             float py2 = y + offset_y[1];
             value += octave_perlin(px2, py2, 3, 0.6f, 0.03f) * 0.8f;
             
-            // Detail layer 2: Fine granular details
+            // Detail layer 2: fine granular details
             float px3 = x + offset_x[2];
             float py3 = y + offset_y[2];
             value += octave_perlin(px3, py3, 4, 0.4f, 0.08f) * 0.6f;
             
-            // Detail layer 3: Micro features
+            // Detail layer 3: micro features
             float px4 = x + offset_x[3];
             float py4 = y + offset_y[3];
             value += octave_perlin(px4, py4, 3, 0.5f, 0.05f) * 0.75f;
             
-            // Cross-pattern layer for more variation
+            // Cross-pattern layer for variation
             float px5 = x + offset_x[4];
             float py5 = y + offset_y[4];
             float cross_noise = octave_perlin(px5, py5, 2, 0.7f, 0.1f);
             value += cross_noise * 0.1f;
             
-            // Two opposing noise patterns for balance
+            // Balanced opposing patterns
             float px6 = x + offset_x[5];
             float py6 = y + offset_y[5];
             float pattern1 = octave_perlin(px6, py6, 3, 0.5f, 0.04f);
             
-            float px7 = x + offset_x[6] + 1000.0f;  // Different offset
+            float px7 = x + offset_x[6] + 1000.0f;
             float py7 = y + offset_y[6] + 1000.0f;
             float pattern2 = octave_perlin(px7, py7, 3, 0.5f, 0.04f);
             
-            // Combine patterns to create more balanced distribution
             float balanced_pattern = (pattern1 - pattern2) * 0.5f;
             value += balanced_pattern * 0.2f;
             
-            // Very fine noise for texture
+            // Fine texture noise
             float px8 = x + offset_x[7];
             float py8 = y + offset_y[7];
             value += octave_perlin(px8, py8, 6, 0.3f, 0.25f) * 0.08f;
@@ -184,7 +185,7 @@ static void generate_perlin_terrain(void) {
             float random_factor = ((float)rand() / RAND_MAX - 0.5f) * 0.08f;
             value += random_factor;
             
-            // Apply sine wave modulation for more organic feel
+            // Organic wave modulation
             float wave_x = sin(x * 0.02f + offset_x[0] * 0.01f) * 0.03f;
             float wave_y = cos(y * 0.015f + offset_y[0] * 0.01f) * 0.03f;
             value += wave_x + wave_y;
@@ -197,9 +198,8 @@ static void generate_perlin_terrain(void) {
         }
     }
     
-    // Balanced post-processing to maintain even distribution
+    // Post-processing for balanced distribution
     float min_val = 1.0f, max_val = 0.0f;
-    float sum = 0.0f;
     int count = g_grid_width * g_grid_height;
     
     // Calculate statistics
@@ -207,7 +207,6 @@ static void generate_perlin_terrain(void) {
         float val = g_nutrition_grid[i];
         if (val < min_val) min_val = val;
         if (val > max_val) max_val = val;
-        sum += val;
     }
     
     float range = max_val - min_val;
@@ -217,7 +216,7 @@ static void generate_perlin_terrain(void) {
         for (int i = 0; i < count; i++) {
             float normalized = (g_nutrition_grid[i] - min_val) / range;
             
-            // S-curve function for more balanced hot/cold distribution
+            // S-curve for more balanced hot/cold distribution
             float s_curved = 0.5f + 0.5f * tanh((normalized - 0.5f) * 3.0f);
             
             // Blend original with s-curve
@@ -226,7 +225,7 @@ static void generate_perlin_terrain(void) {
     }
 }
 
-// Fine-tuned smoothing for detail preservation
+// Apply smoothing while preserving fine details
 static void apply_smoothing(void) {
     float* temp_grid = malloc(g_grid_width * g_grid_height * sizeof(float));
     if (!temp_grid) return;
@@ -236,7 +235,7 @@ static void apply_smoothing(void) {
             float sum = 0.0f;
             float weight_sum = 0.0f;
             
-            // Very light smoothing to preserve fine details
+            // Light smoothing to preserve detail
             for (int dy = -1; dy <= 1; dy++) {
                 for (int dx = -1; dx <= 1; dx++) {
                     int nx = x + dx;
@@ -256,7 +255,7 @@ static void apply_smoothing(void) {
         }
     }
     
-    // Apply minimal smoothing to maintain detail
+    // Minimal smoothing to maintain detail
     for (int i = 0; i < g_grid_width * g_grid_height; i++) {
         g_nutrition_grid[i] = g_nutrition_grid[i] * 0.7f + temp_grid[i] * 0.3f;
     }
@@ -264,14 +263,13 @@ static void apply_smoothing(void) {
     free(temp_grid);
 }
 
-// Additional blur filter for smoothing the mask
+// Additional blur filter for smooth visual transitions
 static void apply_blur_filter(void) {
     if (BLUR_STRENGTH <= 0.0f) return;
     
     float* temp_grid = malloc(g_grid_width * g_grid_height * sizeof(float));
     if (!temp_grid) return;
     
-    // Multi-pass blur for smoother results
     int blur_passes = 2;
     float* source_grid = g_nutrition_grid;
     float* target_grid = temp_grid;
@@ -290,7 +288,6 @@ static void apply_blur_filter(void) {
                         
                         if (nx >= 0 && nx < g_grid_width && ny >= 0 && ny < g_grid_height) {
                             float distance = sqrt(dx * dx + dy * dy);
-                            // Gaussian weight function
                             float weight = exp(-distance * distance / (2.0f * BLUR_RADIUS * BLUR_RADIUS));
                             
                             sum += source_grid[ny * g_grid_width + nx] * weight;
@@ -332,11 +329,12 @@ int nutrition_init(void) {
         return 0;
     }
     
+    // Generate natural terrain
     generate_perlin_terrain();
     apply_smoothing();
-    apply_blur_filter();  // Additional blur pass for smoother mask
+    apply_blur_filter();
     
-    // Store original values
+    // Store original values for regeneration
     for (int i = 0; i < g_grid_width * g_grid_height; i++) {
         g_original_nutrition[i] = g_nutrition_grid[i];
     }
@@ -378,6 +376,7 @@ int nutrition_is_visible(void) {
     return g_visible;
 }
 
+// Convert world coordinates to grid coordinates
 static void world_to_nutrition_grid(float world_x, float world_y, int* grid_x, int* grid_y) {
     *grid_x = (int)floor((world_x - WORLD_LEFT) / LAYER_GRID_SIZE);
     *grid_y = (int)floor((world_y - WORLD_TOP) / LAYER_GRID_SIZE);
@@ -394,6 +393,7 @@ float nutrition_get_value_at(float world_x, float world_y) {
     return g_nutrition_grid[grid_y * g_grid_width + grid_x];
 }
 
+// Deplete nutrition in circular area (when plants grow)
 void nutrition_deplete_at_position(float world_x, float world_y, float depletion_amount, float radius) {
     if (!g_nutrition_grid) return;
     
@@ -437,6 +437,7 @@ void nutrition_deplete_at_position(float world_x, float world_y, float depletion
     g_total_nutrition_depleted += total_depleted;
 }
 
+// Add nutrition back to area (when fish defecate)
 void nutrition_add_at_position(float world_x, float world_y, float addition_amount, float radius) {
     if (!g_nutrition_grid) return;
     
@@ -483,6 +484,7 @@ void nutrition_add_at_position(float world_x, float world_y, float addition_amou
     g_total_nutrition_added += total_added;
 }
 
+// Slowly regenerate nutrition toward original values
 void nutrition_regenerate(void) {
     if (!g_nutrition_grid || !g_original_nutrition) return;
     
@@ -502,59 +504,52 @@ void nutrition_regenerate(void) {
     }
 }
 
-// BALANCED COLOR DISTRIBUTION: Equally spaced color transitions
+// Convert nutrition value to color with balanced distribution
 static void value_to_nutrition_color(float value, int* r, int* g, int* b) {
     // Clamp value to valid range
     if (value < 0.0f) value = 0.0f;
     if (value > 2.0f) value = 2.0f;
     
-    // BALANCED: 6 equally spaced color zones from 0.0 to 2.0
-    // Zone 0: 0.0 - 0.33 (Deep Blue to Cyan)
-    // Zone 1: 0.33 - 0.67 (Cyan to Green) 
-    // Zone 2: 0.67 - 1.0 (Green to Yellow)
-    // Zone 3: 1.0 - 1.33 (Yellow to Orange)
-    // Zone 4: 1.33 - 1.67 (Orange to Red)
-    // Zone 5: 1.67 - 2.0 (Red to Magenta)
-    
-    const float zone_size = 2.0f / 6.0f;  // 0.333... per zone
+    // 6 equally spaced color zones from 0.0 to 2.0
+    const float zone_size = 2.0f / 6.0f;
     int zone = (int)(value / zone_size);
-    if (zone >= 6) zone = 5;  // Cap at last zone
+    if (zone >= 6) zone = 5;
     
     float zone_progress = (value - zone * zone_size) / zone_size;
     if (zone_progress > 1.0f) zone_progress = 1.0f;
     
     switch (zone) {
-        case 0: // Deep Blue (0,0,255) to Cyan (0,255,255)
+        case 0: // Deep Blue to Cyan
             *r = 0;
             *g = (int)(255 * zone_progress);
             *b = 255;
             break;
             
-        case 1: // Cyan (0,255,255) to Green (0,255,0)
+        case 1: // Cyan to Green
             *r = 0;
             *g = 255;
             *b = (int)(255 * (1.0f - zone_progress));
             break;
             
-        case 2: // Green (0,255,0) to Yellow (255,255,0)
+        case 2: // Green to Yellow
             *r = (int)(255 * zone_progress);
             *g = 255;
             *b = 0;
             break;
             
-        case 3: // Yellow (255,255,0) to Orange (255,128,0)
+        case 3: // Yellow to Orange
             *r = 255;
             *g = (int)(255 - 127 * zone_progress);
             *b = 0;
             break;
             
-        case 4: // Orange (255,128,0) to Red (255,0,0)
+        case 4: // Orange to Red
             *r = 255;
             *g = (int)(128 * (1.0f - zone_progress));
             *b = 0;
             break;
             
-        case 5: // Red (255,0,0) to Magenta (255,0,255)
+        case 5: // Red to Magenta
             *r = 255;
             *g = 0;
             *b = (int)(255 * zone_progress);
@@ -574,6 +569,7 @@ void nutrition_render(void) {
     float world_left, world_top, world_right, world_bottom;
     camera_get_viewport_bounds(&world_left, &world_top, &world_right, &world_bottom);
     
+    // Calculate visible grid range for performance
     int start_x = (int)floor((world_left - WORLD_LEFT) / LAYER_GRID_SIZE) - 1;
     int end_x = (int)ceil((world_right - WORLD_LEFT) / LAYER_GRID_SIZE) + 1;
     int start_y = (int)floor((world_top - WORLD_TOP) / LAYER_GRID_SIZE) - 1;
@@ -584,6 +580,7 @@ void nutrition_render(void) {
     if (start_y < 0) start_y = 0;
     if (end_y >= g_grid_height) end_y = g_grid_height - 1;
     
+    // Render visible nutrition cells
     for (int gy = start_y; gy <= end_y; gy++) {
         for (int gx = start_x; gx <= end_x; gx++) {
             float nutrition_value = g_nutrition_grid[gy * g_grid_width + gx];
@@ -617,6 +614,7 @@ void nutrition_render(void) {
     }
 }
 
+// Balance tracking functions
 float nutrition_get_total_added(void) {
     return g_total_nutrition_added;
 }

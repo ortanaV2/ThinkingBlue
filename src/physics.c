@@ -12,6 +12,7 @@ static void apply_repulsion_forces(void) {
     Node* nodes = simulation_get_nodes();
     int node_count = simulation_get_node_count();
     
+    // Process repulsion forces using spatial grid for efficiency
     for (int gx = 0; gx < (int)ceil(WORLD_WIDTH / GRID_SIZE); gx++) {
         for (int gy = 0; gy < (int)ceil(WORLD_HEIGHT / GRID_SIZE); gy++) {
             GridCell* cells[9];
@@ -45,18 +46,14 @@ static void apply_repulsion_forces(void) {
                             
                             // Check if nodes are plants or fish
                             if (nodes[i].plant_type >= 0) {
-                                // Plant node
                                 PlantType* pt_i = plants_get_type(nodes[i].plant_type);
                                 if (pt_i) mobility_i = pt_i->mobility_factor;
                             }
-                            // Fish nodes use default mobility (1.0f)
                             
                             if (nodes[j].plant_type >= 0) {
-                                // Plant node
                                 PlantType* pt_j = plants_get_type(nodes[j].plant_type);
                                 if (pt_j) mobility_j = pt_j->mobility_factor;
                             }
-                            // Fish nodes use default mobility (1.0f)
                             
                             nodes[i].vx += fx * mobility_i;
                             nodes[i].vy += fy * mobility_i;
@@ -91,7 +88,6 @@ static void apply_repulsion_forces(void) {
                             float mobility_i = 1.0f;
                             float mobility_j = 1.0f;
                             
-                            // Check if nodes are plants or fish
                             if (nodes[i].plant_type >= 0) {
                                 PlantType* pt_i = plants_get_type(nodes[i].plant_type);
                                 if (pt_i) mobility_i = pt_i->mobility_factor;
@@ -165,7 +161,7 @@ static void apply_chain_forces(void) {
     }
 }
 
-// Helper function to turn fish 180 degrees and face inward
+// Turn fish 180 degrees and face inward when hitting world bounds
 static void turn_fish_180_inward(int node_id) {
     Fish* all_fish = fish_get_all();
     int fish_count = fish_get_count();
@@ -192,7 +188,7 @@ static void turn_fish_180_inward(int node_id) {
 void physics_update(void) {
     simulation_update_frame_counter();
     
-    // Rebuild spatial grid periodically
+    // Rebuild spatial grid periodically for performance
     if (simulation_get_frame_counter() % 5 == 0) {
         grid_rebuild();
     }
@@ -224,11 +220,11 @@ void physics_update(void) {
         nodes[i].x += nodes[i].vx;
         nodes[i].y += nodes[i].vy;
         
-        // ENLARGED HITBOX: Enhanced world bounds collision for fish - larger detection zone
+        // Enhanced world bounds collision for fish - larger detection zone
         if (nodes[i].plant_type == -1) { // Fish node
             int collision_occurred = 0;
             
-            // INCREASED collision detection margin from 0 to 100 units
+            // Increased collision detection margin from 0 to 100 units
             float collision_margin = 100.0f;
             
             if (nodes[i].x < WORLD_LEFT + collision_margin) {

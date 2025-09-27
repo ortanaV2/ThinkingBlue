@@ -14,6 +14,7 @@
 #define GAS_DECAY_RATE 0.002f
 #define GAS_BASE_LEVEL 0.0f
 
+// Oxygen distribution grid system
 static float* g_oxygen_grid = NULL;
 static float* g_oxygen_target = NULL;
 static int g_grid_width = 0;
@@ -33,7 +34,7 @@ int gas_init(void) {
         return 0;
     }
     
-    // Initialize both grids with base oxygen level
+    // Initialize grids with base oxygen level
     for (int i = 0; i < g_grid_width * g_grid_height; i++) {
         g_oxygen_grid[i] = GAS_BASE_LEVEL;
         g_oxygen_target[i] = GAS_BASE_LEVEL;
@@ -104,7 +105,7 @@ void gas_update_heatmap(void) {
     // Clear target grid
     memset(g_oxygen_target, 0, g_grid_width * g_grid_height * sizeof(float));
     
-    // Calculate target oxygen levels from current plant positions
+    // Calculate target oxygen levels from plant positions
     Node* nodes = simulation_get_nodes();
     int node_count = simulation_get_node_count();
     
@@ -117,9 +118,9 @@ void gas_update_heatmap(void) {
         PlantType* pt = plants_get_type(plant_type);
         if (!pt) continue;
         
-        // Check if coral is bleached - bleached corals produce no oxygen
+        // Skip oxygen production for bleached corals
         if (temperature_is_coral_bleached(node_idx)) {
-            continue;  // Skip oxygen production for bleached corals
+            continue;
         }
         
         float node_x = nodes[node_idx].x;
@@ -146,7 +147,7 @@ void gas_update_heatmap(void) {
                     continue;
                 }
                 
-                // Calculate world position of this grid cell center
+                // Calculate world position of grid cell center
                 float grid_world_x = WORLD_LEFT + (grid_x + 0.5f) * LAYER_GRID_SIZE;
                 float grid_world_y = WORLD_TOP + (grid_y + 0.5f) * LAYER_GRID_SIZE;
                 
@@ -155,21 +156,20 @@ void gas_update_heatmap(void) {
                                     (grid_world_y - node_y) * (grid_world_y - node_y));
                 
                 if (distance <= production_radius) {
-                    // Calculate normalized distance (0.0 at center, 1.0 at edge)
                     float normalized_distance = distance / production_radius;
                     
-                    // Aggressive falloff
+                    // Aggressive falloff for oxygen production
                     float falloff;
                     
                     if (normalized_distance < 0.3f) {
-                        // Inner 30%: full strength with slight dropoff
+                        // Inner zone: full strength with slight dropoff
                         falloff = 1.0f - (normalized_distance / 0.3f) * 0.2f; // 100% to 80%
                     } else if (normalized_distance < 0.6f) {
-                        // Middle 30%: rapid dropoff
+                        // Middle zone: rapid dropoff
                         float t = (normalized_distance - 0.3f) / 0.3f;
                         falloff = 0.8f - t * t * t * 0.7f; // 80% to 10%
                     } else {
-                        // Outer 40%: very steep dropoff to near zero
+                        // Outer zone: steep dropoff to near zero
                         float t = (normalized_distance - 0.6f) / 0.4f;
                         falloff = 0.1f * (1.0f - t * t * t * t); // 10% to ~0%
                     }
@@ -265,6 +265,7 @@ void gas_render(void) {
     float world_left, world_top, world_right, world_bottom;
     camera_get_viewport_bounds(&world_left, &world_top, &world_right, &world_bottom);
     
+    // Calculate visible grid bounds for performance
     int start_x = (int)floor((world_left - WORLD_LEFT) / LAYER_GRID_SIZE) - 1;
     int end_x = (int)ceil((world_right - WORLD_LEFT) / LAYER_GRID_SIZE) + 1;
     int start_y = (int)floor((world_top - WORLD_TOP) / LAYER_GRID_SIZE) - 1;

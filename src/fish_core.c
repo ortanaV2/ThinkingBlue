@@ -1,4 +1,3 @@
-// fish_core.c - Fish system with 50% increased lifespan
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -8,17 +7,17 @@
 #include "fish.h"
 #include "simulation.h"
 
-// Global fish state
+// Global fish system state
 static Fish* g_fish = NULL;
 static FishType g_fish_types[MAX_FISH_TYPES];
 static int g_fish_type_count = 0;
 static int g_ray_rendering_enabled = 0;
 
-// Robust ID tracking
+// Efficient ID tracking
 static int g_highest_used_slot = -1;
 static int g_active_fish_count = 0;
 
-// Nutrition tracking
+// Nutrition cycle tracking
 static float g_total_nutrition_consumed = 0.0f;
 static float g_total_nutrition_defecated = 0.0f;
 
@@ -27,7 +26,7 @@ static int g_total_deaths_from_age = 0;
 static int g_total_corpses_created = 0;
 static int g_total_corpses_eaten = 0;
 
-// Parse color from hex string
+// Parse color from hex string (e.g., "FF6B35")
 static void parse_color(const char* color_str, int* r, int* g, int* b) {
     const char* hex = color_str;
     if (hex[0] == '#') hex++; 
@@ -38,7 +37,7 @@ static void parse_color(const char* color_str, int* r, int* g, int* b) {
     *b = color & 0xFF;
 }
 
-// Update cached fish count and highest slot tracker
+// Update fish tracking counters for efficient iteration
 static void update_fish_tracking(void) {
     g_active_fish_count = 0;
     g_highest_used_slot = -1;
@@ -51,7 +50,7 @@ static void update_fish_tracking(void) {
     }
 }
 
-// Validate fish ID and return fish pointer if valid
+// Validate fish ID and return fish pointer
 static Fish* get_validated_fish(int fish_id) {
     if (fish_id < 0 || fish_id >= MAX_FISH) {
         return NULL;
@@ -62,9 +61,9 @@ static Fish* get_validated_fish(int fish_id) {
     return &g_fish[fish_id];
 }
 
-// Create corpse from dead fish with preserved heading
+// Create corpse from dead fish preserving visual properties
 static int create_corpse(int fish_id, float x, float y, int fish_type, float heading) {
-    int corpse_node = simulation_add_node(x, y, -2);
+    int corpse_node = simulation_add_node(x, y, -2);  // -2 indicates corpse
     if (corpse_node < 0) {
         return -1;
     }
@@ -82,8 +81,8 @@ static int create_corpse(int fish_id, float x, float y, int fish_type, float hea
     g_total_corpses_created++;
     
     FishType* ft = fish_get_type(fish_type);
-    printf("Corpse created from fish %d (%s) at (%.0f, %.0f)\n",
-           fish_id, ft ? ft->name : "Unknown", x, y);
+    printf("Corpse created from fish %d (%s) at (%.0f, %.0f) - will decay in %d frames\n",
+           fish_id, ft ? ft->name : "Unknown", x, y, CORPSE_DECAY_TIME);
     
     return corpse_node;
 }
@@ -103,20 +102,18 @@ int fish_init(void) {
         g_fish[i].fish_type = -1;
     }
     
-    // Reset tracking variables
+    // Reset all tracking variables
     g_fish_type_count = 0;
     g_ray_rendering_enabled = 0;
     g_active_fish_count = 0;
     g_highest_used_slot = -1;
-    
-    // Reset statistics
     g_total_nutrition_consumed = 0.0f;
     g_total_nutrition_defecated = 0.0f;
     g_total_deaths_from_age = 0;
     g_total_corpses_created = 0;
     g_total_corpses_eaten = 0;
     
-    printf("Fish system initialized (max %d fish)\n", MAX_FISH);
+    printf("Fish system initialized with visual configuration (max %d fish)\n", MAX_FISH);
     return 1;
 }
 
@@ -146,7 +143,7 @@ int fish_is_ray_rendering_enabled(void) {
     return g_ray_rendering_enabled;
 }
 
-// Load fish configuration with 50% increased lifespan
+// Load fish configuration with enhanced visual parameters
 int fish_load_config(const char* filename) {
     FILE* file = fopen(filename, "r");
     if (!file) {
@@ -154,7 +151,7 @@ int fish_load_config(const char* filename) {
         return 0;
     }
     
-    printf("Loading fish config from '%s'\n", filename);
+    printf("Loading fish config with visual enhancement from '%s'\n", filename);
     
     char line[256];
     FishType* current_fish = NULL;
@@ -173,7 +170,7 @@ int fish_load_config(const char* filename) {
             continue;
         }
         
-        // Parse fish type section headers
+        // Parse fish type section headers [FishName]
         if (line[0] == '[' && line[strlen(line)-1] == ']') {
             current_fish = &g_fish_types[g_fish_type_count];
             memset(current_fish, 0, sizeof(FishType));
@@ -184,7 +181,7 @@ int fish_load_config(const char* filename) {
                 current_fish->name[name_len] = '\0';
                 current_fish->active = 1;
                 
-                // Set default values
+                // Set reasonable defaults for all parameters
                 current_fish->max_speed = 15.0f;
                 current_fish->max_force = 3.0f;
                 current_fish->mass = 1.0f;
@@ -227,7 +224,7 @@ int fish_load_config(const char* filename) {
         char* key = line;
         char* value = equals + 1;
         
-        // Trim whitespace
+        // Trim whitespace from key and value
         while (*key == ' ' || *key == '\t') key++;
         char* key_end = key + strlen(key) - 1;
         while (key_end > key && (*key_end == ' ' || *key_end == '\t')) {
@@ -279,14 +276,17 @@ int fish_load_config(const char* filename) {
         // Visual configuration parameters
         else if (strcmp(key, "node_size_factor") == 0) {
             current_fish->node_size_factor = (float)atof(value);
+            // Clamp to reasonable range
             if (current_fish->node_size_factor < 0.1f) current_fish->node_size_factor = 0.1f;
             if (current_fish->node_size_factor > 3.0f) current_fish->node_size_factor = 3.0f;
         } else if (strcmp(key, "tail_length_factor") == 0) {
             current_fish->tail_length_factor = (float)atof(value);
+            // Clamp to reasonable range
             if (current_fish->tail_length_factor < 0.1f) current_fish->tail_length_factor = 0.1f;
             if (current_fish->tail_length_factor > 3.0f) current_fish->tail_length_factor = 3.0f;
         } else if (strcmp(key, "tail_width_factor") == 0) {
             current_fish->tail_width_factor = (float)atof(value);
+            // Clamp to reasonable range
             if (current_fish->tail_width_factor < 0.1f) current_fish->tail_width_factor = 0.1f;
             if (current_fish->tail_width_factor > 3.0f) current_fish->tail_width_factor = 3.0f;
         } else if (strcmp(key, "node_color") == 0) {
@@ -296,21 +296,24 @@ int fish_load_config(const char* filename) {
     
     fclose(file);
     
-    printf("Loaded %d fish types\n", g_fish_type_count);
+    printf("Loaded %d fish types with enhanced visual configuration\n", g_fish_type_count);
     
-    // Display loaded fish types with their increased lifespans
+    // Display loaded fish types with their visual settings
     for (int i = 0; i < g_fish_type_count; i++) {
         FishType* ft = &g_fish_types[i];
         float lifespan_minutes = ft->max_age / (TARGET_FPS * 60.0f);
         printf("  %s: Max age %d frames (%.1f min), Danger %.1f, %s\n",
                ft->name, ft->max_age, lifespan_minutes, ft->danger_level, 
                ft->is_predator ? "PREDATOR" : "HERBIVORE");
+        printf("    Visual: Size %.1f, Tail L%.1f W%.1f, Color(%d,%d,%d)\n",
+               ft->node_size_factor, ft->tail_length_factor, ft->tail_width_factor,
+               ft->node_r, ft->node_g, ft->node_b);
     }
     
     return g_fish_type_count > 0;
 }
 
-// Create fish with enhanced visual properties
+// Create fish with neural network integration
 int fish_add(float x, float y, int fish_type) {
     // Validate fish type
     if (fish_type < 0 || fish_type >= g_fish_type_count) {
@@ -339,7 +342,7 @@ int fish_add(float x, float y, int fish_type) {
         return -1;
     }
     
-    // Initialize fish
+    // Initialize fish in found slot
     Fish* fish = &g_fish[fish_id];
     memset(fish, 0, sizeof(Fish));
     
@@ -348,7 +351,7 @@ int fish_add(float x, float y, int fish_type) {
     fish->node_id = node_id;
     fish->fish_type = fish_type;
     
-    // Initialize RL system
+    // Initialize neural network system
     fish->heading = ((float)rand() / RAND_MAX) * 2.0f * M_PI;
     for (int i = 0; i < RL_INPUT_SIZE; i++) {
         fish->rl_inputs[i] = 0.0f;
@@ -393,7 +396,7 @@ void fish_remove(int fish_id) {
     FishType* ft = fish_get_type(fish->fish_type);
     printf("Removing fish %d (%s)\n", fish_id, ft ? ft->name : "Unknown");
     
-    // Deactivate simulation node if it exists
+    // Deactivate simulation node
     Node* nodes = simulation_get_nodes();
     if (fish->node_id >= 0 && fish->node_id < simulation_get_node_count()) {
         nodes[fish->node_id].active = 0;
@@ -410,7 +413,7 @@ void fish_remove(int fish_id) {
     printf("Fish %d removed - Active fish remaining: %d\n", fish_id, g_active_fish_count);
 }
 
-// Check if fish should die from age with probability curve
+// Check if fish should die from age using probability curve
 int fish_should_die_from_age(int fish_id) {
     Fish* fish = get_validated_fish(fish_id);
     if (!fish) return 0;
@@ -420,7 +423,7 @@ int fish_should_die_from_age(int fish_id) {
     
     int current_frame = simulation_get_frame_counter();
     
-    // Check every 30 frames based on birth frame offset
+    // Check every 30 frames to spread computation load
     if ((current_frame - fish->birth_frame) % DEATH_CHECK_INTERVAL != 0) {
         return 0;
     }
@@ -471,7 +474,7 @@ int fish_should_die_from_age(int fish_id) {
     return 0;
 }
 
-// Accessor functions
+// Accessor functions for efficient fish system
 int fish_get_count(void) {
     return g_active_fish_count;
 }
@@ -528,7 +531,7 @@ float fish_get_nutrition_balance(void) {
     return g_total_nutrition_consumed - g_total_nutrition_defecated;
 }
 
-// Internal access functions
+// Internal access functions for other fish modules
 Fish* fish_internal_get_array(void) {
     return g_fish;
 }
@@ -545,7 +548,7 @@ void fish_internal_add_defecated_nutrition(float amount) {
     g_total_nutrition_defecated += amount;
 }
 
-// Debug function
+// Debug function for system status
 void fish_debug_print_status(void) {
     printf("\n=== FISH SYSTEM DEBUG STATUS ===\n");
     printf("Active fish count: %d\n", g_active_fish_count);

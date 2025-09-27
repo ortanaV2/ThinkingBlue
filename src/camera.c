@@ -43,8 +43,8 @@ void camera_zoom(float zoom_delta, int mouse_x, int mouse_y) {
     g_camera.zoom *= (1.0f + zoom_delta);
     
     // Apply zoom limits
-    if (g_camera.zoom < 0.1f) g_camera.zoom = 0.1f;   // Min zoom (weit heraus)
-    if (g_camera.zoom > 0.75f) g_camera.zoom = 0.75f;     // Max zoom (nah rein)
+    if (g_camera.zoom < 0.1f) g_camera.zoom = 0.1f;   // Min zoom (far out)
+    if (g_camera.zoom > 0.75f) g_camera.zoom = 0.75f; // Max zoom (close in)
     
     // Adjust camera to keep world position under mouse cursor
     float world_x_after, world_y_after;

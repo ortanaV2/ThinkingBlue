@@ -1,3 +1,4 @@
+// flow.c - Water flow field simulation with Perlin noise
 #include <stdio.h>
 #include <stdlib.h>
 #include <math.h>
@@ -10,11 +11,12 @@
 #include "flow.h"
 #include "camera.h"
 
-// Reduced flow parameters for subtler influence
-#define FLOW_ARROW_SIZE 30.0f        // Larger arrows for visibility
-#define FLOW_ARROW_SPACING 70.0f     // Good spacing
-#define FLOW_MAX_MAGNITUDE 1.5f      // REDUCED: was 3.0f, now much weaker
+// Flow visualization parameters
+#define FLOW_ARROW_SIZE 30.0f        
+#define FLOW_ARROW_SPACING 70.0f     
+#define FLOW_MAX_MAGNITUDE 1.5f      // Reduced strength for subtle influence
 
+// Flow field storage
 static float* g_flow_x = NULL;
 static float* g_flow_y = NULL;
 static int g_grid_width = 0;
@@ -22,7 +24,7 @@ static int g_grid_height = 0;
 static int g_visible = 0;
 static SDL_Renderer* g_renderer = NULL;
 
-// Perlin noise permutation table
+// Perlin noise implementation for realistic flow patterns
 static int p[512];
 static int permutation[256] = {
     151,160,137,91,90,15,131,13,201,95,96,53,194,233,7,225,140,36,103,30,69,142,
@@ -39,6 +41,7 @@ static int permutation[256] = {
     138,236,205,93,222,114,67,29,24,72,243,141,128,195,78,66,215,61,156,180
 };
 
+// Initialize Perlin noise permutation table
 static void init_perlin(void) {
     for (int i = 0; i < 256; i++) {
         p[i] = permutation[i];
@@ -46,14 +49,17 @@ static void init_perlin(void) {
     }
 }
 
+// Smooth fade function for Perlin noise
 static float fade(float t) {
     return t * t * t * (t * (t * 6 - 15) + 10);
 }
 
+// Linear interpolation
 static float lerp(float t, float a, float b) {
     return a + t * (b - a);
 }
 
+// Gradient function for Perlin noise
 static float grad(int hash, float x, float y) {
     int h = hash & 15;
     float u = h < 8 ? x : y;
@@ -61,6 +67,7 @@ static float grad(int hash, float x, float y) {
     return ((h & 1) == 0 ? u : -u) + ((h & 2) == 0 ? v : -v);
 }
 
+// 2D Perlin noise implementation
 static float perlin_noise(float x, float y) {
     int X = (int)floor(x) & 255;
     int Y = (int)floor(y) & 255;
@@ -85,6 +92,7 @@ static float perlin_noise(float x, float y) {
                         grad(p[BB], x - 1, y - 1)));
 }
 
+// Multi-octave Perlin noise for complex patterns
 static float octave_perlin(float x, float y, int octaves, float persistence, float scale) {
     float value = 0.0f;
     float amplitude = 1.0f;
@@ -101,6 +109,7 @@ static float octave_perlin(float x, float y, int octaves, float persistence, flo
     return value / max_value;
 }
 
+// Generate complex flow field using multiple Perlin noise layers
 static void generate_flow_field(void) {
     unsigned int seed = (unsigned int)time(NULL);
     seed ^= (unsigned int)clock();
@@ -108,7 +117,7 @@ static void generate_flow_field(void) {
     seed += (unsigned int)((uintptr_t)&seed);
     srand(seed);
     
-    // Shuffle permutation table for unique field
+    // Randomize permutation table for unique flow patterns
     for (int i = 0; i < 256; i++) {
         int j = rand() % 256;
         int temp = permutation[i];
@@ -129,49 +138,49 @@ static void generate_flow_field(void) {
         for (int x = 0; x < g_grid_width; x++) {
             int index = y * g_grid_width + x;
             
-            // Base flow pattern - large scale circulation (REDUCED STRENGTH)
+            // Base flow pattern - large scale circulation (reduced strength)
             float px1 = (x + offset_x[0]) * 0.008f;
             float py1 = (y + offset_y[0]) * 0.008f;
             float base_angle = octave_perlin(px1, py1, 3, 0.6f, 1.0f) * 2.0f * M_PI;
-            float base_strength = 0.1f + octave_perlin(px1 + 1000, py1 + 1000, 2, 0.5f, 1.0f) * 0.08f;  // REDUCED: was 0.4f + 0.3f
+            float base_strength = 0.1f + octave_perlin(px1 + 1000, py1 + 1000, 2, 0.5f, 1.0f) * 0.08f;
             
             float flow_x = cos(base_angle) * base_strength;
             float flow_y = sin(base_angle) * base_strength;
             
-            // Medium scale turbulence (REDUCED STRENGTH)
+            // Medium scale turbulence (reduced strength)
             float px2 = (x + offset_x[1]) * 0.02f;
             float py2 = (y + offset_y[1]) * 0.02f;
             float turb_angle = octave_perlin(px2, py2, 4, 0.5f, 1.0f) * M_PI;
-            float turb_strength = octave_perlin(px2 + 2000, py2 + 2000, 3, 0.4f, 1.0f) * 0.2f;  // REDUCED: was 0.8f
+            float turb_strength = octave_perlin(px2 + 2000, py2 + 2000, 3, 0.4f, 1.0f) * 0.2f;
             
             flow_x += cos(turb_angle) * turb_strength;
             flow_y += sin(turb_angle) * turb_strength;
             
-            // Fine scale eddies and vortices (REDUCED STRENGTH)
+            // Fine scale eddies and vortices (reduced strength)
             float px3 = (x + offset_x[2]) * 0.05f;
             float py3 = (y + offset_y[2]) * 0.05f;
             float eddy_angle = octave_perlin(px3, py3, 2, 0.7f, 1.0f) * M_PI * 0.5f;
-            float eddy_strength = octave_perlin(px3 + 3000, py3 + 3000, 2, 0.6f, 1.0f) * 0.15f;  // REDUCED: was 0.6f
+            float eddy_strength = octave_perlin(px3 + 3000, py3 + 3000, 2, 0.6f, 1.0f) * 0.15f;
             
             flow_x += cos(eddy_angle) * eddy_strength;
             flow_y += sin(eddy_angle) * eddy_strength;
             
-            // Directional current bias (REDUCED STRENGTH)
+            // Directional current bias (reduced strength)
             float px4 = (x + offset_x[3]) * 0.003f;
             float py4 = (y + offset_y[3]) * 0.003f;
             float current_bias = octave_perlin(px4, py4, 2, 0.8f, 1.0f);
             
-            // Create spiral/vortex patterns (REDUCED STRENGTH)
+            // Create spiral/vortex patterns (reduced strength)
             float center_x = g_grid_width * 0.5f;
             float center_y = g_grid_height * 0.5f;
             float dist_to_center = sqrt((x - center_x) * (x - center_x) + (y - center_y) * (y - center_y));
             float spiral_angle = atan2(y - center_y, x - center_x) + dist_to_center * 0.01f;
-            float spiral_strength = 0.08f * exp(-dist_to_center * 0.002f);  // REDUCED: was 0.3f
+            float spiral_strength = 0.08f * exp(-dist_to_center * 0.002f);
             
             flow_x += cos(spiral_angle) * spiral_strength * current_bias;
             flow_y += sin(spiral_angle) * spiral_strength * current_bias;
             
-            // Add some random vortices at specific locations (REDUCED STRENGTH)
+            // Add random vortices at specific locations (reduced strength)
             for (int v = 0; v < 3; v++) {
                 float vortex_x = offset_x[4 + (v % 2)] * 0.0003f * g_grid_width;
                 float vortex_y = offset_y[4 + (v % 2)] * 0.0003f * g_grid_height;
@@ -179,7 +188,7 @@ static void generate_flow_field(void) {
                 
                 if (vortex_dist > 0.1f) {
                     float vortex_angle = atan2(y - vortex_y, x - vortex_x) + M_PI * 0.5f;
-                    float vortex_strength = 0.4f * exp(-vortex_dist * 0.01f);  // REDUCED: was 1.5f
+                    float vortex_strength = 0.4f * exp(-vortex_dist * 0.01f);
                     
                     flow_x += cos(vortex_angle) * vortex_strength;
                     flow_y += sin(vortex_angle) * vortex_strength;
@@ -211,6 +220,7 @@ static void generate_flow_field(void) {
     printf("Generated subtle flow field (max magnitude: %.2f)\n", FLOW_MAX_MAGNITUDE);
 }
 
+// Initialize flow field system
 int flow_init(void) {
     g_grid_width = (int)ceil(WORLD_WIDTH / LAYER_GRID_SIZE);
     g_grid_height = (int)ceil(WORLD_HEIGHT / LAYER_GRID_SIZE);
@@ -232,6 +242,7 @@ int flow_init(void) {
     return 1;
 }
 
+// Clean up flow field memory
 void flow_cleanup(void) {
     if (g_flow_x) {
         free(g_flow_x);
@@ -243,24 +254,29 @@ void flow_cleanup(void) {
     }
 }
 
+// Set renderer for visualization
 void flow_set_renderer(SDL_Renderer* renderer) {
     g_renderer = renderer;
 }
 
+// Toggle flow field visibility
 void flow_toggle_visibility(void) {
     g_visible = !g_visible;
     printf("Flow field: %s\n", g_visible ? "ON" : "OFF");
 }
 
+// Check if flow field is visible
 int flow_is_visible(void) {
     return g_visible;
 }
 
+// Convert world coordinates to flow grid coordinates
 static void world_to_flow_grid(float world_x, float world_y, int* grid_x, int* grid_y) {
     *grid_x = (int)floor((world_x - WORLD_LEFT) / LAYER_GRID_SIZE);
     *grid_y = (int)floor((world_y - WORLD_TOP) / LAYER_GRID_SIZE);
 }
 
+// Get flow vector at world position
 void flow_get_vector_at(float world_x, float world_y, float* flow_x, float* flow_y) {
     int grid_x, grid_y;
     world_to_flow_grid(world_x, world_y, &grid_x, &grid_y);
@@ -276,68 +292,69 @@ void flow_get_vector_at(float world_x, float world_y, float* flow_x, float* flow
     *flow_y = g_flow_y[index];
 }
 
+// Get flow magnitude at world position
 float flow_get_magnitude_at(float world_x, float world_y) {
     float flow_x, flow_y;
     flow_get_vector_at(world_x, world_y, &flow_x, &flow_y);
     return sqrt(flow_x * flow_x + flow_y * flow_y);
 }
 
-// Simple, clean arrow drawing - like original but thicker and more visible
+// Draw flow arrow with proper thickness and visibility
 static void draw_arrow(SDL_Renderer* renderer, int start_x, int start_y, float dir_x, float dir_y, float magnitude) {
-    if (magnitude < 0.02f) return;  // ADJUSTED: lower threshold for weaker flow
+    if (magnitude < 0.02f) return;  // Skip very weak flow
     
     // Scale arrow size based on magnitude and zoom
     float zoom = camera_get_zoom();
     float arrow_size = FLOW_ARROW_SIZE * zoom * (magnitude / FLOW_MAX_MAGNITUDE);
-    if (arrow_size < 8.0f) arrow_size = 8.0f;   // REDUCED: was 10.0f
-    if (arrow_size > 40.0f) arrow_size = 40.0f; // REDUCED: was 60.0f
+    if (arrow_size < 8.0f) arrow_size = 8.0f;
+    if (arrow_size > 40.0f) arrow_size = 40.0f;
     
-    // Normalize direction
+    // Normalize direction vector
     float length = sqrt(dir_x * dir_x + dir_y * dir_y);
     if (length < 0.01f) return;
     
     dir_x /= length;
     dir_y /= length;
     
-    // Arrow end point
+    // Calculate arrow end point
     int end_x = start_x + (int)(dir_x * arrow_size);
     int end_y = start_y + (int)(dir_y * arrow_size);
     
-    // High contrast colors for visibility
+    // Color based on flow strength (high contrast for visibility)
     float norm_magnitude = magnitude / FLOW_MAX_MAGNITUDE;
     int r = (int)(norm_magnitude * 255);
-    int g = (int)((1.0f - norm_magnitude) * 150 + 100);  // Bright green-yellow range
+    int g = (int)((1.0f - norm_magnitude) * 150 + 100);
     int b = (int)((1.0f - norm_magnitude) * 255);
     
-    // Ensure high visibility
-    if (r < 80) r = 80;   // REDUCED: was 100
-    if (g < 60) g = 60;   // REDUCED: was 80
-    if (b < 80) b = 80;   // REDUCED: was 100
+    // Ensure minimum visibility
+    if (r < 80) r = 80;
+    if (g < 60) g = 60;
+    if (b < 80) b = 80;
     
     SDL_SetRenderDrawColor(renderer, r, g, b, 255);
     
-    // Draw thicker main arrow shaft (3 parallel lines)
+    // Draw thick arrow shaft (5 parallel lines for visibility)
     SDL_RenderDrawLine(renderer, start_x, start_y, end_x, end_y);
     SDL_RenderDrawLine(renderer, start_x + 1, start_y, end_x + 1, end_y);
     SDL_RenderDrawLine(renderer, start_x - 1, start_y, end_x - 1, end_y);
     SDL_RenderDrawLine(renderer, start_x, start_y + 1, end_x, end_y + 1);
     SDL_RenderDrawLine(renderer, start_x, start_y - 1, end_x, end_y - 1);
     
-    // Draw simple, clean arrowhead (like original but thicker)
-    if (arrow_size > 6.0f) {  // REDUCED: was 8.0f
+    // Draw arrowhead for larger arrows
+    if (arrow_size > 6.0f) {
         float head_size = arrow_size * 0.3f;
         
         // Perpendicular vector for arrowhead
         float perp_x = -dir_y;
         float perp_y = dir_x;
         
-        // Arrowhead points
+        // Calculate arrowhead points
         int head_x1 = end_x - (int)(dir_x * head_size + perp_x * head_size * 0.5f);
         int head_y1 = end_y - (int)(dir_y * head_size + perp_y * head_size * 0.5f);
         int head_x2 = end_x - (int)(dir_x * head_size - perp_x * head_size * 0.5f);
         int head_y2 = end_y - (int)(dir_y * head_size - perp_y * head_size * 0.5f);
         
-        // Draw arrowhead with thickness (3 parallel lines each)
+        // Draw thick arrowhead lines
         SDL_RenderDrawLine(renderer, end_x, end_y, head_x1, head_y1);
         SDL_RenderDrawLine(renderer, end_x + 1, end_y, head_x1 + 1, head_y1);
         SDL_RenderDrawLine(renderer, end_x - 1, end_y, head_x1 - 1, head_y1);
@@ -348,23 +365,26 @@ static void draw_arrow(SDL_Renderer* renderer, int start_x, int start_y, float d
     }
 }
 
+// Render flow field visualization
 void flow_render(void) {
     if (!g_visible || !g_renderer || !g_flow_x || !g_flow_y) return;
     
     float world_left, world_top, world_right, world_bottom;
     camera_get_viewport_bounds(&world_left, &world_top, &world_right, &world_bottom);
     
+    // Adaptive arrow spacing based on zoom level
     float zoom = camera_get_zoom();
     float arrow_spacing = FLOW_ARROW_SPACING / zoom;
     if (arrow_spacing < 25.0f) arrow_spacing = 25.0f;
     if (arrow_spacing > 120.0f) arrow_spacing = 120.0f;
     
-    // Calculate which arrows to draw based on viewport
+    // Calculate viewport boundaries for efficient rendering
     float start_world_x = world_left;
     float end_world_x = world_right;
     float start_world_y = world_top;
     float end_world_y = world_bottom;
     
+    // Render arrows only in visible area
     for (float world_y = start_world_y; world_y <= end_world_y; world_y += arrow_spacing) {
         for (float world_x = start_world_x; world_x <= end_world_x; world_x += arrow_spacing) {
             int grid_x, grid_y;
@@ -382,7 +402,7 @@ void flow_render(void) {
             int screen_x, screen_y;
             camera_world_to_screen(world_x, world_y, &screen_x, &screen_y);
             
-            // Only draw if on screen
+            // Only draw arrows that are on screen
             if (screen_x >= -50 && screen_x <= WINDOW_WIDTH + 50 &&
                 screen_y >= -50 && screen_y <= WINDOW_HEIGHT + 50) {
                 draw_arrow(g_renderer, screen_x, screen_y, flow_x, flow_y, magnitude);

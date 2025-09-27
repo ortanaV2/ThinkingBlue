@@ -1,10 +1,9 @@
-// types.h - Enhanced with fish visual configuration
 #ifndef TYPES_H
 #define TYPES_H
 
 #include <math.h>
 
-// Core constants
+// Core window and simulation constants
 #define WINDOW_WIDTH 1200
 #define WINDOW_HEIGHT 800
 #define MAX_NODES 10000000
@@ -12,18 +11,18 @@
 #define MAX_PLANT_TYPES 64
 #define MAX_NAME_LENGTH 64
 
-// Fish constants
+// Fish system constants
 #define MAX_FISH 50000
 #define MAX_FISH_TYPES 32
 
-// RL system for predator-prey dynamics
-#define RL_INPUT_SIZE 7     // plant_vector_x, plant_vector_y, oxygen_level, plant_distance, foreign_fish_vector_x, foreign_fish_vector_y, danger_level
+// Neural network system (7 inputs, 3 outputs)
+#define RL_INPUT_SIZE 7     // target_vector_x, target_vector_y, oxygen_level, target_distance, threat_vector_x, threat_vector_y, danger_level
 #define RL_OUTPUT_SIZE 3    // turn_direction, movement_strength, eat_command
 
-// Layer resolution (shared by nutrition and gas layers)
+// Environmental layer resolution
 #define LAYER_GRID_SIZE 30.0f
 
-// Physics parameters
+// Physics simulation parameters
 #define OPTIMAL_DISTANCE 50.0f
 #define REPULSION_FORCE 0.05f
 #define CHAIN_FORCE 0.05f
@@ -33,7 +32,7 @@
 #define NODE_RADIUS 5
 #define CHAIN_THICKNESS 6
 
-// Camera parameters
+// Camera control
 #define CAMERA_SPEED 5.0f
 #define ZOOM_SPEED 0.1f
 
@@ -43,25 +42,23 @@
 #define WORLD_CENTER_X 0.0f
 #define WORLD_CENTER_Y 0.0f
 
-// Population configuration
+// Initial population settings
 #define INITIAL_PLANT_COUNT 300
 #define INITIAL_FISH_COUNT 30
 
-// Fish aging constants
+// Aging and lifecycle
 #define TARGET_FPS 30
-#define DEATH_CHECK_INTERVAL 30  
+#define DEATH_CHECK_INTERVAL 30
+#define CORPSE_DECAY_TIME 1800
 
-// Corpse system constants
-#define CORPSE_DECAY_TIME 1800  
+// Seed immunity system (prevents immediate consumption)
+#define SEED_IMMUNITY_TIME 180
 
-// Seed immunity system
-#define SEED_IMMUNITY_TIME 180  // 6 seconds at 30 FPS
+// Nutrition system (standardized for all plants)
+#define STANDARD_DEPLETION_RANGE 120.0f
+#define NUTRITION_RANGE_GRADIENT 0.8f
 
-// Simplified nutrition system constants
-#define STANDARD_DEPLETION_RANGE 120.0f  // All plants use same range
-#define NUTRITION_RANGE_GRADIENT 0.8f    // All plants use same gradient
-
-// Derived world bounds
+// Derived world boundaries
 #define WORLD_LEFT (WORLD_CENTER_X - WORLD_WIDTH / 2.0f)
 #define WORLD_RIGHT (WORLD_CENTER_X + WORLD_WIDTH / 2.0f)
 #define WORLD_TOP (WORLD_CENTER_Y - WORLD_HEIGHT / 2.0f)
@@ -78,6 +75,8 @@
 // Plant type configuration
 typedef struct {
     char name[MAX_NAME_LENGTH];
+    
+    // Growth parameters
     float growth_probability;
     int growth_attempts;
     int max_branches;
@@ -85,10 +84,8 @@ typedef struct {
     float mobility_factor;
     int age_mature;
     
-    // Simplified nutrition system - only strength varies
+    // Environmental impact
     float nutrition_depletion_strength;
-    
-    // Oxygen production settings
     float oxygen_production_factor;
     float oxygen_production_radius;
     
@@ -104,54 +101,54 @@ typedef struct {
     int active;
 } PlantType;
 
-// Enhanced fish type configuration with visual settings
+// Fish type configuration with enhanced visuals
 typedef struct {
     char name[MAX_NAME_LENGTH];
+    
+    // Physical properties
     float max_speed;
     float max_force;
     float mass;
     float size_radius;
-    
-    // Eating parameters
     float eating_range;
     
-    // RL-specific parameters
+    // Neural network parameters
     float fov_angle;
     float max_turn_angle;
     float oxygen_reward_factor;
     float proximity_reward_factor;
     float eat_punishment;
     
-    // Flow field interaction
+    // Environmental interaction
     float flow_sensitivity;
     
-    // Predator system parameters
+    // Predator-prey system
     float danger_level;
     int is_predator;
     int eating_cooldown_frames;
     float fish_detection_range;
     
-    // Aging system
+    // Lifecycle
     int max_age;
     
-    // Enhanced visual configuration
-    float node_size_factor;      // Size multiplier for fish body
-    float tail_length_factor;    // Length multiplier for fish tail
-    float tail_width_factor;     // Width multiplier for fish tail
+    // Visual configuration
+    float node_size_factor;
+    float tail_length_factor;
+    float tail_width_factor;
     
-    // Colors (RGB 0-255)
+    // Color (RGB 0-255)
     int node_r, node_g, node_b;
     
     int active;
 } FishType;
 
-// Node structure with stored nutrition value
+// Simulation node (plants, fish, corpses)
 typedef struct {
-    float x, y;
-    float vx, vy;
+    float x, y;         // Position
+    float vx, vy;       // Velocity
     int active;
     int can_grow;
-    int plant_type;
+    int plant_type;     // -1 for fish, -2 for corpse, >=0 for plants
     int branch_count;
     int age;
     
@@ -161,19 +158,19 @@ typedef struct {
     int original_fish_type;
     float corpse_heading;
     
-    // Seed immunity system
+    // Seed immunity (temporary protection from being eaten)
     int seed_immunity_timer;
     
-    // Simplified nutrition system - each plant stores its nutrition value
-    float stored_nutrition;  // Nutrition this plant depleted when growing
+    // Nutrition storage (per-plant nutrition value)
+    float stored_nutrition;
 } Node;
 
-// Fish structure
+// Fish entity with neural network integration
 typedef struct {
     int node_id;
     int fish_type;
     
-    // RL state and control
+    // Neural network interface
     float heading;
     float rl_inputs[RL_INPUT_SIZE];
     float rl_outputs[RL_OUTPUT_SIZE];
@@ -186,40 +183,42 @@ typedef struct {
     int age;
     int active;
     
-    // RL tracking
+    // Learning tracking
     float total_reward;
     float last_reward;
     
-    // Internal state
+    // Behavior state
     int eating_mode;
     
-    // Predator-prey system
+    // Predator-prey dynamics
     int defecation_count;
     int eating_cooldown;
     int target_fish_id;
     
-    // Aging system
+    // Lifecycle tracking
     int birth_frame;
 } Fish;
 
-// Chain structure
+// Plant chain connection
 typedef struct {
     int node1, node2;
     int active;
     int plant_type;
     int age;
+    
+    // Visual curve parameters
     float curve_strength;
     float curve_offset;
     float curve_multiplier;
 } Chain;
 
-// Camera for viewport control
+// Camera system
 typedef struct {
     float x, y;
     float zoom;
 } Camera;
 
-// Spatial grid cell
+// Spatial optimization grid
 typedef struct {
     int node_indices[MAX_NODES_PER_CELL];
     int count;

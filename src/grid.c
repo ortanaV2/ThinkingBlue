@@ -6,16 +6,15 @@
 #include "grid.h"
 #include "simulation.h"
 
+// Spatial partitioning grid for efficient collision detection
 static GridCell* g_grid = NULL;
 static int g_grid_width = 0;
 static int g_grid_height = 0;
 
 int grid_init(void) {
-    // Calculate grid dimensions
     g_grid_width = (int)ceil(WORLD_WIDTH / GRID_SIZE);
     g_grid_height = (int)ceil(WORLD_HEIGHT / GRID_SIZE);
     
-    // Allocate grid
     g_grid = (GridCell*)calloc(g_grid_width * g_grid_height, sizeof(GridCell));
     
     if (!g_grid) {
@@ -89,7 +88,7 @@ int grid_get_cells_at_position(float world_x, float world_y, GridCell** cells, i
     
     int count = 0;
     
-    // Get 3x3 area around position
+    // Get 3x3 area around position for collision detection
     for (int gx = grid_x - 1; gx <= grid_x + 1 && count < max_cells; gx++) {
         for (int gy = grid_y - 1; gy <= grid_y + 1 && count < max_cells; gy++) {
             GridCell* cell = get_grid_cell(gx, gy);

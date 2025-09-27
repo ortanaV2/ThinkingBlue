@@ -1,4 +1,4 @@
-// rendering.c - Enhanced fish rendering with scaled corpse sizes
+// Enhanced rendering system with configurable fish visuals and environmental layers
 #include <SDL2/SDL.h>
 #include <math.h>
 #include <stdio.h>
@@ -21,14 +21,14 @@ static SDL_Renderer* g_renderer = NULL;
 static float g_current_fps = 0.0f;
 static char g_fps_text[32] = "FPS: 0.0";
 
-// Forward declarations for rendering functions
+// Forward declarations
 static void draw_thick_line(SDL_Renderer* renderer, int x1, int y1, int x2, int y2, int thickness);
 static void draw_curved_line(SDL_Renderer* renderer, int x1, int y1, int x2, int y2, float curve_strength, float curve_offset, int thickness);
 static void draw_enhanced_fish_tail(SDL_Renderer* renderer, int screen_x, int screen_y, float heading, FishType* fish_type, float base_radius, int r, int g, int b);
 static void draw_fish_rl_vision(SDL_Renderer* renderer, int fish_id);
 static void render_flow_based_water_background(void);
 
-// Helper function to find fish by node ID for rendering
+// Find fish by node ID for rendering
 static Fish* find_fish_by_node_id(int node_id) {
     Fish* all_fish = fish_get_all();
     int highest_slot = fish_get_highest_slot();
@@ -45,7 +45,6 @@ static Fish* find_fish_by_node_id(int node_id) {
 static void draw_simple_char(SDL_Renderer* renderer, char c, int x, int y, int size);
 static void draw_simple_text(SDL_Renderer* renderer, const char* text, int x, int y, int size);
 
-// Simple bitmap font character rendering for FPS display
 static void draw_simple_char(SDL_Renderer* renderer, char c, int x, int y, int size) {
     SDL_SetRenderDrawColor(renderer, 255, 255, 255, 255);
     
@@ -103,7 +102,6 @@ static void draw_simple_char(SDL_Renderer* renderer, char c, int x, int y, int s
     }
 }
 
-// Draw simple text string for FPS display
 static void draw_simple_text(SDL_Renderer* renderer, const char* text, int x, int y, int size) {
     int len = strlen(text);
     for (int i = 0; i < len; i++) {
@@ -683,7 +681,7 @@ void rendering_render(void) {
         
         int scaled_radius = (int)(NODE_RADIUS * camera_get_zoom());
         
-        // Render corpse nodes with SCALED SIZE based on original fish type
+        // Render corpse nodes with scaled size based on original fish type
         if (nodes[i].is_corpse) {
             if (scaled_radius < 1) scaled_radius = 1;
             

@@ -1,4 +1,4 @@
-// python_api.c - Enhanced Python interface with fixed fish count
+// Python interface for marine ecosystem simulation with neural network support
 #include <Python.h>
 #include <stdio.h>
 
@@ -51,7 +51,7 @@ static PyObject* py_temperature_get_bleached_count(PyObject* self, PyObject* arg
     return PyLong_FromLong(bleached_count);
 }
 
-// Get total plant node count
+// Plant population statistics
 static PyObject* py_get_plant_node_count(PyObject* self, PyObject* args) {
     (void)self;
     (void)args;
@@ -69,7 +69,6 @@ static PyObject* py_get_plant_node_count(PyObject* self, PyObject* args) {
     return PyLong_FromLong(plant_count);
 }
 
-// Get total environmental nutrition
 static PyObject* py_get_total_environmental_nutrition(PyObject* self, PyObject* args) {
     (void)self;
     (void)args;
@@ -78,7 +77,7 @@ static PyObject* py_get_total_environmental_nutrition(PyObject* self, PyObject* 
     return PyFloat_FromDouble(total_nutrition);
 }
 
-// Fish age info
+// Fish aging system
 static PyObject* py_fish_get_age_info(PyObject* self, PyObject* args) {
     (void)self;
     int fish_id;
@@ -108,7 +107,6 @@ static PyObject* py_fish_get_age_info(PyObject* self, PyObject* args) {
                          fish->birth_frame);     // Birth frame
 }
 
-// Get aging statistics
 static PyObject* py_fish_get_aging_stats(PyObject* self, PyObject* args) {
     (void)self;
     (void)args;
@@ -117,7 +115,7 @@ static PyObject* py_fish_get_aging_stats(PyObject* self, PyObject* args) {
     return PyLong_FromLong(total_deaths);
 }
 
-// Python C API functions for enhanced RL system with inheritance
+// Fish management functions
 static PyObject* py_fish_add(PyObject* self, PyObject* args) {
     (void)self;
     float x, y;
@@ -131,7 +129,7 @@ static PyObject* py_fish_add(PyObject* self, PyObject* args) {
     return PyLong_FromLong(fish_id);
 }
 
-// FIXED: Count only currently active fish
+// Count only currently active fish
 static PyObject* py_fish_get_count(PyObject* self, PyObject* args) {
     (void)self;
     (void)args;
@@ -187,7 +185,7 @@ static PyObject* py_fish_get_heading(PyObject* self, PyObject* args) {
     return PyFloat_FromDouble(fish->heading);
 }
 
-// Get RL inputs (7 inputs with predator-prey system)
+// RL system functions
 static PyObject* py_fish_get_rl_inputs(PyObject* self, PyObject* args) {
     (void)self;
     int fish_id;
@@ -211,7 +209,6 @@ static PyObject* py_fish_get_rl_inputs(PyObject* self, PyObject* args) {
                          fish->rl_inputs[6]); // danger_level
 }
 
-// Set RL outputs
 static PyObject* py_fish_set_rl_outputs(PyObject* self, PyObject* args) {
     (void)self;
     int fish_id;
@@ -283,7 +280,7 @@ static PyObject* py_fish_get_type_count(PyObject* self, PyObject* args) {
     return PyLong_FromLong(fish_get_type_count());
 }
 
-// Get fish type info (predator status, danger level, max_age)
+// Fish type information including predator status and max age
 static PyObject* py_fish_get_type_info(PyObject* self, PyObject* args) {
     (void)self;
     int fish_id;
@@ -310,7 +307,7 @@ static PyObject* py_fish_get_type_info(PyObject* self, PyObject* args) {
                          fish_type->max_age);       // Max age in frames
 }
 
-// Get parent fish ID for neural network inheritance
+// Neural network inheritance support
 static PyObject* py_fish_get_parent_for_inheritance(PyObject* self, PyObject* args) {
     (void)self;
     (void)args;
@@ -319,7 +316,6 @@ static PyObject* py_fish_get_parent_for_inheritance(PyObject* self, PyObject* ar
     return PyLong_FromLong(parent_id);
 }
 
-// Check if reproduction notification is pending
 static PyObject* py_fish_is_reproduction_pending(PyObject* self, PyObject* args) {
     (void)self;
     (void)args;
@@ -328,7 +324,7 @@ static PyObject* py_fish_is_reproduction_pending(PyObject* self, PyObject* args)
     return PyLong_FromLong(pending);
 }
 
-// Get predator-prey stats
+// Predator-prey system statistics
 static PyObject* py_fish_get_predator_stats(PyObject* self, PyObject* args) {
     (void)self;
     int fish_id;
@@ -354,7 +350,7 @@ static PyObject* py_get_world_bounds(PyObject* self, PyObject* args) {
     return Py_BuildValue("(ffff)", WORLD_LEFT, WORLD_TOP, WORLD_RIGHT, WORLD_BOTTOM);
 }
 
-// Nutrition balance data
+// Nutrition cycle data
 static PyObject* py_get_nutrition_balance(PyObject* self, PyObject* args) {
     (void)self;
     (void)args;
@@ -365,14 +361,14 @@ static PyObject* py_get_nutrition_balance(PyObject* self, PyObject* args) {
     return Py_BuildValue("(fff)", fish_consumed, fish_defecated, env_total);
 }
 
-// Get RL info with new input size
+// RL system configuration
 static PyObject* py_get_rl_info(PyObject* self, PyObject* args) {
     (void)self;
     (void)args;
     return Py_BuildValue("(ii)", RL_INPUT_SIZE, RL_OUTPUT_SIZE);
 }
 
-// Legacy compatibility functions
+// Legacy compatibility functions for older scripts
 static PyObject* py_fish_get_energy(PyObject* self, PyObject* args) {
     (void)self;
     int fish_id;
@@ -460,7 +456,7 @@ static PyObject* py_fish_get_saturation_level(PyObject* self, PyObject* args) {
     return PyFloat_FromDouble(fish_get_saturation_level(fish_id));
 }
 
-// Legacy stub functions
+// Legacy stub functions for compatibility
 static PyObject* py_fish_eat_nearby_plants(PyObject* self, PyObject* args) {
     (void)self; (void)args;
     Py_RETURN_NONE;
@@ -491,7 +487,7 @@ static PyObject* py_get_vision_info(PyObject* self, PyObject* args) {
     return Py_BuildValue("(ii)", 12, 12);
 }
 
-// Method definitions
+// Python method definitions table
 static PyMethodDef SimulationMethods[] = {
     {"fish_add", py_fish_add, METH_VARARGS, "Add a fish to the simulation"},
     {"fish_get_count", py_fish_get_count, METH_NOARGS, "Get current active fish count"},
@@ -548,7 +544,7 @@ static PyMethodDef SimulationMethods[] = {
 static struct PyModuleDef simulation_module = {
     PyModuleDef_HEAD_INIT,
     "simulation",
-    "Marine ecosystem simulation API with fixed fish count",
+    "Marine ecosystem simulation API with neural network support",
     -1,
     SimulationMethods,
     NULL,
@@ -574,7 +570,7 @@ int python_api_init(void) {
         return 0;
     }
     
-    printf("Python API initialized with fixed fish counting\n");
+    printf("Python API initialized with neural network support\n");
     return 1;
 }
 
@@ -619,7 +615,7 @@ int python_api_run_script(const char* script_path) {
             }
             printf("Warning: No callable 'update_fish' function found in Python script\n");
         } else {
-            printf("Neural network script with fixed fish counting loaded successfully\n");
+            printf("Neural network script loaded successfully\n");
         }
     }
     

@@ -3,7 +3,7 @@
 
 #include "types.h"
 
-// Grid system initialization and cleanup
+// System initialization and cleanup
 int grid_init(void);
 void grid_cleanup(void);
 

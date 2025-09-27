@@ -1,4 +1,4 @@
-// simulation.c - Enhanced with simplified nutrition system
+// simulation.c - Core simulation node and chain management with seed immunity
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -10,6 +10,7 @@
 #include "camera.h"
 #include "plants.h"
 
+// Core simulation data
 static Node* g_nodes = NULL;
 static Chain* g_chains = NULL;
 static int g_node_count = 0;
@@ -19,7 +20,7 @@ static int g_selection_mode = 0;
 static int g_frame_counter = 0;
 
 int simulation_init(void) {
-    // Allocate main arrays
+    // Allocate main simulation arrays
     g_nodes = (Node*)calloc(MAX_NODES, sizeof(Node));
     g_chains = (Chain*)calloc(MAX_CHAINS, sizeof(Chain));
     
@@ -35,13 +36,13 @@ int simulation_init(void) {
     g_selection_mode = 0;
     g_frame_counter = 0;
     
-    // Initialize grid system
+    // Initialize spatial grid system for optimization
     if (!grid_init()) {
         printf("Failed to initialize grid system\n");
         return 0;
     }
     
-    printf("Simulation initialized with simplified nutrition system\n");
+    printf("Simulation initialized with seed immunity system\n");
     return 1;
 }
 
@@ -58,13 +59,14 @@ void simulation_cleanup(void) {
     grid_cleanup();
 }
 
+// Create new node with world bounds clamping
 int simulation_add_node(float x, float y, int plant_type) {
     if (g_node_count >= MAX_NODES) {
         printf("Maximum nodes reached\n");
         return -1;
     }
     
-    // Clamp to world bounds
+    // Ensure node stays within world bounds
     if (x < WORLD_LEFT) x = WORLD_LEFT;
     if (x > WORLD_RIGHT) x = WORLD_RIGHT;
     if (y < WORLD_TOP) y = WORLD_TOP;
@@ -87,7 +89,7 @@ int simulation_add_node(float x, float y, int plant_type) {
     node->original_fish_type = -1;
     node->corpse_heading = 0.0f;
     
-    // Initialize seed immunity system
+    // Initialize seed immunity (new plants start unprotected)
     node->seed_immunity_timer = 0;
     
     // Initialize nutrition storage
@@ -95,20 +97,20 @@ int simulation_add_node(float x, float y, int plant_type) {
     
     // Handle special node types
     if (plant_type == -2) {
-        // Corpse node
+        // Corpse node - cannot grow
         node->can_grow = 0;
     } else if (plant_type == -1) {
-        // Fish node
+        // Fish node - cannot grow
         node->can_grow = 0;
     } else if (plant_type >= 0) {
-        // Plant node - initialize nutrition cost for manually placed plants
+        // Plant node - calculate nutrition cost
         plants_initialize_nutrition_cost(g_node_count, plant_type);
     }
     
     return g_node_count++;
 }
 
-// Add node as seed with immunity
+// Create seed node with temporary immunity from being eaten
 int simulation_add_seed_node(float x, float y, int plant_type) {
     int node_id = simulation_add_node(x, y, plant_type);
     if (node_id >= 0) {
@@ -120,6 +122,7 @@ int simulation_add_seed_node(float x, float y, int plant_type) {
     return node_id;
 }
 
+// Create chain connection between two plant nodes
 int simulation_add_chain(int node1, int node2) {
     if (g_chain_count >= MAX_CHAINS) {
         printf("Maximum chains reached\n");
@@ -129,11 +132,11 @@ int simulation_add_chain(int node1, int node2) {
     if (node1 < 0 || node1 >= g_node_count) return -1;
     if (node2 < 0 || node2 >= g_node_count) return -1;
     
-    // Don't create chains for fish nodes or corpses
+    // Only connect plant nodes (not fish or corpses)
     if (g_nodes[node1].plant_type < 0 || g_nodes[node2].plant_type < 0) return -1;
     if (g_nodes[node1].is_corpse || g_nodes[node2].is_corpse) return -1;
     
-    // Check for duplicate chains in recent history
+    // Check for duplicate chains to avoid redundancy
     int check_count = (g_chain_count > 1000) ? 1000 : g_chain_count;
     for (int i = g_chain_count - check_count; i < g_chain_count; i++) {
         if (i < 0) continue;
@@ -151,21 +154,18 @@ int simulation_add_chain(int node1, int node2) {
     chain->plant_type = g_nodes[node1].plant_type;
     chain->age = 0;
     
-    // Generate curve parameters based on plant type
+    // Generate visual curve parameters based on plant type
     PlantType* plant_type = plants_get_type(g_nodes[node1].plant_type);
     float curvature_factor = plant_type ? plant_type->chain_curvature_factor : 1.0f;
     
-    // Base curve strength and offset
     chain->curve_strength = ((float)rand() / RAND_MAX - 0.5f) * 0.6f;
     chain->curve_offset = ((float)rand() / RAND_MAX - 0.5f) * 20.0f;
-    
-    // Apply plant-specific curvature factor with additional randomness
     chain->curve_multiplier = curvature_factor * (0.8f + ((float)rand() / RAND_MAX) * 0.4f);
     
     return g_chain_count++;
 }
 
-// Update seed immunity timers
+// Update seed immunity timers each frame
 void simulation_update_seed_timers(void) {
     int seeds_matured = 0;
     
@@ -181,7 +181,7 @@ void simulation_update_seed_timers(void) {
         }
     }
     
-    // Debug output for seed maturation
+    // Log seed maturation periodically
     static int last_seed_log = 0;
     if (seeds_matured > 0 && (g_frame_counter - last_seed_log) > 300) {
         printf("Seeds matured: %d seeds are now edible\n", seeds_matured);
@@ -189,10 +189,11 @@ void simulation_update_seed_timers(void) {
     }
 }
 
+// Find node at world position (for mouse interaction)
 int simulation_find_node_at_position(float world_x, float world_y) {
     float threshold = NODE_RADIUS * 2 / camera_get_zoom();
     
-    // Use grid to find nearby nodes
+    // Use spatial grid for efficient lookup
     GridCell* cells[9];
     int cell_count = grid_get_cells_at_position(world_x, world_y, cells, 9);
     
@@ -217,10 +218,9 @@ int simulation_find_node_at_position(float world_x, float world_y) {
     return -1;
 }
 
+// Frame counter management
 void simulation_update_frame_counter(void) {
     g_frame_counter++;
-    
-    // Update seed immunity timers every frame
     simulation_update_seed_timers();
 }
 
@@ -228,6 +228,7 @@ int simulation_get_frame_counter(void) {
     return g_frame_counter;
 }
 
+// Accessor functions
 Node* simulation_get_nodes(void) {
     return g_nodes;
 }
@@ -244,6 +245,7 @@ int simulation_get_chain_count(void) {
     return g_chain_count;
 }
 
+// Selection system for manual plant chaining
 int simulation_get_selected_node(void) {
     return g_selected_node;
 }

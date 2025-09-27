@@ -1,4 +1,4 @@
-// plants.c - Complete fixed nutrition system for all plant types
+// plants.c - Plant growth system with nutrition cost calculation
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -12,10 +12,11 @@
 #include "gas.h"
 #include "temperature.h"
 
+// Plant configuration storage
 static PlantType g_plant_types[MAX_PLANT_TYPES];
 static int g_plant_type_count = 0;
 
-// Track environmental nutrition balance (what's in the ground)
+// Environmental nutrition balance tracking
 static float g_environmental_nutrition_balance = 0.0f;
 static float g_initial_environmental_nutrition = 0.0f;
 static int g_initial_nutrition_calculated = 0;
@@ -31,7 +32,7 @@ static void parse_color(const char* color_str, int* r, int* g, int* b) {
     *b = color & 0xFF;
 }
 
-// Calculate initial nutrition in the layer (called once)
+// Calculate baseline environmental nutrition (called once)
 static void calculate_initial_environmental_nutrition(void) {
     if (g_initial_nutrition_calculated) return;
     
@@ -50,17 +51,17 @@ static void calculate_initial_environmental_nutrition(void) {
         }
     }
     
-    g_environmental_nutrition_balance = 0.0f; // Start at 0 balance
+    g_environmental_nutrition_balance = 0.0f; // Start at zero balance
     g_initial_nutrition_calculated = 1;
     
     printf("Initial environmental nutrition calculated: %.2f\n", g_initial_environmental_nutrition);
 }
 
-// FIXED: Calculate nutrition cost for a plant based on its properties
+// Calculate nutrition cost based on plant size and complexity
 static float calculate_plant_nutrition_cost(PlantType* pt) {
     if (!pt) return 0.08f;
     
-    // Calculate based on plant size and complexity
+    // Cost scales with plant size and complexity
     float size_factor = (pt->max_branches / 3.0f) * (pt->branch_distance / OPTIMAL_DISTANCE);
     float nutrition_cost = pt->nutrition_depletion_strength * size_factor;
     
@@ -85,7 +86,7 @@ int plants_load_config(const char* filename) {
         // Skip empty lines and comments
         if (line[0] == '\0' || line[0] == '#') continue;
         
-        // Parse plant type section headers
+        // Parse section headers [PlantName]
         if (line[0] == '[' && line[strlen(line)-1] == ']') {
             current_plant = &g_plant_types[g_plant_type_count];
             memset(current_plant, 0, sizeof(PlantType));
@@ -94,7 +95,7 @@ int plants_load_config(const char* filename) {
             current_plant->name[strlen(line) - 2] = '\0';
             current_plant->active = 1;
             
-            // Set default values for all parameters
+            // Set reasonable defaults
             current_plant->growth_probability = 0.002f;
             current_plant->growth_attempts = 5;
             current_plant->max_branches = 3;
@@ -136,7 +137,7 @@ int plants_load_config(const char* filename) {
         while (*key == ' ' || *key == '\t') key++;
         while (*value == ' ' || *value == '\t') value++;
         
-        // Parse configuration parameters
+        // Parse all configuration parameters
         if (strcmp(key, "growth_probability") == 0) {
             current_plant->growth_probability = (float)atof(value);
         } else if (strcmp(key, "growth_attempts") == 0) {
@@ -176,7 +177,7 @@ int plants_load_config(const char* filename) {
     
     fclose(file);
     
-    printf("Loaded %d plant types with fixed nutrition system\n", g_plant_type_count);
+    printf("Loaded %d plant types with nutrition system\n", g_plant_type_count);
     printf("Standard depletion range: %.1f, gradient: %.1f\n", 
            STANDARD_DEPLETION_RANGE, NUTRITION_RANGE_GRADIENT);
     
@@ -194,7 +195,7 @@ int plants_load_config(const char* filename) {
     return g_plant_type_count > 0;
 }
 
-// Check if position is free for new plant growth
+// Check if position has enough space for new plant
 static int is_position_free(float x, float y, float min_distance) {
     float min_dist_sq = min_distance * min_distance;
     
@@ -225,7 +226,7 @@ static int is_position_free(float x, float y, float min_distance) {
     return 1;
 }
 
-// Calculate growth modifier based on nutrition availability
+// Calculate growth probability modifier based on nutrition availability
 static float calculate_nutrition_growth_modifier(float nutrition_value) {
     if (nutrition_value < 0.2f) {
         return 0.05f;
@@ -246,9 +247,9 @@ static float calculate_nutrition_growth_modifier(float nutrition_value) {
     }
 }
 
-// Main plant growth function
+// Main plant growth simulation
 void plants_grow(void) {
-    // Calculate initial nutrition if not done yet
+    // Initialize nutrition tracking on first call
     calculate_initial_environmental_nutrition();
     
     Node* nodes = simulation_get_nodes();
@@ -276,7 +277,7 @@ void plants_grow(void) {
         if (nodes[i].branch_count >= pt->max_branches) continue;
         if (nodes[i].age > pt->age_mature) continue;
         
-        // Skip bleached corals (they can't grow)
+        // Skip bleached corals (cannot grow when stressed)
         if (temperature_is_coral_bleached(i)) {
             continue;
         }
@@ -321,14 +322,14 @@ void plants_grow(void) {
                         nodes[i].branch_count++;
                         grown++;
                         
-                        // FIXED: Always calculate and store nutrition cost for ALL plants
+                        // Calculate and store nutrition cost
                         float nutrition_cost = calculate_plant_nutrition_cost(pt);
                         nodes[new_node].stored_nutrition = nutrition_cost;
                         
-                        // SUBTRACT from environmental balance (plant consumed nutrition from ground)
+                        // Subtract from environmental balance (plant consumes from ground)
                         g_environmental_nutrition_balance -= nutrition_cost;
                         
-                        // Deplete from nutrition layer visually
+                        // Visually deplete from nutrition layer
                         nutrition_deplete_at_position(new_x, new_y, nutrition_cost, 
                                                     STANDARD_DEPLETION_RANGE);
                         
@@ -373,13 +374,13 @@ float plants_get_nutrition_from_node(int node_id) {
     return nodes[node_id].stored_nutrition;
 }
 
-// Get total environmental nutrition (balance from initial state)
+// Get total environmental nutrition balance
 float plants_get_total_environmental_nutrition(void) {
     calculate_initial_environmental_nutrition();
-    return g_environmental_nutrition_balance;  // Return only the balance (starts at 0)
+    return g_environmental_nutrition_balance;  // Balance from zero baseline
 }
 
-// FIXED: Initialize plant node with nutrition cost (for manually placed plants)
+// Initialize plant node with nutrition cost (for manually placed plants)
 void plants_initialize_nutrition_cost(int node_id, int plant_type) {
     Node* nodes = simulation_get_nodes();
     int node_count = simulation_get_node_count();
@@ -389,12 +390,12 @@ void plants_initialize_nutrition_cost(int node_id, int plant_type) {
     
     PlantType* pt = &g_plant_types[plant_type];
     
-    // FIXED: Use same calculation for manually placed plants
+    // Use same calculation for manually placed plants
     float nutrition_cost = calculate_plant_nutrition_cost(pt);
     
     nodes[node_id].stored_nutrition = nutrition_cost;
     
-    // SUBTRACT from environmental balance (manually placed plant also consumes nutrition)
+    // Subtract from environmental balance
     calculate_initial_environmental_nutrition();
     g_environmental_nutrition_balance -= nutrition_cost;
     

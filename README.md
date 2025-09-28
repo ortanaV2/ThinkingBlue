@@ -101,7 +101,8 @@ The fish use a sophisticated neural network architecture:
 The Python environment must be configured correctly for the neural network system to function:
 
 ```bash
-# Set Python environment variables (REQUIRED)
+# Set environment variables (REQUIRED)
+export PATH="/mingw64/bin:$PATH"
 export PYTHONHOME=/mingw64 
 export PYTHONPATH=/mingw64/lib/python3.12
 ```
@@ -124,6 +125,7 @@ pacman -S --needed --noconfirm \
 
 3. **Set environment variables:**
 ```bash
+export PATH="/mingw64/bin:$PATH"
 export PYTHONHOME=/mingw64 
 export PYTHONPATH=/mingw64/lib/python3.12
 ```

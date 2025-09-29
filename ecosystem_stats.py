@@ -1,9 +1,4 @@
 #!/usr/bin/env python3
-"""
-Marine Ecosystem Statistics Monitor
-Real-time visualization with temperature control for ecosystem simulation
-"""
-
 import tkinter as tk
 from tkinter import ttk
 import threading

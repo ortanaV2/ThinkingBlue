@@ -1,12 +1,4 @@
 #!/usr/bin/env python3
-"""
-Neural Network Fish Controller with Model Saving
-- Tracks reproduction success for each fish
-- Saves best herbivore and predator models on shutdown
-- Models can be loaded later for inference
-- Updated input system: predators use inputs 0,1,3 for prey targeting
-"""
-
 import simulation
 import random
 import math

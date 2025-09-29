@@ -1,4 +1,3 @@
-// simulation.c - Core simulation node and chain management with seed immunity
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>

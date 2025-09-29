@@ -1,4 +1,3 @@
-// nutrition.c - Perlin noise-based nutrition layer with balanced color distribution
 #include <stdio.h>
 #include <stdlib.h>
 #include <math.h>

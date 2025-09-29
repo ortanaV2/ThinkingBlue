@@ -1,4 +1,3 @@
-// flow.c - Water flow field simulation with Perlin noise
 #include <stdio.h>
 #include <stdlib.h>
 #include <math.h>

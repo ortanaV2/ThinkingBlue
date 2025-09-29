@@ -1,4 +1,3 @@
-// plants.c - Plant growth system with nutrition cost calculation
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>

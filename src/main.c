@@ -1,4 +1,3 @@
-// main.c - Great Barrier Reef Ecosystem Simulation Entry Point
 #include <SDL2/SDL.h>
 #include <stdio.h>
 #include <time.h>

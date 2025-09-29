@@ -1,4 +1,3 @@
-// fish_vision.c - Neural network vision system with predator-prey detection
 #include <stdio.h>
 #include <stdlib.h>
 #include <math.h>

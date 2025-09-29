@@ -1,4 +1,3 @@
-// Python interface for marine ecosystem simulation with neural network support
 #include <Python.h>
 #include <stdio.h>
 

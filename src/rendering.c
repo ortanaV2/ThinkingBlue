@@ -1,4 +1,3 @@
-// Enhanced rendering system with configurable fish visuals and environmental layers
 #include <SDL2/SDL.h>
 #include <math.h>
 #include <stdio.h>

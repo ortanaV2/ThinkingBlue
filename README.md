@@ -2,7 +2,9 @@
 
 **Marine Ecosystem Simulation with Reinforcement Learning Agents**
 
-A sophisticated marine ecosystem simulation featuring autonomous fish agents that learn to survive using deep reinforcement learning. The simulation models a dynamic Great Barrier Reef environment with complex plant growth cycles, oxygen production systems, nutrition gradients, and intelligent fish behavior driven by neural networks.
+![Official GitHub Repository Link](https://github.com/ortanaV2/ThinkBlue/)
+
+Transforming the complexity of marine ecosystems into a living laboratory - where environmental scenarios play out in minutes, revealing adaptation patterns and informing strategies to protect our oceans.
 
 ## Core Features
 

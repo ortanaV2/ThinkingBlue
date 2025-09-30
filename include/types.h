@@ -4,8 +4,8 @@
 #include <math.h>
 
 // Core window and simulation constants
-#define WINDOW_WIDTH 1200
-#define WINDOW_HEIGHT 800
+#define WINDOW_WIDTH 1700
+#define WINDOW_HEIGHT 900
 #define MAX_NODES 10000000
 #define MAX_CHAINS 10000000
 #define MAX_PLANT_TYPES 64

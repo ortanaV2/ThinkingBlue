@@ -2,9 +2,9 @@
 
 **Marine Ecosystem Simulation with Reinforcement Learning Agents**
 
-![Official GitHub Repository Link](https://github.com/ortanaV2/ThinkBlue/)
-
 Transforming the complexity of marine ecosystems into a living laboratory - where environmental scenarios play out in minutes, revealing adaptation patterns and informing strategies to protect our oceans.
+
+<img width="1431" height="577" alt="thinkbluebanner2" src="https://github.com/user-attachments/assets/99784377-ee13-45ee-b830-726641687e70" />
 
 ## Core Features
 
